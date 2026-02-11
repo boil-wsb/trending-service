@@ -34,7 +34,6 @@ logs/
 
 # Data
 data/
-*.html
 *.png
 *.jpg
 *.jpeg
