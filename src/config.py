@@ -58,11 +58,6 @@ SCHEDULE = {
         'schedule': "0 8 * * *",  # 每日8:00
         'enabled': True,
         'description': "获取所有热点信息"
-    },
-    'check_service': {
-        'schedule': "0 9 * * *",  # 每日9:00
-        'enabled': True,
-        'description': "检查服务并打开浏览器预览"
     }
 }
 
