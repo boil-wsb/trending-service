@@ -4,6 +4,7 @@ Trending Service 主程序
 """
 
 import argparse
+import os
 import sys
 import signal
 import threading
@@ -24,10 +25,11 @@ from src.scheduler import TrendingTaskScheduler
 class TrendingService:
     """Trending Service 主服务"""
 
-    def __init__(self, host: str = None, port: int = None, debug: bool = False):
+    def __init__(self, host: str = None, port: int = None, debug: bool = False, pid_file: str = None):
         self.host = host or SERVER['host']
         self.port = port or SERVER['port']
         self.debug = debug
+        self.pid_file = pid_file
         self.logger = None
         self.server = None
         self.scheduler = None
@@ -64,6 +66,16 @@ class TrendingService:
             self.logger.info("✅ 首次热点信息获取完成")
 
             self.running = True
+
+            # 写入PID文件
+            if self.pid_file:
+                try:
+                    with open(self.pid_file, 'w') as f:
+                        f.write(str(os.getpid()))
+                    self.logger.info(f"📝 PID文件已写入: {self.pid_file} (PID: {os.getpid()})")
+                except Exception as e:
+                    self.logger.error(f"❌ 写入PID文件失败: {e}")
+
             self.logger.info(f"🎉 Trending Service 启动成功!")
             self.logger.info(f"🌐 访问地址: http://{self.host}:{self.port}/report.html")
 
@@ -95,6 +107,12 @@ class TrendingService:
             self.logger.info("✅ HTTP服务器已停止")
 
         self.running = False
+
+        # 删除PID文件
+        if self.pid_file and os.path.exists(self.pid_file):
+            os.remove(self.pid_file)
+            self.logger.info("📝 PID文件已删除")
+
         self.logger.info("🎯 Trending Service 已完全停止")
 
     def _keep_running(self):
@@ -139,7 +157,7 @@ def main():
     parser.add_argument('--host', default=SERVER['host'], help='服务器地址')
     parser.add_argument('--port', type=int, default=SERVER['port'], help='服务器端口')
     parser.add_argument('--debug', action='store_true', help='调试模式')
-    parser.add_argument('--run-task', choices=['fetch_trending', 'check_service'], 
+    parser.add_argument('--run-task', choices=['fetch_trending'],
                        help='立即执行指定任务')
     parser.add_argument('--status', action='store_true', help='查看服务状态')
     
@@ -147,7 +165,8 @@ def main():
 
     # 全局服务实例
     global service
-    service = TrendingService(host=args.host, port=args.port, debug=args.debug)
+    pid_file = str(project_root / 'trending_service.pid')
+    service = TrendingService(host=args.host, port=args.port, debug=args.debug, pid_file=pid_file)
 
     # 设置信号处理器
     signal.signal(signal.SIGINT, signal_handler)

@@ -167,13 +167,7 @@ class TrendingTaskScheduler(TaskScheduler):
             enabled=SCHEDULE['fetch_trending']['enabled']
         )
 
-        # 添加检查服务任务
-        self.add_task(
-            name='check_service',
-            schedule=SCHEDULE['check_service']['schedule'],
-            task_func=self._check_and_preview,
-            enabled=SCHEDULE['check_service']['enabled']
-        )
+
 
     def _fetch_all_trending(self):
         """获取所有热点信息"""
