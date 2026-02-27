@@ -36,17 +36,19 @@ pip install -r requirements.txt
 
 ## 使用方法
 
-### 启动服务
+### 启动服务（前台模式）
 
 ```bash
 python -m src.main
 ```
 
-或使用启动脚本：
+### 启动服务（后台模式）
 
 ```bash
 python scripts/start_service.py
 ```
+
+后台模式即使关闭IDE，服务也会继续运行。
 
 ### 访问报告
 
@@ -56,17 +58,7 @@ python scripts/start_service.py
 http://localhost:8000/report.html
 ```
 
-### 检查服务状态
 
-```bash
-python scripts/check_service.py
-```
-
-### 停止服务
-
-```bash
-python scripts/stop_service.py
-```
 
 ## 项目结构
 
@@ -141,10 +133,37 @@ GET http://localhost:8000/api/github_weekly_growth
 
 服务内部集成了定时任务，无需外部依赖：
 
-| 任务                     | 执行时间  | 功能                     |
-| ------------------------ | --------- | ------------------------ |
-| **fetch_trending** | 每日 8:00 | 自动获取所有热点信息     |
-| **check_service**  | 每日 9:00 | 检查服务并打开浏览器预览 |
+| 任务               | 执行时间  | 功能                 |
+| ------------------ | --------- | -------------------- |
+| **fetch_trending** | 每日 8:00 | 自动获取所有热点信息 |
+
+## 后台运行
+
+### 启动服务（后台模式）
+
+```bash
+python scripts/start_service.py
+```
+
+服务将在后台运行，即使关闭IDE也不会停止。
+
+### 停止服务
+
+```bash
+python scripts/stop_service.py
+```
+
+### 检查服务状态
+
+```bash
+python scripts/check_service.py
+```
+
+### 服务管理说明
+
+- **PID文件**: `trending_service.pid` - 存储服务进程ID
+- **日志文件**: `data/logs/trending_service.log` - 记录服务运行日志
+- **访问地址**: http://localhost:8000/report.html
 
 ## 技术栈
 

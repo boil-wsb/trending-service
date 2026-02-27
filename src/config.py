@@ -55,7 +55,7 @@ DATA_SOURCES = {
 # 定时任务配置
 SCHEDULE = {
     'fetch_trending': {
-        'schedule': "0 8 * * *",  # 每日8:00
+        'schedule': "08:00",  # 每日8:00
         'enabled': True,
         'description': "获取所有热点信息"
     }
