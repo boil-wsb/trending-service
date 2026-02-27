@@ -1,0 +1,1309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>每日热门数据报告 - Trending Service</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #24292e 0%, #58a6ff 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+            margin-top: 10px;
+        }
+
+        .stats-bar {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #ffd700;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        /* Tab样式 */
+        .tabs {
+            display: flex;
+            background: #f6f8fa;
+            border-bottom: 2px solid #e1e4e8;
+            padding: 0 20px;
+            flex-wrap: wrap;
+        }
+
+        .tab {
+            padding: 15px 25px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 500;
+            color: #586069;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tab:hover {
+            color: #0366d6;
+            background: rgba(88, 166, 255, 0.1);
+        }
+
+        .tab.active {
+            color: #0366d6;
+            border-bottom-color: #0366d6;
+            background: white;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 30px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .section-title {
+            font-size: 1.6em;
+            color: #24292e;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #58a6ff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* 关键词云 */
+        .keywords-cloud {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+            padding: 20px;
+            background: #f6f8fa;
+            border-radius: 10px;
+        }
+
+        .keyword-tag {
+            display: inline-block;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 500;
+            transition: transform 0.2s;
+        }
+
+        .keyword-tag:hover {
+            transform: scale(1.05);
+        }
+
+        .keyword-count {
+            font-size: 0.8em;
+            opacity: 0.9;
+            margin-left: 5px;
+        }
+
+        /* 话题卡片 */
+        .topics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .topic-card {
+            background: #f6f8fa;
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 4px solid #58a6ff;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .topic-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .topic-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #24292e;
+            margin-bottom: 10px;
+        }
+
+        .topic-keywords {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 15px;
+        }
+
+        .topic-keyword {
+            font-size: 0.8em;
+            padding: 4px 10px;
+            background: #e1e4e8;
+            border-radius: 12px;
+            color: #586069;
+        }
+
+        .topic-items {
+            margin-top: 10px;
+        }
+
+        .topic-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #e1e4e8;
+            font-size: 0.9em;
+        }
+
+        .topic-item:last-child {
+            border-bottom: none;
+        }
+
+        .topic-item a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+
+        .topic-item a:hover {
+            text-decoration: underline;
+        }
+
+        /* 数据源卡片 */
+        .source-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 20px;
+        }
+
+        .source-card {
+            background: white;
+            border: 1px solid #e1e4e8;
+            border-radius: 12px;
+            overflow: hidden;
+            transition: box-shadow 0.2s;
+        }
+
+        .source-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .source-header {
+            background: linear-gradient(135deg, #f6f8fa 0%, #e1e4e8 100%);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .source-name {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #24292e;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .source-count {
+            background: #58a6ff;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.9em;
+        }
+
+        .source-content {
+            padding: 20px;
+        }
+
+        .item-list {
+            list-style: none;
+        }
+
+        .item-list li {
+            padding: 16px 0;
+            border-bottom: 1px solid #e1e4e8;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .item-list li:last-child {
+            border-bottom: none;
+        }
+
+        .item-rank {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #58a6ff;
+            min-width: 30px;
+            text-align: center;
+            background: #f0f7ff;
+            border-radius: 6px;
+            padding: 4px 8px;
+        }
+
+        .item-title {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .item-title a {
+            color: #24292e;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1.05em;
+            line-height: 1.4;
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .item-title a:hover {
+            color: #0366d6;
+        }
+
+        .item-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .meta-tag {
+            font-size: 0.8em;
+            padding: 3px 10px;
+            background: #f6f8fa;
+            color: #586069;
+            border-radius: 12px;
+            border: 1px solid #e1e4e8;
+        }
+
+        .item-description {
+            font-size: 0.9em;
+            color: #444;
+            line-height: 1.6;
+            margin: 8px 0;
+            padding: 10px 12px;
+            background: #f9fafb;
+            border-left: 3px solid #58a6ff;
+            border-radius: 0 6px 6px 0;
+        }
+
+        .item-keywords {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 8px;
+        }
+
+        .item-keyword {
+            font-size: 0.75em;
+            padding: 3px 10px;
+            background: linear-gradient(135deg, #ddf4ff 0%, #b6e3ff 100%);
+            color: #0969da;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+
+        .item-score {
+            color: #ff6b35;
+            font-weight: 700;
+            white-space: nowrap;
+            font-size: 1.1em;
+            background: linear-gradient(135deg, #fff5f0 0%, #ffe8e0 100%);
+            padding: 6px 12px;
+            border-radius: 8px;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #586069;
+        }
+
+        .empty-state .emoji {
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+
+        /* 页脚 */
+        .footer {
+            background: #f6f8fa;
+            padding: 20px;
+            text-align: center;
+            color: #586069;
+            font-size: 0.9em;
+            border-top: 1px solid #e1e4e8;
+        }
+
+        /* 暗色模式 */
+        .dark-mode-toggle {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #24292e;
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 50%;
+            font-size: 1.2em;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            transition: all 0.3s;
+            z-index: 999;
+        }
+
+        .dark-mode-toggle:hover {
+            transform: scale(1.1);
+        }
+
+        body.dark-mode {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        }
+
+        body.dark-mode .container {
+            background: #0f0f23;
+            color: #e0e0e0;
+        }
+
+        body.dark-mode .tabs {
+            background: #1a1a2e;
+            border-bottom-color: #333;
+        }
+
+        body.dark-mode .tab {
+            color: #b0b0b0;
+        }
+
+        body.dark-mode .tab.active {
+            background: #0f0f23;
+            color: #58a6ff;
+            border-bottom-color: #58a6ff;
+        }
+
+        body.dark-mode .source-card {
+            background: #1a1a2e;
+            border-color: #333;
+        }
+
+        body.dark-mode .topic-card {
+            background: #1a1a2e;
+        }
+
+        body.dark-mode .item-title a {
+            color: #e0e0e0;
+        }
+
+        body.dark-mode .section-title {
+            color: #e0e0e0;
+            border-bottom-color: #58a6ff;
+        }
+
+        /* 总览列表紧凑样式 */
+        .overview-list .overview-item {
+            padding: 10px 0;
+            min-height: auto;
+        }
+
+        .overview-list .item-description {
+            display: none;
+        }
+
+        .overview-list .item-keywords {
+            margin-top: 4px;
+        }
+
+        /* 话题紧凑卡片布局 - 修复留白 */
+        .topics-source-section {
+            margin-bottom: 20px;
+        }
+
+        .topics-source-title {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #333;
+            margin: 15px 0 10px 0;
+            padding-bottom: 5px;
+            border-bottom: 2px solid #e1e4e8;
+        }
+
+        .topics-compact-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 10px;
+            align-items: start;
+        }
+
+        .topic-compact-card {
+            background: white;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 10px;
+            transition: all 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            break-inside: avoid;
+            height: fit-content;
+        }
+
+        .topic-compact-card:hover {
+            box-shadow: 0 3px 8px rgba(0,0,0,0.1);
+            transform: translateY(-1px);
+        }
+
+        .topic-compact-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 6px;
+        }
+
+        .topic-compact-title {
+            font-size: 0.85em;
+            font-weight: 600;
+            color: #24292e;
+            line-height: 1.3;
+            flex: 1;
+            margin-right: 6px;
+            word-break: break-word;
+        }
+
+        .topic-compact-count {
+            font-size: 0.7em;
+            color: #586069;
+            background: #f6f8fa;
+            padding: 2px 5px;
+            border-radius: 6px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .topic-compact-keywords {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+            margin-bottom: 6px;
+        }
+
+        .topic-compact-items {
+            border-top: 1px solid #f0f0f0;
+            padding-top: 6px;
+        }
+
+        .topic-compact-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 3px 0;
+            font-size: 0.8em;
+            border-bottom: 1px solid #f6f8fa;
+            line-height: 1.3;
+        }
+
+        .topic-compact-item:last-child {
+            border-bottom: none;
+        }
+
+        .topic-compact-item a {
+            color: #444;
+            text-decoration: none;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin-right: 8px;
+        }
+
+        .topic-compact-item a:hover {
+            color: #0366d6;
+        }
+
+        .topic-compact-score {
+            color: #ff6b35;
+            font-size: 0.75em;
+            font-weight: 600;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .topic-more {
+            text-align: center;
+            color: #999;
+            font-size: 0.75em;
+            padding: 4px;
+            margin-top: 4px;
+            background: #f9fafb;
+            border-radius: 4px;
+        }
+
+        body.dark-mode .topic-compact-card {
+            background: #1a1a2e;
+            border-color: #333;
+        }
+
+        body.dark-mode .topic-compact-title {
+            color: #e0e0e0;
+        }
+
+        body.dark-mode .topic-compact-count {
+            background: #0f0f23;
+            color: #999;
+        }
+
+        body.dark-mode .topic-compact-item a {
+            color: #ccc;
+        }
+
+        body.dark-mode .topic-compact-items {
+            border-top-color: #333;
+        }
+
+        body.dark-mode .topic-compact-item {
+            border-bottom-color: #222;
+        }
+
+        body.dark-mode .topics-source-title {
+            color: #e0e0e0;
+            border-bottom-color: #333;
+        }
+
+        body.dark-mode .topic-more {
+            background: #0f0f23;
+            color: #666;
+        }
+
+        /* 卡片式记录布局 */
+        .items-card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .item-card {
+            background: white;
+            border: 1px solid #e1e4e8;
+            border-radius: 12px;
+            overflow: hidden;
+            transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .item-card:hover {
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+            transform: translateY(-3px);
+        }
+
+        .item-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-bottom: 1px solid #e1e4e8;
+        }
+
+        .item-card-rank {
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #58a6ff;
+            background: white;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .item-card-score {
+            color: #ff6b35;
+            font-weight: 700;
+            font-size: 0.95em;
+        }
+
+        .item-card-body {
+            padding: 16px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .item-card-title {
+            font-size: 1em;
+            font-weight: 600;
+            color: #24292e;
+            text-decoration: none;
+            line-height: 1.5;
+            margin-bottom: 10px;
+            word-break: break-word;
+        }
+
+        .item-card-title:hover {
+            color: #0366d6;
+        }
+
+        .item-card-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .item-card-description {
+            font-size: 0.88em;
+            color: #555;
+            line-height: 1.7;
+            margin-bottom: 12px;
+            flex: 1;
+            word-break: break-word;
+        }
+
+        .item-card-keywords {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: auto;
+        }
+
+        body.dark-mode .item-card {
+            background: #1a1a2e;
+            border-color: #333;
+        }
+
+        body.dark-mode .item-card-header {
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+            border-bottom-color: #333;
+        }
+
+        body.dark-mode .item-card-rank {
+            background: #1a1a2e;
+            color: #58a6ff;
+        }
+
+        body.dark-mode .item-card-title {
+            color: #e0e0e0;
+        }
+
+        body.dark-mode .item-card-description {
+            color: #aaa;
+        }
+
+        /* 图表样式 */
+        .chart-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #f9fafb;
+            border-radius: 12px;
+        }
+
+        .chart-section h3 {
+            margin-bottom: 20px;
+            color: #333;
+            font-size: 1.2em;
+        }
+
+        .chart-container {
+            width: 100%;
+            height: 300px;
+            position: relative;
+        }
+
+        .simple-chart {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-around;
+            height: 250px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e1e4e8;
+        }
+
+        .chart-bar {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 60px;
+        }
+
+        .bar {
+            width: 40px;
+            background: linear-gradient(to top, #667eea 0%, #764ba2 100%);
+            border-radius: 4px 4px 0 0;
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .bar:hover {
+            opacity: 0.8;
+            transform: scaleY(1.02);
+        }
+
+        .bar-label {
+            margin-top: 8px;
+            font-size: 0.8em;
+            color: #666;
+            text-align: center;
+            max-width: 80px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .bar-value {
+            position: absolute;
+            top: -20px;
+            font-size: 0.75em;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .line-chart {
+            position: relative;
+            height: 250px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e1e4e8;
+            padding: 20px;
+        }
+
+        .line-chart-svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        body.dark-mode .chart-section {
+            background: #1a1a2e;
+        }
+
+        body.dark-mode .chart-section h3 {
+            color: #e0e0e0;
+        }
+
+        body.dark-mode .simple-chart,
+        body.dark-mode .line-chart {
+            background: #0f0f23;
+            border-color: #333;
+        }
+
+        body.dark-mode .bar-label {
+            color: #999;
+        }
+
+        body.dark-mode .bar-value {
+            color: #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔥 每日热门数据报告</h1>
+            <p>生成时间: <span id="generated-time">--</span></p>
+            <div class="stats-bar">
+                <div class="stat-item">
+                    <div class="stat-value" id="total-items">--</div>
+                    <div class="stat-label">总数据量</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="total-sources">--</div>
+                    <div class="stat-label">数据源</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="total-topics">--</div>
+                    <div class="stat-label">话题数</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('overview')">📊 总览</div>
+            <div class="tab" onclick="switchTab('keywords')">🏷️ 热门关键词</div>
+            <div class="tab" onclick="switchTab('topics')">💬 话题聚类</div>
+            <div class="tab" onclick="switchTab('trends')">📈 趋势图表</div>
+            <div class="tab" onclick="switchTab('github')">🐙 GitHub</div>
+            <div class="tab" onclick="switchTab('hackernews')">📰 HackerNews</div>
+            <div class="tab" onclick="switchTab('bilibili')">📺 Bilibili</div>
+            <div class="tab" onclick="switchTab('arxiv')">📚 ArXiv</div>
+            <div class="tab" onclick="switchTab('zhihu')">❓ 知乎</div>
+        </div>
+
+        <!-- 总览 -->
+        <div id="overview" class="tab-content active">
+            <h2 class="section-title">📊 数据概览</h2>
+            <div id="overview-content" class="source-grid"></div>
+        </div>
+
+        <!-- 热门关键词 -->
+        <div id="keywords" class="tab-content">
+            <h2 class="section-title">🏷️ 热门关键词</h2>
+            <div id="keywords-content" class="keywords-cloud"></div>
+        </div>
+
+        <!-- 话题聚类 -->
+        <div id="topics" class="tab-content">
+            <h2 class="section-title">💬 话题聚类</h2>
+            <div id="topics-content"></div>
+        </div>
+
+        <!-- GitHub -->
+        <div id="github" class="tab-content">
+            <h2 class="section-title">🐙 GitHub Trending</h2>
+            <div id="github-content"></div>
+        </div>
+
+        <!-- HackerNews -->
+        <div id="hackernews" class="tab-content">
+            <h2 class="section-title">📰 HackerNews</h2>
+            <div id="hackernews-content"></div>
+        </div>
+
+        <!-- Bilibili -->
+        <div id="bilibili" class="tab-content">
+            <h2 class="section-title">📺 Bilibili 热门</h2>
+            <div id="bilibili-content"></div>
+        </div>
+
+        <!-- ArXiv -->
+        <div id="arxiv" class="tab-content">
+            <h2 class="section-title">📚 ArXiv 论文</h2>
+            <div id="arxiv-content"></div>
+        </div>
+
+        <!-- 趋势图表 -->
+        <div id="trends" class="tab-content">
+            <h2 class="section-title">📈 趋势图表</h2>
+            
+            <div class="chart-section">
+                <h3>📊 数据源数据量趋势</h3>
+                <div id="source-trend-chart" class="chart-container"></div>
+            </div>
+            
+            <div class="chart-section">
+                <h3>🔥 热门关键词趋势</h3>
+                <div id="keyword-trend-chart" class="chart-container"></div>
+            </div>
+            
+            <div class="chart-section">
+                <h3>📈 总数据量趋势</h3>
+                <div id="total-trend-chart" class="chart-container"></div>
+            </div>
+        </div>
+
+        <!-- 知乎 -->
+        <div id="zhihu" class="tab-content">
+            <h2 class="section-title">❓ 知乎热榜</h2>
+            <div id="zhihu-content"></div>
+        </div>
+
+        <div class="footer">
+            <p>© 2025 Trending Service | 数据每小时自动更新</p>
+        </div>
+    </div>
+
+    <button class="dark-mode-toggle" onclick="toggleDarkMode()">🌙</button>
+
+    <script>
+        // 报告数据
+        window.REPORT_DATA = {};
+
+        // 切换标签
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tabName).classList.add('active');
+        }
+
+        // 切换暗色模式
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const btn = document.querySelector('.dark-mode-toggle');
+            btn.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+        }
+
+        // 渲染总览
+        function renderOverview(data) {
+            const container = document.getElementById('overview-content');
+            const sources = data.sources || {};
+            
+            if (Object.keys(sources).length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">📭</div><div>暂无数据</div></div>';
+                return;
+            }
+
+            let html = '';
+            for (const [source, items] of Object.entries(sources)) {
+                const sourceIcons = {
+                    'github': '🐙',
+                    'hackernews': '📰',
+                    'bilibili': '📺',
+                    'arxiv': '📚',
+                    'zhihu': '❓'
+                };
+                const icon = sourceIcons[source] || '📄';
+                
+                html += `
+                    <div class="source-card">
+                        <div class="source-header">
+                            <div class="source-name">${icon} ${source.toUpperCase()}</div>
+                            <div class="source-count">${items.length} 条</div>
+                        </div>
+                        <div class="source-content">
+                            <ul class="item-list overview-list">
+                                ${items.slice(0, 5).map((item, index) => `
+                                    <li class="overview-item">
+                                        <div class="item-rank">${index + 1}</div>
+                                        <div class="item-title">
+                                            <a href="${item.url}" target="_blank">${item.title}</a>
+                                            <div class="item-meta">
+                                                ${item.author ? `<span class="meta-tag">👤 ${item.author}</span>` : ''}
+                                                ${item.category ? `<span class="meta-tag">🏷️ ${item.category}</span>` : ''}
+                                            </div>
+                                            ${item.keywords ? `<div class="item-keywords">${item.keywords.slice(0, 3).map(k => `<span class="item-keyword">${k}</span>`).join('')}</div>` : ''}
+                                        </div>
+                                        <div class="item-score">${item.hot_score ? '🔥 ' + formatNumber(item.hot_score) : ''}</div>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+            }
+            container.innerHTML = html;
+        }
+
+        // 渲染关键词
+        function renderKeywords(data) {
+            const container = document.getElementById('keywords-content');
+            const keywords = data.keywords || {};
+            
+            if (Object.keys(keywords).length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">🏷️</div><div>暂无关键词数据</div></div>';
+                return;
+            }
+
+            const sortedKeywords = Object.entries(keywords).sort((a, b) => b[1] - a[1]);
+            container.innerHTML = sortedKeywords.map(([keyword, count]) => `
+                <span class="keyword-tag">
+                    ${keyword}
+                    <span class="keyword-count">${count}</span>
+                </span>
+            `).join('');
+        }
+
+        // 渲染话题
+        function renderTopics(data) {
+            const container = document.getElementById('topics-content');
+            const topicsBySource = data.topics || {};
+            
+            if (Object.keys(topicsBySource).length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">💬</div><div>暂无话题数据</div></div>';
+                return;
+            }
+
+            let html = '';
+            const sourceIcons = {
+                'github': '🐙', 'hackernews': '📰', 'bilibili': '📺',
+                'arxiv': '📚', 'zhihu': '❓'
+            };
+
+            for (const [source, topics] of Object.entries(topicsBySource)) {
+                const icon = sourceIcons[source] || '📄';
+                html += `<div class="topics-source-section">`;
+                html += `<div class="topics-source-title">${icon} ${source.toUpperCase()}</div>`;
+                html += `<div class="topics-compact-grid">`;
+
+                topics.forEach(topic => {
+                    html += `
+                        <div class="topic-compact-card">
+                            <div class="topic-compact-header">
+                                <div class="topic-compact-title">${topic.name}</div>
+                                <div class="topic-compact-count">${topic.item_count} 条</div>
+                            </div>
+                            <div class="topic-compact-keywords">
+                                ${topic.keywords.slice(0, 4).map(k => `<span class="topic-keyword">${k}</span>`).join('')}
+                            </div>
+                            <div class="topic-compact-items">
+                                ${topic.items.slice(0, 3).map(item => `
+                                    <div class="topic-compact-item">
+                                        <a href="${item.url}" target="_blank" title="${item.title}">${item.title.length > 35 ? item.title.substring(0, 35) + '...' : item.title}</a>
+                                        ${item.hot_score ? `<span class="topic-compact-score">🔥 ${formatNumber(item.hot_score)}</span>` : ''}
+                                    </div>
+                                `).join('')}
+                                ${topic.items.length > 3 ? `<div class="topic-more">+${topic.items.length - 3} 更多</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += '</div></div>';
+            }
+            
+            container.innerHTML = html;
+        }
+
+        // 渲染单个数据源
+        function renderSourceItems(sourceName, items) {
+            const container = document.getElementById(sourceName + '-content');
+            
+            if (!items || items.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">📭</div><div>暂无数据</div></div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="items-card-grid">
+                    ${items.map((item, index) => `
+                        <div class="item-card">
+                            <div class="item-card-header">
+                                <div class="item-card-rank">${index + 1}</div>
+                                <div class="item-card-score">${item.hot_score ? '🔥 ' + formatNumber(item.hot_score) : ''}</div>
+                            </div>
+                            <div class="item-card-body">
+                                <a href="${item.url}" target="_blank" class="item-card-title">${item.title}</a>
+                                <div class="item-card-meta">
+                                    ${item.author ? `<span class="meta-tag">👤 ${item.author}</span>` : ''}
+                                    ${item.category ? `<span class="meta-tag">🏷️ ${item.category}</span>` : ''}
+                                </div>
+                                ${item.description && item.description !== '-' ? `<div class="item-card-description">${item.description}</div>` : ''}
+                                ${item.keywords && item.keywords.length > 0 ? `<div class="item-card-keywords">${item.keywords.map(k => `<span class="item-keyword">${k}</span>`).join('')}</div>` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // 格式化数字（添加千分位）
+        function formatNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            }
+            return Math.round(num).toString();
+        }
+
+        // 渲染趋势图表
+        function renderTrends(data) {
+            const trends = data.trends || {};
+            
+            // 渲染数据源趋势
+            renderSourceTrendChart(trends.source_trends);
+            
+            // 渲染关键词趋势
+            renderKeywordTrendChart(trends.keyword_trends);
+            
+            // 渲染总趋势
+            renderTotalTrendChart(trends.summary);
+        }
+
+        // 渲染数据源趋势图表
+        function renderSourceTrendChart(sourceTrends) {
+            const container = document.getElementById('source-trend-chart');
+            if (!sourceTrends || Object.keys(sourceTrends).length === 0) {
+                container.innerHTML = '<div class="empty-state">暂无数据</div>';
+                return;
+            }
+
+            // 计算每个数据源的总数据量
+            const sourceTotals = {};
+            for (const [source, trend] of Object.entries(sourceTrends)) {
+                sourceTotals[source] = trend.reduce((sum, day) => sum + day.count, 0);
+            }
+
+            // 排序并取前6个
+            const sortedSources = Object.entries(sourceTotals)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 6);
+
+            const maxValue = Math.max(...sortedSources.map(s => s[1])) || 1;
+
+            let html = '<div class="simple-chart">';
+            sortedSources.forEach(([source, total]) => {
+                const height = (total / maxValue * 200) + 'px';
+                const sourceIcons = {
+                    'github': '🐙', 'hackernews': '📰', 'bilibili': '📺',
+                    'arxiv': '📚', 'zhihu': '❓'
+                };
+                const icon = sourceIcons[source] || '📄';
+                html += `
+                    <div class="chart-bar">
+                        <div class="bar" style="height: ${height}">
+                            <span class="bar-value">${total}</span>
+                        </div>
+                        <div class="bar-label">${icon} ${source}</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // 渲染关键词趋势图表
+        function renderKeywordTrendChart(keywordTrends) {
+            const container = document.getElementById('keyword-trend-chart');
+            if (!keywordTrends || Object.keys(keywordTrends).length === 0) {
+                container.innerHTML = '<div class="empty-state">暂无数据</div>';
+                return;
+            }
+
+            // 计算每个关键词的总出现次数
+            const keywordTotals = {};
+            for (const [keyword, trend] of Object.entries(keywordTrends)) {
+                keywordTotals[keyword] = trend.reduce((sum, day) => sum + day.count, 0);
+            }
+
+            // 排序并取前8个
+            const sortedKeywords = Object.entries(keywordTotals)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 8);
+
+            const maxValue = Math.max(...sortedKeywords.map(k => k[1])) || 1;
+
+            let html = '<div class="simple-chart">';
+            sortedKeywords.forEach(([keyword, total]) => {
+                const height = (total / maxValue * 200) + 'px';
+                html += `
+                    <div class="chart-bar">
+                        <div class="bar" style="height: ${height}; background: linear-gradient(to top, #ff6b6b 0%, #feca57 100%);">
+                            <span class="bar-value">${total}</span>
+                        </div>
+                        <div class="bar-label">${keyword}</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // 渲染总趋势图表
+        function renderTotalTrendChart(summary) {
+            const container = document.getElementById('total-trend-chart');
+            if (!summary || !summary.total_trend || summary.total_trend.length === 0) {
+                container.innerHTML = '<div class="empty-state">暂无数据</div>';
+                return;
+            }
+
+            const trend = summary.total_trend;
+            const maxValue = Math.max(...trend.map(d => d.count)) || 1;
+
+            let html = '<div class="simple-chart">';
+            trend.forEach(day => {
+                const height = (day.count / maxValue * 200) + 'px';
+                const dateLabel = new Date(day.date).toLocaleDateString('zh-CN', {month: 'short', day: 'numeric'});
+                html += `
+                    <div class="chart-bar">
+                        <div class="bar" style="height: ${height}; background: linear-gradient(to top, #48dbfb 0%, #0abde3 100%);">
+                            <span class="bar-value">${day.count}</span>
+                        </div>
+                        <div class="bar-label">${dateLabel}</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // 初始化页面
+        function init() {
+            const data = window.REPORT_DATA;
+            
+            // 设置生成时间
+            document.getElementById('generated-time').textContent = 
+                data.generated_at ? new Date(data.generated_at).toLocaleString('zh-CN') : '--';
+            
+            // 设置统计数据
+            document.getElementById('total-items').textContent = data.total_items || 0;
+            document.getElementById('total-sources').textContent = 
+                data.sources ? Object.keys(data.sources).length : 0;
+            document.getElementById('total-topics').textContent = 
+                data.topics ? Object.keys(data.topics).length : 0;
+            
+            // 渲染各部分内容
+            renderOverview(data);
+            renderKeywords(data);
+            renderTopics(data);
+            renderTrends(data);
+            
+            // 渲染各数据源
+            const sources = data.sources || {};
+            renderSourceItems('github', sources.github);
+            renderSourceItems('hackernews', sources.hackernews);
+            renderSourceItems('bilibili', sources.bilibili);
+            renderSourceItems('arxiv', sources.arxiv);
+            renderSourceItems('zhihu', sources.zhihu);
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

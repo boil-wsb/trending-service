@@ -21,12 +21,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.config import DATA_SOURCES, SOURCE_URLS, REQUESTS, PROXY
 from src.utils import get_logger, save_json
+from .base import BaseFetcher, TrendingItem
 
 
-class GitHubTrendingFetcher:
+class GitHubTrendingFetcher(BaseFetcher):
     """GitHub热门数据获取器"""
+    
+    name = "github"
 
-    def __init__(self, logger=None):
+    def __init__(self, config: Dict = None, logger=None):
+        super().__init__(config, logger)
         self.base_url = "https://github.com"
         self.trending_url = SOURCE_URLS['github_trending']
         self.session = requests.Session()
@@ -49,7 +53,7 @@ class GitHubTrendingFetcher:
             'sec-ch-ua-platform': '"Windows"',
         })
         self.logger = logger or get_logger('github_trending')
-        self.config = DATA_SOURCES['github']
+        self.config = config or DATA_SOURCES['github']
         self.max_retries = 3
         self.retry_delay = 5
 
@@ -197,30 +201,52 @@ class GitHubTrendingFetcher:
 
         return int(text.replace(',', ''))
 
-    def get_trending_repos(self, per_page: int = None) -> List[Dict]:
-        """获取本周热门仓库（所有语言）"""
-        per_page = per_page or self.config['limit']
-        self.logger.info("获取本周热门仓库...")
+    def fetch(self) -> List[TrendingItem]:
+        """
+        获取GitHub热门数据（实现基类方法）
+        
+        Returns:
+            List[TrendingItem]: 热点数据列表
+        """
+        self.logger.info("开始获取GitHub热门数据...")
+        
+        items = []
+        
+        # 获取本周热门仓库
+        soup = self.fetch_trending_page(language="", since=self.config.get('since', 'weekly'))
+        if soup:
+            repos = self.parse_repos(soup, limit=self.config.get('limit', 20))
+            for repo in repos:
+                item = TrendingItem(
+                    source=self.name,
+                    title=repo.get('full_name', ''),
+                    url=repo.get('url', ''),
+                    author=repo.get('builtBy')[0].get('username') if repo.get('builtBy') else None,
+                    description=repo.get('description'),
+                    hot_score=float(repo.get('currentPeriodStars', 0)),
+                    category=repo.get('language'),
+                    extra={
+                        'stars': repo.get('stars', 0),
+                        'forks': repo.get('forks', 0),
+                        'language': repo.get('language', 'Unknown'),
+                        'built_by': repo.get('builtBy', [])
+                    }
+                )
+                items.append(item)
+        
+        self.logger.info(f"GitHub: 获取 {len(items)} 条数据")
+        return items
 
-        soup = self.fetch_trending_page(language="", since=self.config['since'])
-        if not soup:
-            return []
-
-        repos = self.parse_repos(soup, limit=per_page)
-        self.logger.info(f"获取到 {len(repos)} 个热门仓库")
-        return repos
-
-    def get_ai_repos(self, per_page: int = None) -> List[Dict]:
+    def get_ai_repos(self) -> List[TrendingItem]:
         """获取AI领域热门项目"""
-        per_page = per_page or self.config['limit']
         self.logger.info("获取AI领域热门项目...")
 
         # 获取 Python 热门项目（AI项目多为Python）
-        soup = self.fetch_trending_page(language="python", since=self.config['since'])
+        soup = self.fetch_trending_page(language="python", since=self.config.get('since', 'weekly'))
         if not soup:
             return []
 
-        python_repos = self.parse_repos(soup, limit=50)
+        repos = self.parse_repos(soup, limit=50)
 
         # AI关键词
         ai_keywords = [
@@ -235,92 +261,76 @@ class GitHubTrendingFetcher:
             'autogpt', 'babyagi', 'chat', 'bot', 'copilot', 'assistant'
         ]
 
-        ai_repos = []
-        for repo in python_repos:
+        ai_items = []
+        for repo in repos:
             name = repo.get('full_name', '').lower()
             description = repo.get('description', '').lower()
 
             is_ai = any(keyword in name or keyword in description for keyword in ai_keywords)
             if is_ai:
-                ai_repos.append(repo)
+                item = TrendingItem(
+                    source=f"{self.name}_ai",
+                    title=repo.get('full_name', ''),
+                    url=repo.get('url', ''),
+                    author=repo.get('builtBy')[0].get('username') if repo.get('builtBy') else None,
+                    description=repo.get('description'),
+                    hot_score=float(repo.get('currentPeriodStars', 0)),
+                    category='AI',
+                    extra={
+                        'stars': repo.get('stars', 0),
+                        'forks': repo.get('forks', 0),
+                        'language': repo.get('language', 'Unknown'),
+                        'built_by': repo.get('builtBy', [])
+                    }
+                )
+                ai_items.append(item)
 
-        self.logger.info(f"从 {len(python_repos)} 个Python项目中筛选出 {len(ai_repos)} 个AI项目")
+        self.logger.info(f"从 {len(repos)} 个Python项目中筛选出 {len(ai_items)} 个AI项目")
 
         # 如果AI项目不够，补充更多Python项目
-        if len(ai_repos) < per_page:
-            additional = per_page - len(ai_repos)
-            for repo in python_repos:
-                if repo not in ai_repos and len(ai_repos) < per_page:
-                    ai_repos.append(repo)
-                if len(ai_repos) >= per_page:
+        if len(ai_items) < self.config.get('limit', 20):
+            additional = self.config.get('limit', 20) - len(ai_items)
+            for repo in repos:
+                if len(ai_items) >= self.config.get('limit', 20):
                     break
+                # 检查是否已经在列表中
+                repo_name = repo.get('full_name', '')
+                if not any(item.title == repo_name for item in ai_items):
+                    item = TrendingItem(
+                        source=f"{self.name}_ai",
+                        title=repo.get('full_name', ''),
+                        url=repo.get('url', ''),
+                        author=repo.get('builtBy')[0].get('username') if repo.get('builtBy') else None,
+                        description=repo.get('description'),
+                        hot_score=float(repo.get('currentPeriodStars', 0)),
+                        category=repo.get('language'),
+                        extra={
+                            'stars': repo.get('stars', 0),
+                            'forks': repo.get('forks', 0),
+                            'language': repo.get('language', 'Unknown'),
+                            'built_by': repo.get('builtBy', [])
+                        }
+                    )
+                    ai_items.append(item)
 
-        return ai_repos[:per_page]
+        return ai_items[:self.config.get('limit', 20)]
 
-    def save_json(self, repos: List[Dict], filename: str, repo_type: str = "repos") -> None:
-        """保存JSON数据"""
-        data = {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            repo_type: []
-        }
-
-        for idx, repo in enumerate(repos, 1):
-            data[repo_type].append({
-                "rank": idx,
-                "name": repo.get('full_name', 'N/A'),
-                "url": repo.get('url', '#'),
-                "description": repo.get('description') or '',
-                "stars": repo.get('stars', 0),
-                "forks": repo.get('forks', 0),
-                "language": repo.get('language', 'Unknown'),
-                "current_period_stars": repo.get('currentPeriodStars', 0),
-                "built_by": repo.get('builtBy', []),
-                "updated_at": repo.get('updatedAt', '')
-            })
-
-        filepath = Path(filename)
-        save_json(data, filepath)
-        self.logger.info(f"数据已保存: {filepath}")
-
-    def fetch_all(self, output_dir: Path) -> Dict[str, Path]:
-        """获取所有GitHub数据并保存"""
+    def fetch_all(self) -> List[TrendingItem]:
+        """获取所有GitHub数据"""
         self.logger.info("开始获取GitHub热门数据...")
 
-        result = {}
+        all_items = []
 
         # 获取本周热门仓库
-        trending_repos = self.get_trending_repos(per_page=50)
-        if trending_repos:
-            # 按本周新增 stars 排序
-            sorted_by_growth = sorted(trending_repos, key=lambda x: x.get('currentPeriodStars', 0), reverse=True)
-            top_growth = sorted_by_growth[:self.config['limit']]
-
-            # 按总stars排序
-            sorted_by_total = sorted(trending_repos, key=lambda x: x.get('stars', 0), reverse=True)
-            top_total = sorted_by_total[:self.config['limit']]
-
-            # 保存数据
-            growth_file = output_dir / 'github_weekly_growth.json'
-            trending_file = output_dir / 'github_trending.json'
-
-            self.save_json(top_growth, growth_file)
-            self.save_json(top_total, trending_file)
-
-            result['github_weekly_growth'] = growth_file
-            result['github_trending'] = trending_file
-        else:
-            self.logger.error("获取热门仓库失败")
+        trending_items = self.fetch()
+        all_items.extend(trending_items)
 
         # 获取AI项目
-        ai_repos = self.get_ai_repos(per_page=self.config['limit'])
-        if ai_repos:
-            ai_file = output_dir / 'ai_trending.json'
-            self.save_json(ai_repos, ai_file)
-            result['ai_trending'] = ai_file
-        else:
-            self.logger.error("获取AI项目失败")
+        ai_items = self.get_ai_repos()
+        all_items.extend(ai_items)
 
-        return result
+        self.logger.info(f"GitHub: 总共获取 {len(all_items)} 条数据")
+        return all_items
 
 
 def main():
@@ -328,14 +338,18 @@ def main():
     print("🚀 开始获取GitHub热门数据...")
     print(f"⏰ 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    from ..config import REPORTS_DIR
     fetcher = GitHubTrendingFetcher()
 
     # 获取所有数据
-    result = fetcher.fetch_all(REPORTS_DIR)
+    items = fetcher.fetch_all()
 
-    print("🎉 GitHub数据获取完成!")
-    return result
+    print(f"🎉 GitHub数据获取完成! 共 {len(items)} 条")
+    
+    # 显示前5条
+    for i, item in enumerate(items[:5], 1):
+        print(f"{i}. {item.title} (热度: {item.hot_score})")
+    
+    return items
 
 
 if __name__ == "__main__":

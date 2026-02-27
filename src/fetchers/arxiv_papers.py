@@ -25,12 +25,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.config import DATA_SOURCES, REQUESTS
 from src.utils import get_logger, save_json
+from .base import BaseFetcher, TrendingItem
 
 
-class ArxivPapersFetcher:
+class ArxivPapersFetcher(BaseFetcher):
     """arXiv论文数据获取器"""
+    
+    name = "arxiv"
 
-    def __init__(self, logger=None):
+    def __init__(self, config: Dict = None, logger=None):
+        super().__init__(config, logger)
         self.base_url = "http://export.arxiv.org/api/query"
         self.session = requests.Session()
         self.session.headers.update({
@@ -38,21 +42,18 @@ class ArxivPapersFetcher:
             'Accept': 'application/xml',
         })
         self.logger = logger or get_logger('arxiv_papers')
-        self.config = DATA_SOURCES['arxiv']
+        self.config = config or DATA_SOURCES['arxiv']
 
-    def fetch_papers(self, categories: List[str] = None, limit: int = None) -> List[Dict]:
+    def fetch(self) -> List[TrendingItem]:
         """
-        获取arXiv论文
-
-        Args:
-            categories: 论文分类列表
-            limit: 返回论文数量限制
-
+        获取arXiv论文（实现基类方法）
+        
         Returns:
-            论文列表
+            List[TrendingItem]: 热点数据列表
         """
-        limit = limit or self.config['limit']
-        categories = categories or self.config['categories']
+        limit = self.config.get('limit', 20)
+        categories = self.config.get('categories', ['cs.AI', 'cs.LG'])
+        
         self.logger.info(f"获取arXiv论文 (categories={categories}, limit={limit})...")
 
         # 构建查询
@@ -69,17 +70,17 @@ class ArxivPapersFetcher:
             response = self.session.get(self.base_url, params=params, timeout=REQUESTS['timeout'])
             response.raise_for_status()
 
-            papers = self.parse_response(response.text)
-            self.logger.info(f"获取到 {len(papers)} 篇论文")
-            return papers
+            items = self._parse_response(response.text)
+            self.logger.info(f"arXiv: 获取 {len(items)} 条数据")
+            return items
 
         except Exception as e:
             self.logger.error(f"获取arXiv论文失败: {e}")
             return []
 
-    def parse_response(self, xml_text: str) -> List[Dict]:
+    def _parse_response(self, xml_text: str) -> List[TrendingItem]:
         """解析arXiv API响应"""
-        papers = []
+        items = []
 
         # 使用正则表达式提取论文信息
         entries = re.findall(r'<entry>(.*?)</entry>', xml_text, re.DOTALL)
@@ -119,22 +120,55 @@ class ArxivPapersFetcher:
                 # 构建URL
                 url = f"https://arxiv.org/abs/{paper_id}"
 
-                papers.append({
-                    'id': paper_id,
-                    'title': title,
-                    'summary': summary,
-                    'authors': authors,
-                    'published': published,
-                    'updated': updated,
-                    'category': category,
-                    'url': url
-                })
+                item = TrendingItem(
+                    source=self.name,
+                    title=title,
+                    url=url,
+                    author=', '.join(authors[:3]) if authors else None,  # 只取前3个作者
+                    description=summary,  # 完整描述
+                    hot_score=None,  # arXiv 没有热度分数
+                    category=category,
+                    extra={
+                        'paper_id': paper_id,
+                        'authors': authors,
+                        'published': published,
+                        'updated': updated,
+                        'category': category
+                    }
+                )
+                items.append(item)
 
             except Exception as e:
                 self.logger.warning(f"解析论文失败: {e}")
                 continue
 
-        return papers
+        return items
+
+    def fetch_papers(self, categories: List[str] = None, limit: int = None) -> List[Dict]:
+        """
+        获取arXiv论文（旧接口，保留兼容性）
+
+        Args:
+            categories: 论文分类列表
+            limit: 返回论文数量限制
+
+        Returns:
+            论文列表
+        """
+        items = self.fetch()
+        return [
+            {
+                'id': item.extra.get('paper_id', ''),
+                'title': item.title,
+                'url': item.url,
+                'summary': item.description,
+                'authors': item.extra.get('authors', []),
+                'published': item.extra.get('published', ''),
+                'updated': item.extra.get('updated', ''),
+                'category': item.category
+            }
+            for item in items
+        ]
 
     def save_json(self, papers: List[Dict], filepath: Path) -> None:
         """保存论文数据到JSON文件"""

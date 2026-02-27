@@ -16,12 +16,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.config import DATA_SOURCES, REQUESTS
 from src.utils import get_logger, save_json
+from .base import BaseFetcher, TrendingItem
 
 
-class BilibiliHotFetcher:
+class BilibiliHotFetcher(BaseFetcher):
     """B站热门视频数据获取器"""
+    
+    name = "bilibili"
 
-    def __init__(self, logger=None):
+    def __init__(self, config: Dict = None, logger=None):
+        super().__init__(config, logger)
         self.base_url = "https://www.bilibili.com"
         self.hot_url = "https://www.bilibili.com/hot"
         self.api_url = "https://api.bilibili.com/x/web-interface/popular"
@@ -33,19 +37,16 @@ class BilibiliHotFetcher:
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         })
         self.logger = logger or get_logger('bilibili_hot')
-        self.config = DATA_SOURCES['bilibili']
+        self.config = config or DATA_SOURCES['bilibili']
 
-    def fetch_hot_videos(self, limit: int = None) -> List[Dict]:
+    def fetch(self) -> List[TrendingItem]:
         """
-        获取B站热门视频
-
-        Args:
-            limit: 返回视频数量限制
-
+        获取B站热门视频（实现基类方法）
+        
         Returns:
-            视频列表
+            List[TrendingItem]: 热点数据列表
         """
-        limit = limit or self.config['limit']
+        limit = self.config.get('limit', 20)
         self.logger.info(f"获取B站热门视频 (limit={limit})...")
 
         params = {
@@ -62,31 +63,68 @@ class BilibiliHotFetcher:
                 self.logger.error(f"API返回错误: {data.get('message')}")
                 return []
 
-            videos = []
-            for item in data.get('data', {}).get('list', []):
-                videos.append({
-                    'title': item.get('title', ''),
-                    'url': f"https://www.bilibili.com/video/{item.get('bvid', '')}",
-                    'description': item.get('desc', ''),
-                    'view': item.get('stat', {}).get('view', 0),
-                    'danmaku': item.get('stat', {}).get('danmaku', 0),
-                    'reply': item.get('stat', {}).get('reply', 0),
-                    'favorite': item.get('stat', {}).get('favorite', 0),
-                    'coin': item.get('stat', {}).get('coin', 0),
-                    'share': item.get('stat', {}).get('share', 0),
-                    'like': item.get('stat', {}).get('like', 0),
-                    'duration': item.get('duration', 0),
-                    'owner': item.get('owner', {}).get('name', ''),
-                    'pic': item.get('pic', ''),
-                    'pubdate': item.get('pubdate', 0)
-                })
+            items = []
+            for video_data in data.get('data', {}).get('list', []):
+                item = TrendingItem(
+                    source=self.name,
+                    title=video_data.get('title', ''),
+                    url=f"https://www.bilibili.com/video/{video_data.get('bvid', '')}",
+                    author=video_data.get('owner', {}).get('name', ''),
+                    description=video_data.get('desc', ''),
+                    hot_score=float(video_data.get('stat', {}).get('view', 0)),
+                    category='video',
+                    extra={
+                        'view': video_data.get('stat', {}).get('view', 0),
+                        'danmaku': video_data.get('stat', {}).get('danmaku', 0),
+                        'reply': video_data.get('stat', {}).get('reply', 0),
+                        'favorite': video_data.get('stat', {}).get('favorite', 0),
+                        'coin': video_data.get('stat', {}).get('coin', 0),
+                        'share': video_data.get('stat', {}).get('share', 0),
+                        'like': video_data.get('stat', {}).get('like', 0),
+                        'duration': video_data.get('duration', 0),
+                        'pic': video_data.get('pic', ''),
+                        'pubdate': video_data.get('pubdate', 0)
+                    }
+                )
+                items.append(item)
 
-            self.logger.info(f"获取到 {len(videos)} 个热门视频")
-            return videos
+            self.logger.info(f"Bilibili: 获取 {len(items)} 条数据")
+            return items
 
         except Exception as e:
             self.logger.error(f"获取B站热门视频失败: {e}")
             return []
+
+    def fetch_hot_videos(self, limit: int = None) -> List[Dict]:
+        """
+        获取B站热门视频（旧接口，保留兼容性）
+
+        Args:
+            limit: 返回视频数量限制
+
+        Returns:
+            视频列表
+        """
+        items = self.fetch()
+        return [
+            {
+                'title': item.title,
+                'url': item.url,
+                'description': item.description,
+                'view': item.extra.get('view', 0),
+                'danmaku': item.extra.get('danmaku', 0),
+                'reply': item.extra.get('reply', 0),
+                'favorite': item.extra.get('favorite', 0),
+                'coin': item.extra.get('coin', 0),
+                'share': item.extra.get('share', 0),
+                'like': item.extra.get('like', 0),
+                'duration': item.extra.get('duration', 0),
+                'owner': item.author,
+                'pic': item.extra.get('pic', ''),
+                'pubdate': item.extra.get('pubdate', 0)
+            }
+            for item in items
+        ]
 
     def save_json(self, videos: List[Dict], filepath: Path) -> None:
         """保存视频数据到JSON文件"""

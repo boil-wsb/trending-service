@@ -13,11 +13,20 @@ PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 REPORTS_DIR = DATA_DIR / "reports"
 LOGS_DIR = DATA_DIR / "logs"
+DB_DIR = DATA_DIR / "db"
 
 # 确保目录存在
 DATA_DIR.mkdir(exist_ok=True)
 REPORTS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
+DB_DIR.mkdir(exist_ok=True)
+
+# 数据库配置
+DATABASE = {
+    'path': DB_DIR / 'trending.db',
+    'backup_count': 7,  # 保留7天备份
+    'cleanup_days': 30,  # 自动清理30天前的数据
+}
 
 # HTTP服务器配置
 SERVER = {
@@ -49,6 +58,14 @@ DATA_SOURCES = {
         'enabled': True,
         'limit': 20,
         'keywords': ['ai', 'machine', 'learning', 'ml', 'neural', 'gpt']
+    },
+    'hackernews': {
+        'enabled': True,
+        'limit': 30,
+    },
+    'zhihu': {
+        'enabled': True,
+        'limit': 50,
     }
 }
 

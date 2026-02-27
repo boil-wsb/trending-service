@@ -75,3 +75,4 @@ reports/*.json
 # Backup files
 *.bak
 *.backup
+docs/

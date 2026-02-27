@@ -18,9 +18,17 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.config import SCHEDULE, DATA_SOURCES, REPORTS_DIR, BROWSER, SERVER, DATA_FILES
-from src.utils import get_logger, HTMLGenerator
-from src.fetchers import GitHubTrendingFetcher, BilibiliHotFetcher, ArxivPapersFetcher
+from src.config import SCHEDULE, DATA_SOURCES, REPORTS_DIR, BROWSER, SERVER, DATABASE
+from src.utils import get_logger, ReportGenerator
+from src.db import TrendingDAO
+from src.fetchers import (
+    GitHubTrendingFetcher, 
+    BilibiliHotFetcher, 
+    ArxivPapersFetcher,
+    HackerNewsFetcher,
+    ZhihuHotFetcher
+)
+from src.analytics import extract_keywords_for_items
 
 
 class TaskScheduler:
@@ -154,6 +162,7 @@ class TrendingTaskScheduler(TaskScheduler):
     """Trending Service 定时任务调度器"""
 
     def __init__(self, logger=None):
+        self.dao = TrendingDAO(DATABASE['path'])
         super().__init__(logger)
         self._setup_tasks()
 
@@ -167,50 +176,79 @@ class TrendingTaskScheduler(TaskScheduler):
             enabled=SCHEDULE['fetch_trending']['enabled']
         )
 
+        # 添加数据清理任务
+        self.add_task(
+            name='cleanup_old_data',
+            schedule='03:00',
+            task_func=self._cleanup_old_data,
+            enabled=True
+        )
 
+    def refresh_data(self, sources: list = None):
+        """
+        刷新指定数据源的数据
+        用于手动刷新或修复数据问题
 
-    def _fetch_all_trending(self):
-        """获取所有热点信息"""
+        Args:
+            sources: 要刷新的数据源列表，None 表示刷新所有
+        """
         self.logger.info("=" * 60)
-        self.logger.info("开始获取所有热点信息...")
+        self.logger.info("开始刷新数据...")
 
-        result = {}
+        all_items = []
 
-        # 获取GitHub数据
-        if DATA_SOURCES['github']['enabled']:
+        # 定义所有可用的 fetcher
+        fetchers = {
+            'github': (GitHubTrendingFetcher, "📈 刷新 GitHub Trending..."),
+            'bilibili': (BilibiliHotFetcher, "🎥 刷新 B站热门..."),
+            'arxiv': (ArxivPapersFetcher, "📚 刷新 ArXiv论文..."),
+            'hackernews': (HackerNewsFetcher, "📰 刷新 HackerNews..."),
+            'zhihu': (ZhihuHotFetcher, "🔥 刷新 知乎热榜..."),
+        }
+
+        # 如果没有指定数据源，刷新所有启用的
+        if sources is None:
+            sources = [name for name, config in DATA_SOURCES.items() if config.get('enabled')]
+
+        for source in sources:
+            if source not in fetchers:
+                self.logger.warning(f"⚠️  未知的数据源: {source}")
+                continue
+
+            fetcher_class, message = fetchers[source]
+
+            if not DATA_SOURCES.get(source, {}).get('enabled'):
+                self.logger.info(f"⏭️  跳过 {source} (未启用)")
+                continue
+
             try:
-                self.logger.info("📈 获取 GitHub Trending...")
-                github_fetcher = GitHubTrendingFetcher(logger=self.logger)
-                result.update(github_fetcher.fetch_all(REPORTS_DIR))
-                self.logger.info("✅ GitHub数据获取完成")
+                self.logger.info(message)
+                fetcher = fetcher_class(logger=self.logger)
+                items = fetcher.fetch()
+                all_items.extend(items)
+                self.logger.info(f"✅ {source} 数据刷新完成: {len(items)} 条")
             except Exception as e:
-                self.logger.error(f"❌ 获取GitHub数据失败: {e}")
+                self.logger.error(f"❌ 刷新 {source} 数据失败: {e}")
 
-        # 获取B站数据
-        if DATA_SOURCES['bilibili']['enabled']:
+        # 提取关键词
+        if all_items:
+            self.logger.info("🔍 提取关键词...")
+            all_items = extract_keywords_for_items(all_items, top_k=5)
+
+        # 保存到数据库（使用 refresh_items 确保完全更新）
+        if all_items:
             try:
-                self.logger.info("🎥 获取 B站热门...")
-                bilibili_fetcher = BilibiliHotFetcher(logger=self.logger)
-                result.update(bilibili_fetcher.fetch_all(REPORTS_DIR))
-                self.logger.info("✅ B站数据获取完成")
+                self.logger.info(f"💾 保存 {len(all_items)} 条数据到数据库...")
+                saved_count = self.dao.refresh_items(all_items)
+                self.logger.info(f"✅ 成功保存 {saved_count} 条数据")
             except Exception as e:
-                self.logger.error(f"❌ 获取B站数据失败: {e}")
+                self.logger.error(f"❌ 保存数据失败: {e}")
 
-        # 获取arXiv数据
-        if DATA_SOURCES['arxiv']['enabled']:
-            try:
-                self.logger.info("📚 获取 ArXiv论文...")
-                arxiv_fetcher = ArxivPapersFetcher(logger=self.logger)
-                result.update(arxiv_fetcher.fetch_all(REPORTS_DIR))
-                self.logger.info("✅ ArXiv数据获取完成")
-            except Exception as e:
-                self.logger.error(f"❌ 获取arXiv数据失败: {e}")
-
-        # 生成HTML报告（无论是否获取到数据）
+        # 生成HTML报告
         try:
             self.logger.info("📄 生成HTML报告...")
-            generator = HTMLGenerator(REPORTS_DIR)
-            report_path = generator.generate_report(DATA_FILES)
+            generator = ReportGenerator(REPORTS_DIR)
+            report_path = generator.generate_report()
             if report_path and report_path.exists():
                 self.logger.info(f"✅ 报告已生成: {report_path}")
             else:
@@ -218,8 +256,111 @@ class TrendingTaskScheduler(TaskScheduler):
         except Exception as e:
             self.logger.error(f"❌ 生成报告失败: {e}")
 
-        self.logger.info("热点信息获取完成!")
+        self.logger.info(f"数据刷新完成! 共 {len(all_items)} 条")
         self.logger.info("=" * 60)
+
+        return len(all_items)
+
+    def _fetch_all_trending(self):
+        """获取所有热点信息并保存到数据库"""
+        self.logger.info("=" * 60)
+        self.logger.info("开始获取所有热点信息...")
+
+        all_items = []
+
+        # 获取GitHub数据
+        if DATA_SOURCES.get('github', {}).get('enabled'):
+            try:
+                self.logger.info("📈 获取 GitHub Trending...")
+                github_fetcher = GitHubTrendingFetcher(logger=self.logger)
+                items = github_fetcher.fetch_all()
+                all_items.extend(items)
+                self.logger.info(f"✅ GitHub数据获取完成: {len(items)} 条")
+            except Exception as e:
+                self.logger.error(f"❌ 获取GitHub数据失败: {e}")
+
+        # 获取B站数据
+        if DATA_SOURCES.get('bilibili', {}).get('enabled'):
+            try:
+                self.logger.info("🎥 获取 B站热门...")
+                bilibili_fetcher = BilibiliHotFetcher(logger=self.logger)
+                items = bilibili_fetcher.fetch()
+                all_items.extend(items)
+                self.logger.info(f"✅ B站数据获取完成: {len(items)} 条")
+            except Exception as e:
+                self.logger.error(f"❌ 获取B站数据失败: {e}")
+
+        # 获取arXiv数据
+        if DATA_SOURCES.get('arxiv', {}).get('enabled'):
+            try:
+                self.logger.info("📚 获取 ArXiv论文...")
+                arxiv_fetcher = ArxivPapersFetcher(logger=self.logger)
+                items = arxiv_fetcher.fetch()
+                all_items.extend(items)
+                self.logger.info(f"✅ ArXiv数据获取完成: {len(items)} 条")
+            except Exception as e:
+                self.logger.error(f"❌ 获取arXiv数据失败: {e}")
+        
+        # 获取HackerNews数据
+        if DATA_SOURCES.get('hackernews', {}).get('enabled'):
+            try:
+                self.logger.info("📰 获取 HackerNews...")
+                hn_fetcher = HackerNewsFetcher(logger=self.logger)
+                items = hn_fetcher.fetch()
+                all_items.extend(items)
+                self.logger.info(f"✅ HackerNews数据获取完成: {len(items)} 条")
+            except Exception as e:
+                self.logger.error(f"❌ 获取HackerNews数据失败: {e}")
+        
+        # 获取知乎热榜数据
+        if DATA_SOURCES.get('zhihu', {}).get('enabled'):
+            try:
+                self.logger.info("🔥 获取 知乎热榜...")
+                zhihu_fetcher = ZhihuHotFetcher(logger=self.logger)
+                items = zhihu_fetcher.fetch()
+                all_items.extend(items)
+                self.logger.info(f"✅ 知乎热榜数据获取完成: {len(items)} 条")
+            except Exception as e:
+                self.logger.error(f"❌ 获取知乎热榜数据失败: {e}")
+
+        # 提取关键词
+        if all_items:
+            self.logger.info("🔍 提取关键词...")
+            all_items = extract_keywords_for_items(all_items, top_k=5)
+        
+        # 保存到数据库（使用 refresh_items 确保数据完全更新）
+        if all_items:
+            try:
+                self.logger.info(f"💾 保存 {len(all_items)} 条数据到数据库...")
+                saved_count = self.dao.refresh_items(all_items)
+                self.logger.info(f"✅ 成功保存 {saved_count} 条数据")
+            except Exception as e:
+                self.logger.error(f"❌ 保存数据失败: {e}")
+
+        # 生成HTML报告
+        try:
+            self.logger.info("📄 生成HTML报告...")
+            generator = ReportGenerator(REPORTS_DIR)
+            report_path = generator.generate_report()
+            if report_path and report_path.exists():
+                self.logger.info(f"✅ 报告已生成: {report_path}")
+            else:
+                self.logger.warning("⚠️  报告生成失败")
+        except Exception as e:
+            self.logger.error(f"❌ 生成报告失败: {e}")
+
+        self.logger.info(f"热点信息获取完成! 共 {len(all_items)} 条")
+        self.logger.info("=" * 60)
+
+    def _cleanup_old_data(self):
+        """清理过期数据"""
+        try:
+            self.logger.info("🧹 开始清理过期数据...")
+            days = DATABASE.get('cleanup_days', 30)
+            deleted = self.dao.delete_old_data(days)
+            self.logger.info(f"✅ 清理完成: 删除 {deleted} 条过期数据")
+        except Exception as e:
+            self.logger.error(f"❌ 清理数据失败: {e}")
 
     def _check_service_status(self) -> dict:
         """
@@ -296,72 +437,37 @@ class TrendingTaskScheduler(TaskScheduler):
         self.logger.info("-" * 60)
 
         # 打印各项检查结果
-        checks = status['checks']
-        for check_name, check_result in checks.items():
-            if check_name.endswith('_error'):
-                continue
-
-            icon = "✅" if check_result else "❌"
-            self.logger.info(f"{icon} {check_name.upper()}: {'正常' if check_result else '异常'}")
-
-            # 打印错误信息
-            error_key = f"{check_name}_error"
-            if error_key in checks:
-                self.logger.info(f"   错误: {checks[error_key]}")
+        for check_name, check_result in status['checks'].items():
+            if isinstance(check_result, bool):
+                icon = "✅" if check_result else "❌"
+                self.logger.info(f"{icon} {check_name.upper()}: {'正常' if check_result else '异常'}")
+            elif isinstance(check_result, int):
+                self.logger.info(f"📊 {check_name.upper()}: {check_result}")
+            elif isinstance(check_result, str) and not check_name.endswith('_error'):
+                self.logger.info(f"ℹ️  {check_name.upper()}: {check_result}")
 
         self.logger.info("-" * 60)
 
-        # 总体状态
         if status['running']:
             self.logger.info("🎉 服务运行正常!")
         else:
-            self.logger.warning("⚠️  服务未正常运行，请检查服务状态")
+            self.logger.warning("⚠️  服务可能未正常运行")
 
         self.logger.info("=" * 60)
 
-    def _check_and_preview(self):
-        """检查服务并打开浏览器预览"""
-        self.logger.info("=" * 60)
-        self.logger.info("检查服务并打开浏览器预览...")
-        self.logger.info("=" * 60)
+    def check_and_preview(self):
+        """检查服务状态并打开浏览器预览"""
+        self.logger.info("🔍 检查服务状态...")
 
-        # 检查服务状态
         status = self._check_service_status()
-
-        # 打印状态
         self._print_service_status(status)
 
-        # 如果服务运行正常，打开浏览器
-        if status['running']:
+        if status['running'] and BROWSER['auto_open']:
+            self.logger.info(f"🌐 打开浏览器预览: {status['report_url']}")
             try:
-                url = status['report_url']
-                self.logger.info(f"🌐 打开浏览器: {url}")
-                webbrowser.open(url)
+                webbrowser.open(status['report_url'])
                 self.logger.info("✅ 浏览器已打开")
             except Exception as e:
                 self.logger.error(f"❌ 打开浏览器失败: {e}")
-        else:
-            self.logger.warning("⚠️  服务未正常运行，无法打开浏览器预览")
-            self.logger.info(f"💡 提示: 请检查服务状态")
 
-        self.logger.info("=" * 60)
-
-
-def main():
-    """主函数"""
-    print("🚀 启动定时任务调度器...")
-
-    scheduler = TrendingTaskScheduler()
-    scheduler.start()
-
-    try:
-        # 保持运行
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n停止调度器...")
-        scheduler.stop()
-
-
-if __name__ == "__main__":
-    main()
+        return status

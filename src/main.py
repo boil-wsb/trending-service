@@ -159,6 +159,8 @@ def main():
     parser.add_argument('--debug', action='store_true', help='调试模式')
     parser.add_argument('--run-task', choices=['fetch_trending'],
                        help='立即执行指定任务')
+    parser.add_argument('--refresh', nargs='*', metavar='SOURCE',
+                       help='刷新指定数据源的数据 (不指定则刷新所有)')
     parser.add_argument('--status', action='store_true', help='查看服务状态')
     
     args = parser.parse_args()
@@ -187,6 +189,19 @@ def main():
         print(f"🚀 立即执行任务: {args.run_task}")
         service.run_task_now(args.run_task)
         print("✅ 任务执行完成")
+    elif args.refresh is not None:
+        # 刷新数据
+        sources = args.refresh if args.refresh else None
+        if sources:
+            print(f"🔄 刷新数据源: {', '.join(sources)}")
+        else:
+            print("🔄 刷新所有数据源")
+        # 创建临时调度器来执行刷新
+        from src.utils import setup_logger
+        logger = setup_logger('trending_service')
+        scheduler = TrendingTaskScheduler(logger=logger)
+        scheduler.refresh_data(sources)
+        print("✅ 数据刷新完成")
     else:
         # 启动服务
         service.start()
