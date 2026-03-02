@@ -63,6 +63,11 @@ trending_service.pid
 service.log
 trending_service.log
 
+# Environment variables (contains sensitive data)
+.env
+.env.local
+.env.*.local
+
 # Temporary data
 temp/
 tmp/

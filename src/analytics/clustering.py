@@ -7,6 +7,7 @@ from sklearn.cluster import KMeans
 from sklearn.feature_extraction.text import TfidfVectorizer
 from typing import List, Dict, Optional, TYPE_CHECKING
 from dataclasses import dataclass, field
+import re
 
 if TYPE_CHECKING:
     from src.fetchers import TrendingItem
@@ -21,9 +22,11 @@ class Topic:
     items: List
     item_count: int = 0
     source: str = ""  # 数据源
+    total_heat: float = 0.0  # 话题总热度
     
     def __post_init__(self):
         self.item_count = len(self.items)
+        self.total_heat = sum(item.hot_score or 0 for item in self.items)
 
 
 class TopicCluster:
@@ -44,7 +47,8 @@ class TopicCluster:
             stop_words='english',
             ngram_range=(1, 2),
             min_df=1,
-            max_df=0.8
+            max_df=0.8,
+            token_pattern=r'(?u)\b\w+\b'  # 支持中文分词
         )
     
     def cluster(self, items: List) -> List[Topic]:
@@ -127,8 +131,8 @@ class TopicCluster:
     
     def _filter_keywords(self, keywords: List[str]) -> List[str]:
         """过滤无意义的关键词"""
-        # 停用词列表
-        stop_words = {
+        # 英文停用词
+        english_stop_words = {
             'hn', 'show', 'ask', 'tell', 'new', 'use', 'using', 'used',
             'build', 'building', 'built', 'make', 'making', 'made',
             'create', 'creating', 'created', 'write', 'writing', 'written',
@@ -139,13 +143,40 @@ class TopicCluster:
             'web', 'site', 'online', 'free', 'version', 'update',
             'release', 'launch', 'announced', 'available', 'based',
             'simple', 'easy', 'fast', 'quick', 'better', 'best',
+            'how', 'what', 'why', 'when', 'where', 'who', 'which',
+            'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all',
+        }
+        
+        # 中文停用词
+        chinese_stop_words = {
+            '的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
+            '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
+            '你', '会', '着', '没有', '看', '好', '自己', '这', '那',
+            '这些', '那些', '这个', '那个', '之', '与', '及', '等',
+            '可以', '需要', '进行', '通过', '使用', '基于', '实现',
+            '方法', '系统', '技术', '应用', '研究', '分析', '介绍',
+            '分享', '讨论', '问题', '解决方案', '建议', '推荐',
         }
         
         filtered = []
         for kw in keywords:
             kw_lower = kw.lower()
-            if kw_lower not in stop_words and len(kw) > 2:
-                filtered.append(kw)
+            # 过滤英文停用词
+            if kw_lower in english_stop_words:
+                continue
+            # 过滤中文停用词
+            if kw in chinese_stop_words:
+                continue
+            # 过滤纯数字
+            if kw.isdigit():
+                continue
+            # 过滤长度小于2的词
+            if len(kw) < 2:
+                continue
+            # 过滤纯标点
+            if re.match(r'^[^\w\u4e00-\u9fff]+$', kw):
+                continue
+            filtered.append(kw)
         
         return filtered[:5]  # 最多返回5个关键词
     
@@ -154,11 +185,35 @@ class TopicCluster:
         if not items:
             return "未命名话题"
         
-        # 使用热度最高的数据项标题作为话题名
+        # 策略1：优先使用热度最高的数据项标题
         hottest = max(items, key=lambda x: x.hot_score or 0)
-        # 截取前30个字符
-        title = hottest.title[:30]
-        if len(hottest.title) > 30:
+        
+        # 策略2：如果最高热度项太短，尝试找共同关键词
+        if len(items) > 1:
+            # 提取所有标题中的关键词
+            all_words = []
+            for item in items:
+                # 简单的分词：提取中英文单词
+                words = re.findall(r'[\u4e00-\u9fff]{2,}|[a-zA-Z]{3,}', item.title)
+                all_words.extend(words)
+            
+            # 统计词频
+            from collections import Counter
+            word_counts = Counter(all_words)
+            
+            # 找出共同关键词（出现次数>1的词）
+            common_words = [word for word, count in word_counts.most_common(3) if count > 1]
+            
+            if common_words:
+                # 使用共同关键词 + 最高热度项的简化标题
+                topic_name = ' | '.join(common_words[:2])
+                if len(topic_name) < 20 and len(hottest.title) <= 30:
+                    topic_name = hottest.title
+                return topic_name
+        
+        # 策略3：使用热度最高项的标题（截取）
+        title = hottest.title[:40]
+        if len(hottest.title) > 40:
             title += "..."
         return title
 
@@ -191,16 +246,19 @@ def cluster_items_by_source(items: List, n_clusters: int = 3) -> Dict[str, List[
             
             clusterer = TopicCluster(n_clusters=actual_clusters)
             topics = clusterer.cluster(source_items)
+            # 按话题总热度排序
+            topics.sort(key=lambda x: x.total_heat, reverse=True)
             result[source] = topics
         elif len(source_items) > 0:
             # 数据太少，直接作为一个话题
-            result[source] = [Topic(
+            topic = Topic(
                 id=0,
-                name=source_items[0].title[:30] + '...' if len(source_items[0].title) > 30 else source_items[0].title,
+                name=source_items[0].title[:40] + '...' if len(source_items[0].title) > 40 else source_items[0].title,
                 keywords=[],
                 items=source_items,
                 source=source
-            )]
+            )
+            result[source] = [topic]
     
     return result
 

@@ -53,6 +53,10 @@ class ReportGenerator:
         # 生成趋势图表数据
         trend_data = generate_trend_chart_data(self.dao, days=7)
         
+        # 获取真实的小时分布数据
+        hourly_data = self.dao.get_hourly_distribution(days=1)
+        trending_by_hour = self.dao.get_trending_by_hour(hours=6)
+        
         # 生成报告数据
         report_data = {
             'generated_at': datetime.now().isoformat(),
@@ -61,21 +65,65 @@ class ReportGenerator:
             'keywords': self.keyword_extractor.extract_from_items(items),
             'topics': self._cluster_topics(items),
             'trends': trend_data,
-            'stats': self._generate_stats(items)
+            'stats': self._generate_stats(items),
+            'hourly_distribution': hourly_data,
+            'trending_by_hour': trending_by_hour
         }
         
-        # 生成HTML
+        # 生成HTML报告
         html_content = self._generate_html(report_data)
-        
+
         # 保存报告
         report_path = self.reports_dir / "report.html"
         self.reports_dir.mkdir(parents=True, exist_ok=True)
-        
+
         with open(report_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
-        
+
+        # 保存各数据源的JSON数据，供API使用
+        self._save_source_data(report_data['sources'])
+
         print(f"✅ 报告已生成: {report_path}")
         return report_path
+
+    def _save_source_data(self, sources: Dict[str, List[Dict]]):
+        """保存各数据源数据到单独的JSON文件"""
+        # 保存GitHub数据
+        if 'github' in sources:
+            github_data = {
+                'repos': sources['github'],
+                'generated_at': datetime.now().isoformat(),
+                'total': len(sources['github'])
+            }
+            github_file = self.reports_dir / "github.json"
+            with open(github_file, 'w', encoding='utf-8') as f:
+                json.dump(github_data, f, ensure_ascii=False, indent=2)
+            print(f"  💾 GitHub数据已保存: {github_file}")
+
+        # 保存GitHub本周增长数据（与GitHub数据相同，但独立文件供API使用）
+        if 'github' in sources:
+            github_weekly_data = {
+                'repos': sources['github'],
+                'generated_at': datetime.now().isoformat(),
+                'total': len(sources['github']),
+                'since': 'weekly'
+            }
+            github_weekly_file = self.reports_dir / "github_weekly_growth.json"
+            with open(github_weekly_file, 'w', encoding='utf-8') as f:
+                json.dump(github_weekly_data, f, ensure_ascii=False, indent=2)
+            print(f"  💾 GitHub本周增长数据已保存: {github_weekly_file}")
+
+        # 保存GitHub AI数据
+        if 'github_ai' in sources:
+            github_ai_data = {
+                'repos': sources['github_ai'],
+                'generated_at': datetime.now().isoformat(),
+                'total': len(sources['github_ai'])
+            }
+            github_ai_file = self.reports_dir / "ai_trending.json"
+            with open(github_ai_file, 'w', encoding='utf-8') as f:
+                json.dump(github_ai_data, f, ensure_ascii=False, indent=2)
+            print(f"  💾 GitHub AI数据已保存: {github_ai_file}")
 
     def _group_by_source(self, items: List[TrendingItem]) -> Dict[str, List[Dict]]:
         """按数据源分组，并按热度排序"""
@@ -178,7 +226,7 @@ class ReportGenerator:
 
     def _get_template(self) -> str:
         """获取HTML模板"""
-        # 优先使用增强版模板
+        # 使用增强版模板
         template_path = Path(__file__).parent.parent / "templates" / "enhanced_report_template.html"
         
         try:

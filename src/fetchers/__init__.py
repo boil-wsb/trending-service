@@ -9,6 +9,8 @@ from .bilibili_hot import BilibiliHotFetcher
 from .arxiv_papers import ArxivPapersFetcher
 from .hackernews import HackerNewsFetcher
 from .zhihu_hot import ZhihuHotFetcher
+from .weibo_hot import WeiboHotFetcher
+from .douyin_hot import DouyinHotFetcher
 
 __all__ = [
     'BaseFetcher',
@@ -18,4 +20,6 @@ __all__ = [
     'ArxivPapersFetcher',
     'HackerNewsFetcher',
     'ZhihuHotFetcher',
+    'WeiboHotFetcher',
+    'DouyinHotFetcher',
 ]

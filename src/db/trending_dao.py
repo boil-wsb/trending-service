@@ -94,25 +94,31 @@ class TrendingDAO:
 
                 # 插入新数据
                 for item in source_items:
-                    self.db.execute('''
-                        INSERT INTO trending_items
-                        (source, category, title, url, author, description, hot_score, keywords, extra, fetched_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        item.source,
-                        item.category,
-                        item.title,
-                        item.url,
-                        item.author,
-                        item.description,
-                        item.hot_score,
-                        ','.join(item.keywords) if item.keywords else '',
-                        json.dumps(item.extra, ensure_ascii=False) if item.extra else '{}',
-                        item.fetched_at or datetime.now()
-                    ))
-                    saved_count += 1
+                    try:
+                        self.db.execute('''
+                            INSERT INTO trending_items
+                            (source, category, title, url, author, description, hot_score, keywords, extra, fetched_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            item.source,
+                            item.category,
+                            item.title,
+                            item.url,
+                            item.author,
+                            item.description,
+                            item.hot_score,
+                            ','.join(item.keywords) if item.keywords else '',
+                            json.dumps(item.extra, ensure_ascii=False) if item.extra else '{}',
+                            item.fetched_at or datetime.now()
+                        ))
+                        saved_count += 1
+                    except Exception as e:
+                        # 记录错误但继续处理其他数据
+                        print(f"保存数据失败: {e}, title={item.title[:30]}")
+                        continue
             except Exception as e:
                 # 记录错误但继续处理其他数据源
+                print(f"处理数据源 {source} 失败: {e}")
                 continue
 
         return saved_count
@@ -337,3 +343,98 @@ class TrendingDAO:
             tuple(params)
         )
         return row['count'] if row else 0
+    
+    def get_hourly_distribution(
+        self,
+        days: int = 1,
+        source: Optional[str] = None
+    ) -> List[Dict[str, any]]:
+        """
+        获取按小时分布的数据统计
+        
+        Args:
+            days: 统计最近N天
+            source: 数据源筛选
+            
+        Returns:
+            每小时的数据量和平均热度列表
+        """
+        start_date = datetime.now() - timedelta(days=days)
+        
+        conditions = ["fetched_at >= ?"]
+        params = [start_date.isoformat()]
+        
+        if source:
+            conditions.append("source = ?")
+            params.append(source)
+        
+        where_clause = " AND ".join(conditions)
+        
+        rows = self.db.fetch_all(f'''
+            SELECT 
+                CAST(strftime('%H', fetched_at) AS INTEGER) as hour,
+                COUNT(*) as count,
+                AVG(hot_score) as avg_hot_score,
+                SUM(hot_score) as total_hot_score
+            FROM trending_items
+            WHERE {where_clause}
+            GROUP BY hour
+            ORDER BY hour
+        ''', tuple(params))
+        
+        # 转换为24小时格式，没有数据的小时填充0
+        result = []
+        hour_map = {row['hour']: row for row in rows}
+        
+        for hour in range(24):
+            if hour in hour_map:
+                result.append({
+                    'hour': hour,
+                    'count': hour_map[hour]['count'],
+                    'avg_hot_score': round(hour_map[hour]['avg_hot_score'] or 0, 2),
+                    'total_hot_score': round(hour_map[hour]['total_hot_score'] or 0, 2)
+                })
+            else:
+                result.append({
+                    'hour': hour,
+                    'count': 0,
+                    'avg_hot_score': 0,
+                    'total_hot_score': 0
+                })
+        
+        return result
+    
+    def get_trending_by_hour(
+        self,
+        hours: int = 6
+    ) -> List[Dict[str, any]]:
+        """
+        获取最近N小时的趋势数据
+        
+        Args:
+            hours: 最近N小时
+            
+        Returns:
+            每小时的统计数据
+        """
+        start_time = datetime.now() - timedelta(hours=hours)
+        
+        rows = self.db.fetch_all('''
+            SELECT 
+                strftime('%Y-%m-%d %H:00', fetched_at) as time_slot,
+                COUNT(*) as count,
+                AVG(hot_score) as avg_hot_score
+            FROM trending_items
+            WHERE fetched_at >= ?
+            GROUP BY time_slot
+            ORDER BY time_slot
+        ''', (start_time.isoformat(),))
+        
+        return [
+            {
+                'time': row['time_slot'],
+                'count': row['count'],
+                'avg_hot_score': round(row['avg_hot_score'] or 0, 2)
+            }
+            for row in rows
+        ]

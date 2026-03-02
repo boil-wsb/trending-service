@@ -18,3 +18,9 @@ pytest-cov>=4.1.0
 # 可选依赖
 schedule>=1.2.0
 python-dateutil>=2.8.2
+
+# 无头浏览器（用于知乎数据获取）
+playwright>=1.40.0
+
+# 环境变量管理
+python-dotenv>=1.0.0

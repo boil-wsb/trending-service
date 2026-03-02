@@ -5,6 +5,7 @@
 from .database import Database
 from .models import TrendingItem, DailyStats, Notification
 from .trending_dao import TrendingDAO
+from .fetch_failure_dao import FetchFailureDAO, FetchFailure, FailureStatus
 
 __all__ = [
     'Database',
@@ -12,4 +13,7 @@ __all__ = [
     'DailyStats',
     'Notification',
     'TrendingDAO',
+    'FetchFailureDAO',
+    'FetchFailure',
+    'FailureStatus',
 ]

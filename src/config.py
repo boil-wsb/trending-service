@@ -6,6 +6,16 @@
 import os
 from pathlib import Path
 
+# 尝试加载 .env 文件
+try:
+    from dotenv import load_dotenv
+    # 加载项目根目录的 .env 文件
+    env_path = Path(__file__).parent.parent / '.env'
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    pass  # python-dotenv 未安装，跳过
+
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -28,10 +38,10 @@ DATABASE = {
     'cleanup_days': 30,  # 自动清理30天前的数据
 }
 
-# HTTP服务器配置
+# HTTP服务器配置（用于API服务）
 SERVER = {
     'host': 'localhost',
-    'port': 8000,
+    'port': 8888,  # API 服务器端口，避免与报告服务器冲突
     'debug': False,
     'threaded': True,
 }
@@ -64,6 +74,14 @@ DATA_SOURCES = {
         'limit': 30,
     },
     'zhihu': {
+        'enabled': True,
+        'limit': 50,
+    },
+    'weibo': {
+        'enabled': True,
+        'limit': 50,
+    },
+    'douyin': {
         'enabled': True,
         'limit': 50,
     }

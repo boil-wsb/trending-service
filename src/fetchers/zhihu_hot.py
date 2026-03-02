@@ -1,139 +1,257 @@
 """
 知乎热榜获取器
-获取知乎热榜数据
+使用 Playwright 无头浏览器爬取知乎热榜
 """
 
+import os
 import sys
-import requests
+import json
+import time
 from typing import List, Dict, Optional
 from pathlib import Path
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.config import DATA_SOURCES, REQUESTS
+from src.config import DATA_SOURCES, REQUESTS, PROJECT_ROOT
 from src.utils import get_logger
 from .base import BaseFetcher, TrendingItem
 
+# 尝试导入 Playwright
+try:
+    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+
 
 class ZhihuHotFetcher(BaseFetcher):
-    """知乎热榜获取器"""
-    
+    """知乎热榜获取器（使用 Playwright 无头浏览器）"""
+
     name = "zhihu"
-    api_url = "https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total"
-    
+    HOT_URL = "https://www.zhihu.com/hot"
+
     def __init__(self, config: Dict = None, logger=None):
         super().__init__(config, logger)
         self.logger = logger or get_logger(self.name)
         self.config = config or DATA_SOURCES.get(self.name, {'limit': 50})
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': REQUESTS.get('user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Referer': 'https://www.zhihu.com/hot'
-        })
-    
+        self.cookies_file = PROJECT_ROOT / 'data' / 'zhihu_cookies.json'
+
     def fetch(self) -> List[TrendingItem]:
         """
         获取知乎热榜
-        
+
         Returns:
             List[TrendingItem]: 热点数据列表
         """
+        if not PLAYWRIGHT_AVAILABLE:
+            self.logger.error("Playwright 未安装，无法获取知乎热榜")
+            return []
+
         self.logger.info("开始获取知乎热榜...")
-        
+
+        items = []
         try:
-            response = self.session.get(
-                self.api_url,
-                timeout=30
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            items = []
-            cards = data.get('data', [])
-            limit = self.config.get('limit', 50)
-            
-            for card in cards[:limit]:
-                try:
-                    item = self._parse_card(card)
-                    if self.validate_item(item):
-                        items.append(item)
-                except Exception as e:
-                    self.logger.warning(f"解析卡片失败: {e}")
-                    continue
-            
-            self.logger.info(f"知乎: 获取 {len(items)} 条数据")
-            return items
-            
+            with sync_playwright() as p:
+                # 启动浏览器
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-web-security',
+                        '--disable-features=IsolateOrigins,site-per-process',
+                    ]
+                )
+
+                # 创建上下文
+                context = browser.new_context(
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='zh-CN',
+                )
+
+                # 加载 Cookie（如果存在）
+                if self.cookies_file.exists():
+                    cookies = self._load_cookies()
+                    if cookies:
+                        context.add_cookies(cookies)
+                        self.logger.info("已加载 Cookie")
+
+                # 创建页面
+                page = context.new_page()
+
+                # 访问知乎热榜
+                self.logger.info(f"访问: {self.HOT_URL}")
+                page.goto(self.HOT_URL, wait_until='domcontentloaded', timeout=60000)
+
+                # 等待页面加载完成
+                time.sleep(3)
+
+                # 尝试多种选择器等待热榜加载
+                selectors = [
+                    '[data-za-detail-view-path-module="HotList"]',
+                    '.HotList',
+                    '.HotList-item',
+                    '[class*="HotList"]'
+                ]
+
+                hot_list_found = False
+                for selector in selectors:
+                    try:
+                        page.wait_for_selector(selector, timeout=5000)
+                        self.logger.info(f"找到热榜元素: {selector}")
+                        hot_list_found = True
+                        break
+                    except:
+                        continue
+
+                if not hot_list_found:
+                    self.logger.warning("未找到热榜元素，尝试继续解析...")
+
+                # 额外等待 JavaScript 渲染
+                time.sleep(2)
+
+                # 解析热榜数据
+                items = self._parse_hot_list(page)
+
+                # 保存 Cookie（以便下次使用）
+                cookies = context.cookies()
+                self._save_cookies(cookies)
+
+                # 关闭浏览器
+                browser.close()
+
+                self.logger.info(f"知乎热榜: 获取 {len(items)} 条数据")
+
+        except PlaywrightTimeout:
+            self.logger.error("页面加载超时")
         except Exception as e:
             self.logger.error(f"获取知乎热榜失败: {e}")
-            return []
-    
-    def _parse_card(self, card: Dict) -> TrendingItem:
-        """解析知乎卡片"""
-        target = card.get('target', {})
-        
-        # 获取热度文本
-        detail_text = card.get('detail_text', '')
-        hot_score = self._parse_hot_score(detail_text)
-        
-        # 构建URL
-        question_id = target.get('id')
-        url = f"https://www.zhihu.com/question/{question_id}" if question_id else ''
-        
-        return TrendingItem(
-            source=self.name,
-            title=target.get('title', ''),
-            url=url,
-            author=None,
-            description=target.get('excerpt', ''),
-            hot_score=hot_score,
-            category='social',
-            extra={
-                'answer_count': target.get('answer_count', 0),
-                'follower_count': target.get('follower_count', 0),
-                'type': target.get('type', 'question')
-            }
-        )
-    
-    def _parse_hot_score(self, detail_text: str) -> float:
-        """解析热度数值"""
-        if not detail_text:
-            return 0.0
-        
+
+        return items
+
+    def _parse_hot_list(self, page) -> List[TrendingItem]:
+        """解析知乎热榜页面"""
+        items = []
+
         try:
-            # 处理 "1234 万热度" 格式
-            if '万' in detail_text:
-                num = float(detail_text.replace('万热度', '').replace('万', '').strip())
-                return num * 10000
-            else:
-                # 直接数字
-                return float(detail_text.replace('热度', '').strip())
+            # 获取所有热榜条目（使用正确的 CSS 选择器）
+            hot_items = page.query_selector_all('.HotItem')
+
+            self.logger.info(f"找到 {len(hot_items)} 个热榜条目")
+
+            for idx, item_element in enumerate(hot_items, 1):
+                try:
+                    # 获取排名
+                    rank_elem = item_element.query_selector('.HotItem-rank')
+                    rank = rank_elem.inner_text().strip() if rank_elem else str(idx)
+
+                    # 获取标题
+                    title_elem = item_element.query_selector('.HotItem-title')
+                    title = title_elem.inner_text().strip() if title_elem else ''
+
+                    # 获取链接
+                    link_elem = item_element.query_selector('a.HotItem-content')
+                    if not link_elem:
+                        link_elem = item_element.query_selector('a')
+                    url = link_elem.get_attribute('href') if link_elem else ''
+                    if url and url.startswith('/'):
+                        url = f"https://www.zhihu.com{url}"
+
+                    # 获取热度
+                    hot_score = 0.0
+                    metrics_elem = item_element.query_selector('.HotItem-metrics')
+                    if metrics_elem:
+                        metrics_text = metrics_elem.inner_text().strip()
+                        hot_score = self._parse_hot_score(metrics_text)
+
+                    # 获取描述/摘要
+                    description = ''
+                    desc_elem = item_element.query_selector('.HotItem-excerpt')
+                    if desc_elem:
+                        description = desc_elem.inner_text().strip()
+
+                    # 检查是否为商业推广
+                    is_commercial = item_element.query_selector('.HotItem-commerce') is not None
+
+                    if title and url:
+                        item = TrendingItem(
+                            source=self.name,
+                            title=title,
+                            url=url,
+                            author=None,
+                            description=description,
+                            hot_score=hot_score,
+                            category='hot' if not is_commercial else 'commercial',
+                            extra={
+                                'rank': rank,
+                                'metrics': metrics_text if metrics_elem else '',
+                                'is_commercial': is_commercial,
+                            }
+                        )
+                        if self.validate_item(item):
+                            items.append(item)
+
+                except Exception as e:
+                    self.logger.warning(f"解析热榜条目失败: {e}")
+                    continue
+
+        except Exception as e:
+            self.logger.error(f"解析热榜页面失败: {e}")
+
+        return items
+
+    def _parse_hot_score(self, text: str) -> float:
+        """解析热度文本"""
+        try:
+            # 处理格式: "1234 万热度"、"1234 热度" 等
+            import re
+            match = re.search(r'(\d+(?:\.\d+)?)\s*万?', text)
+            if match:
+                score = float(match.group(1))
+                if '万' in text:
+                    score *= 10000
+                return score
         except:
-            return 0.0
+            pass
+        return 0.0
+
+    def _load_cookies(self) -> List[Dict]:
+        """加载 Cookie"""
+        try:
+            with open(self.cookies_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            self.logger.warning(f"加载 Cookie 失败: {e}")
+            return []
+
+    def _save_cookies(self, cookies: List[Dict]):
+        """保存 Cookie"""
+        try:
+            # 确保目录存在
+            self.cookies_file.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(self.cookies_file, 'w', encoding='utf-8') as f:
+                json.dump(cookies, f, ensure_ascii=False, indent=2)
+            self.logger.info("已保存 Cookie")
+        except Exception as e:
+            self.logger.warning(f"保存 Cookie 失败: {e}")
 
 
 def main():
     """主函数"""
-    from datetime import datetime
-    
     print("🚀 开始获取知乎热榜...")
-    print(f"⏰ 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
+
     fetcher = ZhihuHotFetcher()
-    
-    # 获取数据
     items = fetcher.fetch()
-    
-    print(f"🎉 知乎热榜获取完成! 共 {len(items)} 条")
-    
-    # 显示前5条
-    for i, item in enumerate(items[:5], 1):
-        print(f"{i}. {item.title[:40]}... (热度: {item.hot_score})")
-    
-    return items
+
+    print(f"\n✅ 获取成功: {len(items)} 条数据")
+    print("\n前10条数据:")
+    for i, item in enumerate(items[:10], 1):
+        print(f"{i}. [{item.extra.get('rank', '-')}] {item.title[:50]}...")
+        print(f"   热度: {item.hot_score:,.0f}")
+        print(f"   链接: {item.url}")
+        print()
 
 
 if __name__ == "__main__":
