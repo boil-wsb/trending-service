@@ -37,7 +37,7 @@ class ReportGenerator:
         """
         print("📝 开始生成报告...")
         
-        # 获取今天的数据
+        # 获取今天的数据（用于展示）
         today = date.today()
         items = self.dao.get_items(start_date=today, end_date=today, limit=500)
         
@@ -45,22 +45,27 @@ class ReportGenerator:
             print("⚠️ 今天没有数据，尝试获取最近的数据...")
             items = self.dao.get_items(limit=500)
         
-        print(f"📊 获取到 {len(items)} 条数据")
+        print(f"📊 获取到 {len(items)} 条今日数据")
         
         # 提取关键词
         items = extract_keywords_for_items(items, top_k=5)
         
-        # 生成趋势图表数据
+        # 生成趋势图表数据（基于数据库全量数据）
         trend_data = generate_trend_chart_data(self.dao, days=7)
         
-        # 获取真实的小时分布数据
+        # 获取真实的小时分布数据（基于数据库全量数据）
         hourly_data = self.dao.get_hourly_distribution(days=1)
-        trending_by_hour = self.dao.get_trending_by_hour(hours=6)
+        trending_by_hour = self.dao.get_trending_by_hour(hours=24)  # 使用24小时以获取更多数据
+        
+        # 获取数据库全量统计数据
+        db_stats = self._get_database_stats()
+        print(f"📈 数据库全量统计: {db_stats['total_count']} 条数据")
         
         # 生成报告数据
         report_data = {
             'generated_at': datetime.now().isoformat(),
             'total_items': len(items),
+            'db_stats': db_stats,  # 数据库全量统计
             'sources': self._group_by_source(items),
             'keywords': self.keyword_extractor.extract_from_items(items),
             'topics': self._cluster_topics(items),
@@ -182,6 +187,59 @@ class ReportGenerator:
                 })
         
         return result
+
+    def _get_database_stats(self) -> Dict:
+        """获取数据库全量统计数据"""
+        from collections import defaultdict
+        from datetime import timedelta
+        
+        # 获取总数据量
+        total_count = self.dao.get_count()
+        
+        # 获取各数据源数据量
+        sources = self.dao.get_sources()
+        by_source = {}
+        for source in sources:
+            count = self.dao.get_count(source=source)
+            by_source[source] = {
+                'count': count,
+                'avg_score': 0,
+                'total_score': 0
+            }
+        
+        # 获取最近7天的趋势数据
+        today = date.today()
+        daily_counts = []
+        for i in range(7):
+            d = today - timedelta(days=i)
+            count = self.dao.get_count(start_date=d, end_date=d)
+            daily_counts.append({
+                'date': d.isoformat(),
+                'count': count
+            })
+        daily_counts.reverse()  # 按时间正序排列
+        
+        # 计算增长率
+        recent_3 = sum(d['count'] for d in daily_counts[-3:])
+        previous_3 = sum(d['count'] for d in daily_counts[-6:-3])
+        growth_rate = ((recent_3 - previous_3) / previous_3 * 100) if previous_3 > 0 else 0
+        
+        # 找出峰值日期
+        peak_day = max(daily_counts, key=lambda x: x['count']) if daily_counts else {'date': today.isoformat(), 'count': 0}
+        
+        # 计算日均数据
+        avg_daily = total_count // max(len(daily_counts), 1)
+        
+        return {
+            'total_count': total_count,
+            'by_source': by_source,
+            'daily_counts': daily_counts,
+            'growth_rate': round(growth_rate, 1),
+            'peak_day': peak_day['date'],
+            'peak_count': peak_day['count'],
+            'avg_daily': avg_daily,
+            'sources_count': len(sources)
+        }
 
     def _generate_stats(self, items: List[TrendingItem]) -> Dict:
         """生成统计数据"""

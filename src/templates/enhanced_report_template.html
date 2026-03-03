@@ -1225,41 +1225,261 @@
             color: #e0e0e0;
         }
 
-        /* 仪表盘深色模式 */
-        body.dark-mode #dashboard-content .dashboard-filter {
-            background: #1a1a2e;
-            border-color: #444;
-            color: #e0e0e0;
+        /* ========== 综合分析 Tab 样式 ========== */
+        
+        /* 筛选栏 */
+        .analysis-filter-bar {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
 
-        body.dark-mode #dashboard-content .dashboard-filter.active {
+        .filter-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .filter-label {
+            font-weight: 500;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .sort-wrapper {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #dashboard-sort {
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            font-size: 0.85em;
+            background: white;
+        }
+
+        /* 筛选按钮样式 */
+        .dashboard-filter {
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s ease;
+        }
+
+        .dashboard-filter:hover {
+            border-color: #3b82f6;
+            color: #3b82f6;
+        }
+
+        .dashboard-filter.active {
             background: #3b82f6;
             color: white;
             border-color: #3b82f6;
         }
 
-        body.dark-mode #dashboard-content select {
+        /* 关键指标卡片 */
+        .analysis-metrics {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 1400px) {
+            .analysis-metrics {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .analysis-metrics {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .analysis-metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .metric-card {
+            background: white;
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid #e5e7eb;
+            transition: all 0.2s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+        }
+
+        .metric-card.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .metric-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .metric-icon {
+            font-size: 1.6em;
+        }
+
+        .metric-badge {
+            font-size: 0.7em;
+            background: rgba(255,255,255,0.2);
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        .metric-card:not(.primary) .metric-badge {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
+        .metric-card:not(.primary) .metric-badge.info {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .metric-card:not(.primary) .metric-badge.success {
+            background: #d1fae5;
+            color: #059669;
+        }
+
+        .metric-card:not(.primary) .metric-badge.warning {
+            background: #ffedd5;
+            color: #ea580c;
+        }
+
+        .metric-value {
+            font-size: 1.6em;
+            font-weight: bold;
+            margin: 0;
+            color: #1f2937;
+        }
+
+        .metric-card.primary .metric-value {
+            color: white;
+        }
+
+        .metric-value.small {
+            font-size: 1.2em;
+        }
+
+        .metric-label {
+            font-size: 0.8em;
+            color: #6b7280;
+            margin: 5px 0 0 0;
+        }
+
+        .metric-card.primary .metric-label {
+            color: rgba(255,255,255,0.9);
+        }
+
+        /* 实时概览三列卡片 */
+        .analysis-overview {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 1024px) {
+            .analysis-overview {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .overview-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid #e5e7eb;
+        }
+
+        .overview-title {
+            margin-bottom: 15px;
+            color: #1f2937;
+            font-size: 1em;
+            font-weight: 600;
+        }
+
+        .trend-mini-chart {
+            height: 160px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .daily-counts-grid {
+            height: 140px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* ========== 综合分析深色模式 ========== */
+        body.dark-mode .analysis-filter-bar {
+            background: #1a1a2e;
+            border-color: #333;
+        }
+
+        body.dark-mode .filter-label {
+            color: #b0b0b0;
+        }
+
+        body.dark-mode #dashboard-sort {
             background: #1a1a2e;
             border-color: #444;
             color: #e0e0e0;
         }
 
-        body.dark-mode #dashboard-content select option {
+        body.dark-mode .metric-card {
             background: #1a1a2e;
+            border-color: #333;
+        }
+
+        body.dark-mode .metric-card:not(.primary) .metric-value {
             color: #e0e0e0;
         }
 
-        body.dark-mode #dashboard-content > div[style*="background: white"] {
-            background: #1a1a2e !important;
-            border-color: #333 !important;
+        body.dark-mode .metric-card:not(.primary) .metric-label {
+            color: #999;
         }
 
-        body.dark-mode #dashboard-content h3 {
-            color: #e0e0e0 !important;
+        body.dark-mode .metric-card:not(.primary) .metric-badge {
+            background: #2d2d44;
+            color: #b0b0b0;
         }
 
-        body.dark-mode #dashboard-content span[style*="color: #666"] {
-            color: #999 !important;
+        body.dark-mode .overview-card {
+            background: #1a1a2e;
+            border-color: #333;
+        }
+
+        body.dark-mode .overview-title {
+            color: #e0e0e0;
         }
 
         body.dark-mode #platform-bars > div {
@@ -1270,30 +1490,21 @@
             background: #333 !important;
         }
 
-        body.dark-mode #hot-topics-list > div {
-            background: #1a1a2e !important;
-            border: 1px solid #333;
+        body.dark-mode .dashboard-filter {
+            background: #1a1a2e;
+            border-color: #444;
+            color: #e0e0e0;
         }
 
-        body.dark-mode #hot-topics-list [style*="background: #fff3cd"] {
-            background: #2d2d1f !important;
+        body.dark-mode .dashboard-filter:hover {
+            border-color: #58a6ff;
+            color: #58a6ff;
         }
 
-        body.dark-mode #hot-topics-list [style*="background: #f8f9fa"] {
-            background: #1a1a2e !important;
-        }
-
-        body.dark-mode #data-stream > div {
-            background: #1a1a2e !important;
-            border-color: #333 !important;
-        }
-
-        body.dark-mode #data-stream [style*="color: #666"] {
-            color: #999 !important;
-        }
-
-        body.dark-mode #heatmap-chart > div {
-            opacity: 0.8;
+        body.dark-mode .dashboard-filter.active {
+            background: #58a6ff;
+            color: white;
+            border-color: #58a6ff;
         }
 
         /* ========== 分组式导航样式 ========== */
@@ -1578,9 +1789,8 @@
             <div class="nav-primary">
                 <button class="nav-tab active" data-view="overview">📊 总览</button>
                 <button class="nav-tab" data-view="keywords">🏷️ 关键词</button>
-                <button class="nav-tab" data-view="trends">📈 趋势</button>
+                <button class="nav-tab" data-view="analysis">🔍 综合分析</button>
                 <button class="nav-tab" data-view="github-weekly">🔥 GitHub本周增长</button>
-                <button class="nav-tab" data-view="dashboard">📊 仪表盘</button>
             </div>
             
             <!-- 第二行：数据源筛选器 -->
@@ -1611,15 +1821,11 @@
 
         <!-- 总览 -->
         <div id="overview" class="tab-content active">
-            <h2 class="section-title">📊 数据概览</h2>
             <div id="overview-content" class="source-grid"></div>
         </div>
 
         <!-- 热门关键词 -->
         <div id="keywords" class="tab-content">
-            <div class="keywords-header">
-                <h2 class="section-title">🏷️ 热门关键词</h2>
-            </div>
             <div class="keywords-cloud">
                 <div id="word-cloud-container" class="word-cloud-html"></div>
                 <div class="word-cloud-stats">
@@ -1645,43 +1851,120 @@
             <div id="source-detail-content"></div>
         </div>
 
-        <!-- 趋势图表 -->
-        <div id="trends" class="tab-content">
-            <h2 class="section-title">📈 趋势分析</h2>
+        <!-- GitHub本周增长 -->
+        <div id="github-weekly" class="tab-content">
+            <div class="github-weekly-intro">
+                <p>📈 基于 GitHub Trending 数据，展示本周增长最快的开源项目</p>
+            </div>
+            <div id="github-weekly-content">
+                <!-- GitHub本周增长项目列表 -->
+            </div>
+        </div>
 
-            <!-- 趋势概览卡片 -->
-            <div class="trend-summary-cards">
-                <div class="trend-card">
-                    <div class="trend-card-icon">📊</div>
-                    <div class="trend-card-info">
-                        <div class="trend-card-value" id="trend-total-items">--</div>
-                        <div class="trend-card-label">总数据量</div>
-                    </div>
-                </div>
-                <div class="trend-card">
-                    <div class="trend-card-icon">📈</div>
-                    <div class="trend-card-info">
-                        <div class="trend-card-value" id="trend-growth-rate">--</div>
-                        <div class="trend-card-label">增长率</div>
-                    </div>
-                </div>
-                <div class="trend-card">
-                    <div class="trend-card-icon">🔥</div>
-                    <div class="trend-card-info">
-                        <div class="trend-card-value" id="trend-peak-day">--</div>
-                        <div class="trend-card-label">峰值日期</div>
-                    </div>
-                </div>
-                <div class="trend-card">
-                    <div class="trend-card-icon">📅</div>
-                    <div class="trend-card-info">
-                        <div class="trend-card-value" id="trend-avg-daily">--</div>
-                        <div class="trend-card-label">日均数据</div>
-                    </div>
+        <!-- 综合分析 - 合并仪表盘和趋势 -->
+        <div id="analysis" class="tab-content">
+            <!-- 快速筛选栏 -->
+            <div class="analysis-filter-bar">
+                <div class="filter-row">
+                    <span class="filter-label">平台:</span>
+                    <button class="dashboard-filter active" data-filter="all">全部</button>
+                    <button class="dashboard-filter" data-filter="weibo">📱 微博</button>
+                    <button class="dashboard-filter" data-filter="douyin">🎵 抖音</button>
+                    <button class="dashboard-filter" data-filter="zhihu">❓ 知乎</button>
+                    <button class="dashboard-filter" data-filter="bilibili">📺 B站</button>
+                    <button class="dashboard-filter" data-filter="github">🐙 GitHub</button>
+                    <span class="sort-wrapper">
+                        <span class="filter-label">排序:</span>
+                        <select id="dashboard-sort">
+                            <option value="hot">按热度</option>
+                            <option value="time">按时间</option>
+                        </select>
+                    </span>
                 </div>
             </div>
 
-            <!-- 总数据量趋势图 -->
+            <!-- 关键指标卡片 - 合并 trends 和 dashboard -->
+            <div class="analysis-metrics">
+                <div class="metric-card primary">
+                    <div class="metric-header">
+                        <span class="metric-icon">📊</span>
+                        <span class="metric-badge">+12%</span>
+                    </div>
+                    <p class="metric-value" id="metric-total">0</p>
+                    <p class="metric-label">总数据量</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">📈</span>
+                        <span class="metric-badge info">趋势</span>
+                    </div>
+                    <p class="metric-value" id="trend-growth-rate">--</p>
+                    <p class="metric-label">增长率</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">🔥</span>
+                        <span class="metric-badge warning">峰值</span>
+                    </div>
+                    <p class="metric-value" id="trend-peak-day">--</p>
+                    <p class="metric-label">峰值日期</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">📅</span>
+                        <span class="metric-badge success">平均</span>
+                    </div>
+                    <p class="metric-value" id="trend-avg-daily">--</p>
+                    <p class="metric-label">日均数据</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">📡</span>
+                        <span class="metric-badge info">实时</span>
+                    </div>
+                    <p class="metric-value" id="metric-platforms">0</p>
+                    <p class="metric-label">活跃平台</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">⚡</span>
+                        <span class="metric-badge warning">最高</span>
+                    </div>
+                    <p class="metric-value" id="metric-peak">0</p>
+                    <p class="metric-label">最高热度</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">🕐</span>
+                        <span class="metric-badge success">更新</span>
+                    </div>
+                    <p class="metric-value small" id="metric-update">--:--</p>
+                    <p class="metric-label">最后更新</p>
+                </div>
+            </div>
+
+            <!-- 实时概览三列卡片 -->
+            <div class="analysis-overview">
+                <!-- 平台分布 -->
+                <div class="overview-card">
+                    <h3 class="overview-title">📊 平台分布</h3>
+                    <div id="platform-bars"></div>
+                </div>
+
+                <!-- 每日趋势 -->
+                <div class="overview-card">
+                    <h3 class="overview-title">📈 每日趋势</h3>
+                    <div id="daily-trend-chart" class="trend-mini-chart"></div>
+                </div>
+
+                <!-- 每日数据量 -->
+                <div class="overview-card">
+                    <h3 class="overview-title">📅 每日数据量</h3>
+                    <div id="daily-counts-chart" class="daily-counts-grid"></div>
+                </div>
+            </div>
+
+            <!-- 趋势分析图表区域 -->
             <div class="chart-section">
                 <h3>📈 总数据量趋势（含预测）</h3>
                 <div class="chart-container">
@@ -1689,7 +1972,6 @@
                 </div>
             </div>
 
-            <!-- 数据源对比趋势图 -->
             <div class="chart-section">
                 <h3>📊 各数据源趋势对比</h3>
                 <div class="chart-container">
@@ -1697,12 +1979,9 @@
                 </div>
             </div>
 
-            <!-- 热门关键词趋势图 -->
             <div class="chart-section">
                 <h3>🔥 热门关键词趋势</h3>
-                <div class="chart-container">
-                    <canvas id="keyword-trend-canvas"></canvas>
-                </div>
+                <div id="keyword-trend-container" class="chart-container"></div>
             </div>
 
             <!-- 趋势分析说明 -->
@@ -1713,114 +1992,6 @@
                     <li><strong>趋势预测：</strong>基于历史数据使用线性回归预测未来3天趋势</li>
                     <li><strong>增长率计算：</strong>对比最近7天与前7天的数据变化百分比</li>
                 </ul>
-            </div>
-        </div>
-
-
-
-        <!-- 仪表盘 -->
-        <!-- GitHub本周增长 -->
-        <div id="github-weekly" class="tab-content">
-            <h2 class="section-title">🔥 GitHub本周增长项目 TOP 20</h2>
-            <div class="github-weekly-intro">
-                <p>📈 基于 GitHub Trending 数据，展示本周增长最快的开源项目</p>
-            </div>
-            <div id="github-weekly-content">
-                <!-- GitHub本周增长项目列表 -->
-            </div>
-        </div>
-
-        <div id="dashboard" class="tab-content">
-            <h2 class="section-title">📊 数据仪表盘</h2>
-            <div id="dashboard-content">
-                <!-- 快速筛选栏 -->
-                <div style="background: white; padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
-                        <span style="font-weight: 500; color: #666; font-size: 0.9em;">平台:</span>
-                        <button class="dashboard-filter active" data-filter="all" style="padding: 6px 14px; border-radius: 20px; border: 1px solid #ddd; background: #3b82f6; color: white; cursor: pointer; font-size: 0.85em;">全部</button>
-                        <button class="dashboard-filter" data-filter="weibo" style="padding: 6px 14px; border-radius: 20px; border: 1px solid #ddd; background: white; cursor: pointer; font-size: 0.85em;">📱 微博</button>
-                        <button class="dashboard-filter" data-filter="douyin" style="padding: 6px 14px; border-radius: 20px; border: 1px solid #ddd; background: white; cursor: pointer; font-size: 0.85em;">🎵 抖音</button>
-                        <button class="dashboard-filter" data-filter="zhihu" style="padding: 6px 14px; border-radius: 20px; border: 1px solid #ddd; background: white; cursor: pointer; font-size: 0.85em;">❓ 知乎</button>
-                        <button class="dashboard-filter" data-filter="bilibili" style="padding: 6px 14px; border-radius: 20px; border: 1px solid #ddd; background: white; cursor: pointer; font-size: 0.85em;">📺 B站</button>
-                        <button class="dashboard-filter" data-filter="github" style="padding: 6px 14px; border-radius: 20px; border: 1px solid #ddd; background: white; cursor: pointer; font-size: 0.85em;">🐙 GitHub</button>
-                        <span style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
-                            <span style="font-weight: 500; color: #666; font-size: 0.9em;">排序:</span>
-                            <select id="dashboard-sort" style="padding: 6px 12px; border-radius: 8px; border: 1px solid #ddd; font-size: 0.85em;">
-                                <option value="hot">按热度</option>
-                                <option value="time">按时间</option>
-                            </select>
-                        </span>
-                    </div>
-                </div>
-
-                <!-- 关键指标卡片 - 与布局三一致 -->
-                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-bottom: 20px;">
-                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                            <span style="font-size: 1.8em;">📊</span>
-                            <span style="font-size: 0.7em; background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 10px;">+12%</span>
-                        </div>
-                        <p style="font-size: 1.8em; font-weight: bold; margin: 0;" id="metric-total">0</p>
-                        <p style="font-size: 0.85em; opacity: 0.9; margin: 5px 0 0 0;">总数据量</p>
-                    </div>
-                    <div style="background: white; padding: 20px; border-radius: 12px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid #e5e7eb;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                            <span style="font-size: 1.8em;">🔥</span>
-                            <span style="font-size: 0.7em; background: #dbeafe; color: #1d4ed8; padding: 2px 8px; border-radius: 10px;">实时</span>
-                        </div>
-                        <p style="font-size: 1.8em; font-weight: bold; margin: 0; color: #1f2937;" id="metric-hot">0</p>
-                        <p style="font-size: 0.85em; color: #6b7280; margin: 5px 0 0 0;">热门话题</p>
-                    </div>
-                    <div style="background: white; padding: 20px; border-radius: 12px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid #e5e7eb;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                            <span style="font-size: 1.8em;">📈</span>
-                            <span style="font-size: 0.7em; background: #d1fae5; color: #059669; padding: 2px 8px; border-radius: 10px;">活跃</span>
-                        </div>
-                        <p style="font-size: 1.8em; font-weight: bold; margin: 0; color: #1f2937;" id="metric-platforms">0</p>
-                        <p style="font-size: 0.85em; color: #6b7280; margin: 5px 0 0 0;">活跃平台</p>
-                    </div>
-                    <div style="background: white; padding: 20px; border-radius: 12px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid #e5e7eb;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                            <span style="font-size: 1.8em;">⚡</span>
-                            <span style="font-size: 0.7em; background: #ffedd5; color: #ea580c; padding: 2px 8px; border-radius: 10px;">峰值</span>
-                        </div>
-                        <p style="font-size: 1.8em; font-weight: bold; margin: 0; color: #1f2937;" id="metric-peak">0</p>
-                        <p style="font-size: 0.85em; color: #6b7280; margin: 5px 0 0 0;">最高热度</p>
-                    </div>
-                    <div style="background: white; padding: 20px; border-radius: 12px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid #e5e7eb;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                            <span style="font-size: 1.8em;">🕐</span>
-                            <span style="font-size: 0.7em; background: #f3e8ff; color: #7c3aed; padding: 2px 8px; border-radius: 10px;">更新</span>
-                        </div>
-                        <p style="font-size: 1.2em; font-weight: bold; margin: 0; color: #1f2937;" id="metric-update">--:--</p>
-                        <p style="font-size: 0.85em; color: #6b7280; margin: 5px 0 0 0;">最后更新</p>
-                    </div>
-                </div>
-
-                <!-- 数据可视化区域 -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-                    <!-- 平台分布 -->
-                    <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid #e5e7eb;">
-                        <h3 style="margin-bottom: 15px; color: #1f2937; font-size: 1em; font-weight: 600;">📊 平台分布</h3>
-                        <div id="platform-bars"></div>
-                    </div>
-                    
-                    <!-- 热度趋势 -->
-                    <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid #e5e7eb;">
-                        <h3 style="margin-bottom: 15px; color: #1f2937; font-size: 1em; font-weight: 600;">📈 热度趋势</h3>
-                        <div id="trend-chart" style="height: 160px; display: flex; align-items: flex-end; justify-content: space-around; gap: 8px;"></div>
-                    </div>
-                    
-                    <!-- 活跃时段 -->
-                    <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid #e5e7eb;">
-                        <h3 style="margin-bottom: 15px; color: #1f2937; font-size: 1em; font-weight: 600;">🔥 活跃时段</h3>
-                        <div id="heatmap-chart" style="display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px;"></div>
-                        <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.7em; color: #9ca3af;">
-                            <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
-                        </div>
-                    </div>
-                </div>
-
             </div>
         </div>
 
@@ -1838,6 +2009,7 @@
         // 当前状态
         let currentView = 'overview';
         let currentSource = 'all';
+        let currentCategory = 'all';
 
         // API 配置
         const API_BASE_URL = 'http://localhost:8888';
@@ -1857,7 +2029,7 @@
         // 切换分析视图
         function switchView(viewName) {
             currentView = viewName;
-            
+
             // 更新导航Tab样式
             document.querySelectorAll('.nav-tab').forEach(tab => {
                 tab.classList.remove('active');
@@ -1865,12 +2037,12 @@
                     tab.classList.add('active');
                 }
             });
-            
+
             // 更新内容区域显示
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
             });
-            
+
             // 如果是数据源详情视图
             if (viewName === 'source-detail') {
                 document.getElementById('source-detail').classList.add('active');
@@ -1878,7 +2050,7 @@
             } else {
                 document.getElementById(viewName).classList.add('active');
             }
-            
+
             // 如果切换到关键词 tab，渲染词云
             if (viewName === 'keywords' && savedKeywordsData && Object.keys(savedKeywordsData).length > 0) {
                 // 延迟渲染，确保 tab 完全显示
@@ -1886,7 +2058,16 @@
                     renderWordCloud(savedKeywordsData);
                 }, 100);
             }
-            
+
+            // 如果切换到综合分析 tab，渲染图表
+            if (viewName === 'analysis') {
+                setTimeout(() => {
+                    renderAnalysis(window.REPORT_DATA);
+                    // 渲染 Chart.js 图表
+                    renderAllCharts();
+                }, 100);
+            }
+
             // 根据视图更新数据源筛选器可见性
             updateSourceFilterVisibility();
         }
@@ -1922,13 +2103,15 @@
                 renderOverview(window.REPORT_DATA);
             } else if (currentView === 'keywords') {
                 renderKeywords(window.REPORT_DATA);
-            } else if (currentView === 'dashboard') {
-                renderDashboard(window.REPORT_DATA);
+            } else if (currentView === 'analysis') {
+                renderAnalysis(window.REPORT_DATA);
             }
         }
 
         // 根据分类筛选数据源
         function filterByCategory(category) {
+            currentCategory = category;
+
             // 更新标签高亮状态
             document.querySelectorAll('.source-tag').forEach(tag => {
                 const sourceName = tag.dataset.source;
@@ -1943,21 +2126,73 @@
                     }
                 }
             });
-            
+
             // 如果当前选中的数据源被隐藏，切换到"全部"
             if (category !== 'all' && currentSource !== 'all') {
                 const currentConfig = sourceConfig[currentSource];
                 if (!currentConfig || currentConfig.category !== category) {
-                    switchSource('all');
+                    currentSource = 'all';
                 }
             }
+
+            // 重新渲染当前视图
+            if (window.REPORT_DATA && window.REPORT_DATA.sources) {
+                const filteredData = getFilteredDataByCategory(window.REPORT_DATA);
+
+                if (currentView === 'overview') {
+                    renderOverview(filteredData);
+                } else if (currentView === 'keywords') {
+                    renderKeywords(filteredData);
+                } else if (currentView === 'analysis') {
+                    renderAnalysis(filteredData);
+                } else if (currentView === 'github-weekly') {
+                    renderGitHubWeekly(filteredData);
+                } else if (currentView === 'source-detail') {
+                    renderSourceDetail();
+                }
+            }
+        }
+
+        // 根据分类获取筛选后的数据
+        function getFilteredDataByCategory(data) {
+            if (currentCategory === 'all') {
+                return data;
+            }
+
+            const filteredSources = {};
+            const sources = data.sources || {};
+
+            Object.entries(sources).forEach(([sourceName, items]) => {
+                const config = sourceConfig[sourceName];
+                if (config && config.category === currentCategory) {
+                    filteredSources[sourceName] = items;
+                }
+            });
+
+            // 重新计算关键词（基于筛选后的数据）
+            const filteredKeywords = {};
+            Object.values(filteredSources).forEach(items => {
+                items.forEach(item => {
+                    if (item.keywords) {
+                        item.keywords.forEach(keyword => {
+                            filteredKeywords[keyword] = (filteredKeywords[keyword] || 0) + 1;
+                        });
+                    }
+                });
+            });
+
+            return {
+                ...data,
+                sources: filteredSources,
+                keywords: filteredKeywords
+            };
         }
 
         // 更新数据源筛选器可见性
         function updateSourceFilterVisibility() {
             const navSecondary = document.querySelector('.nav-secondary');
-            // 趋势图表视图不需要数据源筛选
-            if (currentView === 'trends') {
+            // 综合分析视图内部有自己的筛选器
+            if (currentView === 'analysis') {
                 navSecondary.style.display = 'none';
             } else {
                 navSecondary.style.display = 'flex';
@@ -2285,21 +2520,245 @@
             return Math.round(num).toString();
         }
 
-        // 渲染趋势图表 - 使用 Chart.js 和时间序列分析
-        function renderTrends(data) {
+        // 渲染综合分析 - 合并 trends 和 dashboard
+        function renderAnalysis(data) {
             const trends = data.trends || {};
+            const sources = data.sources || {};
 
-            // 更新趋势概览卡片
+            // 正确合并数据，确保每个 item 都有 source 字段
+            let allItems = [];
+            for (const [sourceName, items] of Object.entries(sources)) {
+                if (Array.isArray(items)) {
+                    items.forEach(item => {
+                        allItems.push({
+                            ...item,
+                            source: item.source || sourceName
+                        });
+                    });
+                }
+            }
+
+            // 应用筛选
+            if (dashboardFilter !== 'all') {
+                allItems = allItems.filter(item => item.source === dashboardFilter);
+            }
+
+            // 应用排序
+            allItems.sort((a, b) => {
+                if (dashboardSort === 'hot') return (b.hot_score || 0) - (a.hot_score || 0);
+                if (dashboardSort === 'time') return new Date(b.fetched_at) - new Date(a.fetched_at);
+                return 0;
+            });
+
+            // 更新关键指标卡片
+            updateAnalysisMetrics(allItems, trends.summary, data);
+
+            // 渲染实时概览三列卡片
+            renderOverviewCards(allItems, data);
+
+            // 渲染趋势图表
             updateTrendSummary(trends.summary);
-
-            // 渲染总趋势图（含预测）
             renderTotalTrendChart(trends.summary);
-
-            // 渲染数据源趋势对比图
             renderSourceTrendChart(trends.source_trends);
-
-            // 渲染关键词趋势图
             renderKeywordTrendChart(trends.keyword_trends);
+        }
+
+        // 更新综合分析的关键指标
+        function updateAnalysisMetrics(allItems, summary, data) {
+            // 优先使用数据库全量统计数据
+            const dbStats = data.db_stats || {};
+
+            // 基础指标（优先使用数据库全量统计）
+            document.getElementById('metric-total').textContent = dbStats.total_count || allItems.length;
+            document.getElementById('metric-platforms').textContent = dbStats.sources_count || new Set(allItems.map(i => i.source)).size;
+
+            const maxHeat = allItems.length > 0 ? Math.max(...allItems.map(i => i.hot_score || 0)) : 0;
+            document.getElementById('metric-peak').textContent = formatNumber(maxHeat);
+
+            if (allItems.length > 0) {
+                const latest = new Date(allItems[0].fetched_at);
+                document.getElementById('metric-update').textContent =
+                    latest.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            }
+
+            // 趋势指标（优先使用数据库全量统计）
+            if (dbStats.daily_counts && dbStats.daily_counts.length > 0) {
+                // 使用数据库统计的日趋势数据
+                const dailyCounts = dbStats.daily_counts;
+
+                // 计算增长率（最近3天 vs 前3天）
+                const recent3 = dailyCounts.slice(-3);
+                const previous3 = dailyCounts.slice(-6, -3);
+                const recentSum = recent3.reduce((sum, day) => sum + (day.count || 0), 0);
+                const previousSum = previous3.reduce((sum, day) => sum + (day.count || 0), 0);
+                const growthRate = previousSum > 0 ? ((recentSum - previousSum) / previousSum * 100).toFixed(1) : 0;
+
+                // 找出峰值日期
+                const peakDay = dailyCounts.reduce((max, day) => (day.count || 0) > (max.count || 0) ? day : max, dailyCounts[0]);
+
+                // 更新趋势指标卡片
+                document.getElementById('trend-growth-rate').textContent = (growthRate > 0 ? '+' : '') + growthRate + '%';
+                document.getElementById('trend-growth-rate').style.color = growthRate >= 0 ? '#43e97b' : '#ff6b6b';
+                document.getElementById('trend-peak-day').textContent = peakDay.date ? new Date(peakDay.date).toLocaleDateString('zh-CN', {month: 'short', day: 'numeric'}) : '--';
+                document.getElementById('trend-avg-daily').textContent = formatNumber(dbStats.avg_daily || 0);
+            } else if (summary && summary.total_trend && summary.total_trend.length > 0) {
+                // 回退到 trends 数据
+                const trend = summary.total_trend;
+                const total = trend.reduce((sum, day) => sum + day.count, 0);
+                const avgDaily = Math.round(total / trend.length);
+
+                // 计算增长率（最近7天 vs 前7天）
+                const recent7 = trend.slice(-7);
+                const previous7 = trend.slice(-14, -7);
+                const recentSum = recent7.reduce((sum, day) => sum + day.count, 0);
+                const previousSum = previous7.reduce((sum, day) => sum + day.count, 0);
+                const growthRate = previousSum > 0 ? ((recentSum - previousSum) / previousSum * 100).toFixed(1) : 0;
+
+                // 找出峰值日期
+                const peakDay = trend.reduce((max, day) => day.count > max.count ? day : max, trend[0]);
+
+                // 更新趋势指标卡片
+                document.getElementById('trend-growth-rate').textContent = (growthRate > 0 ? '+' : '') + growthRate + '%';
+                document.getElementById('trend-growth-rate').style.color = growthRate >= 0 ? '#43e97b' : '#ff6b6b';
+                document.getElementById('trend-peak-day').textContent = new Date(peakDay.date).toLocaleDateString('zh-CN', {month: 'short', day: 'numeric'});
+                document.getElementById('trend-avg-daily').textContent = formatNumber(avgDaily);
+            }
+        }
+
+        // 渲染实时概览三列卡片
+        function renderOverviewCards(allItems, data) {
+            const platformColors = {
+                'weibo': '#e74c3c', 'douyin': '#000000', 'zhihu': '#3498db',
+                'bilibili': '#fb7299', 'github': '#333333', 'hackernews': '#ff6600',
+                'arxiv': '#16a085', 'github_ai': '#9b59b6'
+            };
+
+            const platformNames = {
+                'weibo': '📱 微博', 'douyin': '🎵 抖音', 'zhihu': '❓ 知乎',
+                'bilibili': '📺 B站', 'github': '🐙 GitHub', 'hackernews': '📰 HN',
+                'arxiv': '📚 ArXiv', 'github_ai': '🤖 GitHub AI'
+            };
+
+            // 平台分布 - 优先使用数据库全量统计
+            const platformBars = document.getElementById('platform-bars');
+            const dbStats = data.db_stats || {};
+            const dbBySource = dbStats.by_source || {};
+
+            let platformCounts = {};
+            let total = allItems.length;
+
+            // 如果有数据库全量统计，使用它
+            if (Object.keys(dbBySource).length > 0) {
+                Object.entries(dbBySource).forEach(([source, stats]) => {
+                    platformCounts[source] = stats.count || 0;
+                });
+                total = dbStats.total_count || allItems.length;
+            } else {
+                // 回退到使用今日数据
+                allItems.forEach(item => {
+                    const source = item.source || 'unknown';
+                    platformCounts[source] = (platformCounts[source] || 0) + 1;
+                });
+            }
+
+            platformBars.innerHTML = Object.entries(platformCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([platform, count]) => {
+                    const percent = total > 0 ? (count / total * 100).toFixed(1) : 0;
+                    const color = platformColors[platform] || '#95a5a6';
+                    const name = platformNames[platform] || platform;
+                    return `
+                        <div style="margin-bottom: 12px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="font-weight: 500;">${name}</span>
+                                <span style="color: #666;">${count} (${percent}%)</span>
+                            </div>
+                            <div style="background: #ecf0f1; height: 8px; border-radius: 4px; overflow: hidden;">
+                                <div style="background: ${color}; height: 100%; width: ${percent}%; transition: width 0.5s;"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+            // 每日趋势图 - 使用最近7天的数据，带折线效果
+            const dailyTrendChart = document.getElementById('daily-trend-chart');
+            const dailyCounts = dbStats.daily_counts || [];
+
+            if (dailyCounts.length > 0) {
+                const counts = dailyCounts.map(d => d.count || 0);
+                const maxCount = Math.max(...counts, 1);
+                const minCount = Math.min(...counts.filter(c => c > 0)) || 0;
+                const range = maxCount - minCount || 1;
+
+                // 构建 SVG 折线图
+                const width = 100;
+                const height = 60;
+                const points = counts.map((count, i) => {
+                    const x = (i / (counts.length - 1)) * width;
+                    const y = height - ((count - minCount) / range * height * 0.8 + height * 0.1);
+                    return `${x},${y}`;
+                }).join(' ');
+
+                // 构建面积图路径
+                const areaPath = `0,${height} ${points} ${width},${height}`;
+
+                dailyTrendChart.innerHTML = `
+                    <svg viewBox="0 0 100 75" style="width: 100%; height: 100%; overflow: visible;">
+                        <!-- 渐变定义 -->
+                        <defs>
+                            <linearGradient id="trendGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" style="stop-color:#667eea;stop-opacity:0.3" />
+                                <stop offset="100%" style="stop-color:#667eea;stop-opacity:0.05" />
+                            </linearGradient>
+                        </defs>
+                        <!-- 面积填充 -->
+                        <polygon points="${areaPath}" fill="url(#trendGradient)" />
+                        <!-- 折线 -->
+                        <polyline points="${points}" fill="none" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        <!-- 数据点 -->
+                        ${counts.map((count, i) => {
+                            const x = (i / (counts.length - 1)) * width;
+                            const y = height - ((count - minCount) / range * height * 0.8 + height * 0.1);
+                            const dateLabel = dailyCounts[i].date ? new Date(dailyCounts[i].date).toLocaleDateString('zh-CN', {month: 'numeric', day: 'numeric'}) : '';
+                            return `<circle cx="${x}" cy="${y}" r="3" fill="#667eea" stroke="white" stroke-width="1.5" />
+                                    <text x="${x}" y="${height + 12}" text-anchor="middle" font-size="6" fill="#666">${dateLabel}</text>`;
+                        }).join('')}
+                    </svg>
+                `;
+            } else {
+                dailyTrendChart.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无趋势数据</div>';
+            }
+
+            // 每日数据量 - 显示最近7天的数据量列表，完全利用div空间
+            const dailyCountsChart = document.getElementById('daily-counts-chart');
+
+            if (dailyCounts.length > 0) {
+                const maxCount = Math.max(...dailyCounts.map(d => d.count || 0), 1);
+                const itemHeight = Math.floor(140 / dailyCounts.length); // 根据数据条数动态计算每项高度
+                const barHeight = Math.max(itemHeight - 8, 16); // 进度条高度
+
+                dailyCountsChart.innerHTML = dailyCounts.map((item, index) => {
+                    const count = item.count || 0;
+                    const percent = (count / maxCount * 100);
+                    const dateLabel = item.date ? new Date(item.date).toLocaleDateString('zh-CN', {month: 'numeric', day: 'numeric'}) : '';
+                    const dayName = item.date ? new Date(item.date).toLocaleDateString('zh-CN', {weekday: 'short'}) : '';
+                    const isToday = index === dailyCounts.length - 1;
+                    const isMax = count === maxCount;
+
+                    return `
+                        <div style="display: flex; align-items: center; gap: 8px; height: ${itemHeight}px; ${isToday ? 'background: rgba(102, 126, 234, 0.08); border-radius: 8px; margin: 0 -6px; padding: 0 6px;' : ''}">
+                            <span style="width: 38px; color: ${isToday ? '#667eea' : '#555'}; font-weight: ${isToday ? '700' : '500'}; font-size: 0.9em; flex-shrink: 0;">${dateLabel}</span>
+                            <span style="width: 26px; color: #888; font-size: 0.8em; flex-shrink: 0;">${dayName}</span>
+                            <div style="flex: 1; background: #e8e8e8; height: ${barHeight}px; border-radius: ${barHeight/2}px; overflow: hidden; min-width: 60px;">
+                                <div style="background: ${isMax ? 'linear-gradient(90deg, #ff6b6b, #feca57)' : isToday ? 'linear-gradient(90deg, #667eea, #764ba2)' : 'linear-gradient(90deg, #667eea, #764ba2)'}; height: 100%; width: ${percent}%; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); border-radius: ${barHeight/2}px; box-shadow: ${isMax || isToday ? '0 2px 8px rgba(102, 126, 234, 0.3)' : 'none'};"></div>
+                            </div>
+                            <span style="width: 42px; text-align: right; font-weight: ${isToday || isMax ? '700' : '600'}; color: ${isToday ? '#667eea' : isMax ? '#ff6b6b' : '#444'}; font-size: 0.95em; flex-shrink: 0;">${count}</span>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                dailyCountsChart.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无数据</div>';
+            }
         }
 
         // 更新趋势概览卡片
@@ -2322,12 +2781,19 @@
             // 找出峰值日期
             const peakDay = trend.reduce((max, day) => day.count > max.count ? day : max, trend[0]);
 
-            // 更新卡片
-            document.getElementById('trend-total-items').textContent = formatNumber(total);
-            document.getElementById('trend-growth-rate').textContent = (growthRate > 0 ? '+' : '') + growthRate + '%';
-            document.getElementById('trend-growth-rate').style.color = growthRate >= 0 ? '#43e97b' : '#ff6b6b';
-            document.getElementById('trend-peak-day').textContent = new Date(peakDay.date).toLocaleDateString('zh-CN', {month: 'short', day: 'numeric'});
-            document.getElementById('trend-avg-daily').textContent = formatNumber(avgDaily);
+            // 更新卡片（如果元素存在）
+            const trendTotalItems = document.getElementById('trend-total-items');
+            const trendGrowthRate = document.getElementById('trend-growth-rate');
+            const trendPeakDay = document.getElementById('trend-peak-day');
+            const trendAvgDaily = document.getElementById('trend-avg-daily');
+
+            if (trendTotalItems) trendTotalItems.textContent = formatNumber(total);
+            if (trendGrowthRate) {
+                trendGrowthRate.textContent = (growthRate > 0 ? '+' : '') + growthRate + '%';
+                trendGrowthRate.style.color = growthRate >= 0 ? '#43e97b' : '#ff6b6b';
+            }
+            if (trendPeakDay) trendPeakDay.textContent = new Date(peakDay.date).toLocaleDateString('zh-CN', {month: 'short', day: 'numeric'});
+            if (trendAvgDaily) trendAvgDaily.textContent = formatNumber(avgDaily);
         }
 
         // 计算移动平均线
@@ -2390,8 +2856,20 @@
         // 渲染总趋势图（含预测）
         function renderTotalTrendChart(summary) {
             const canvas = document.getElementById('total-trend-canvas');
-            if (!canvas || !summary || !summary.total_trend || summary.total_trend.length === 0) {
+            if (!canvas) {
+                console.log('总趋势图 canvas 未找到');
                 return;
+            }
+            if (!summary || !summary.total_trend || summary.total_trend.length === 0) {
+                console.log('总趋势图数据为空', summary);
+                return;
+            }
+
+            // 确保 canvas 有正确的尺寸
+            const container = canvas.parentElement;
+            if (container) {
+                canvas.width = container.clientWidth;
+                canvas.height = container.clientHeight || 300;
             }
 
             const trend = summary.total_trend;
@@ -2590,9 +3068,11 @@
 
         // 渲染关键词趋势图
         function renderKeywordTrendChart(keywordTrends) {
-            const canvas = document.getElementById('keyword-trend-canvas');
-            const container = canvas ? canvas.parentElement : null;
-            if (!container) return;
+            const container = document.getElementById('keyword-trend-container');
+            if (!container) {
+                console.log('关键词趋势图容器不存在');
+                return;
+            }
 
             if (!keywordTrends || Object.keys(keywordTrends).length === 0) {
                 container.innerHTML = '<div class="empty-state">暂无数据</div>';
@@ -2631,25 +3111,24 @@
         // 初始化页面
         function init() {
             const data = window.REPORT_DATA;
-            
+
             // 设置生成时间
-            document.getElementById('generated-time').textContent = 
+            document.getElementById('generated-time').textContent =
                 data.generated_at ? new Date(data.generated_at).toLocaleString('zh-CN') : '--';
-            
-            // 设置统计数据
-            document.getElementById('total-items').textContent = data.total_items || 0;
-            document.getElementById('total-sources').textContent = 
-                data.sources ? Object.keys(data.sources).length : 0;
-            document.getElementById('total-topics').textContent = 
+
+            // 设置统计数据 - 优先使用数据库全量统计
+            const dbStats = data.db_stats || {};
+            document.getElementById('total-items').textContent = dbStats.total_count || data.total_items || 0;
+            document.getElementById('total-sources').textContent =
+                dbStats.sources_count || (data.sources ? Object.keys(data.sources).length : 0);
+            document.getElementById('total-topics').textContent =
                 data.topics ? Object.keys(data.topics).length : 0;
-            
+
             // 渲染各部分内容
             renderOverview(data);
             renderKeywords(data);
-            renderTrends(data);
             renderGitHubWeekly(data);
-            renderDashboard(data);
-            
+
             // 绑定导航Tab点击事件
             document.querySelectorAll('.nav-tab').forEach(tab => {
                 tab.addEventListener('click', function() {
@@ -2661,7 +3140,7 @@
                     }
                 });
             });
-            
+
             // 绑定数据源标签点击事件
             document.querySelectorAll('.source-tag').forEach(tag => {
                 tag.addEventListener('click', function() {
@@ -2671,7 +3150,7 @@
                     switchView('source-detail');
                 });
             });
-            
+
             // 绑定分类下拉框事件
             document.getElementById('source-category').addEventListener('change', function() {
                 filterByCategory(this.value);
@@ -2741,175 +3220,30 @@
         let dashboardFilter = 'all';
         let dashboardSort = 'hot';
 
-        // 渲染仪表盘
-        function renderDashboard(data) {
-            const sources = data.sources || {};
-            
-            // 正确合并数据，确保每个 item 都有 source 字段
-            let allItems = [];
-            for (const [sourceName, items] of Object.entries(sources)) {
-                if (Array.isArray(items)) {
-                    items.forEach(item => {
-                        allItems.push({
-                            ...item,
-                            source: item.source || sourceName
-                        });
-                    });
-                }
-            }
-            
-            // 应用筛选
-            if (dashboardFilter !== 'all') {
-                allItems = allItems.filter(item => item.source === dashboardFilter);
-            }
-            
-            // 应用排序
-            allItems.sort((a, b) => {
-                if (dashboardSort === 'hot') return (b.hot_score || 0) - (a.hot_score || 0);
-                if (dashboardSort === 'time') return new Date(b.fetched_at) - new Date(a.fetched_at);
-                return 0;
-            });
-            
-            // 更新指标
-            document.getElementById('metric-total').textContent = allItems.length;
-            document.getElementById('metric-hot').textContent = new Set(allItems.map(i => i.title)).size;
-            document.getElementById('metric-platforms').textContent = new Set(allItems.map(i => i.source)).size;
-            
-            const maxHeat = allItems.length > 0 ? Math.max(...allItems.map(i => i.hot_score || 0)) : 0;
-            document.getElementById('metric-peak').textContent = formatNumber(maxHeat);
-            
-            if (allItems.length > 0) {
-                const latest = new Date(allItems[0].fetched_at);
-                document.getElementById('metric-update').textContent = 
-                    latest.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-            }
-            
-            const platformColors = {
-                'weibo': '#e74c3c', 'douyin': '#000000', 'zhihu': '#3498db',
-                'bilibili': '#fb7299', 'github': '#333333', 'hackernews': '#ff6600',
-                'arxiv': '#16a085', 'github_ai': '#9b59b6'
-            };
-            
-            const platformNames = {
-                'weibo': '📱 微博', 'douyin': '🎵 抖音', 'zhihu': '❓ 知乎',
-                'bilibili': '📺 B站', 'github': '🐙 GitHub', 'hackernews': '📰 HN',
-                'arxiv': '📚 ArXiv', 'github_ai': '🤖 GitHub AI'
-            };
-            
-            // 平台配置 - 与 report_layout3.html 一致
-            const platformConfig = {
-                'weibo': { icon: '📱', color: 'bg-red-500', name: '微博' },
-                'douyin': { icon: '🎵', color: 'bg-black', name: '抖音' },
-                'zhihu': { icon: '❓', color: 'bg-blue-500', name: '知乎' },
-                'bilibili': { icon: '📺', color: 'bg-pink-500', name: 'B站' },
-                'github': { icon: '🐙', color: 'bg-gray-800', name: 'GitHub' },
-                'hackernews': { icon: '📰', color: 'bg-orange-500', name: 'HN' },
-                'arxiv': { icon: '📚', color: 'bg-green-500', name: 'ArXiv' },
-                'github_ai': { icon: '🤖', color: 'bg-purple-500', name: 'GitHub AI' }
-            };
-            
-            // 平台分布
-            const platformBars = document.getElementById('platform-bars');
-            const platformCounts = {};
-            allItems.forEach(item => {
-                const source = item.source || 'unknown';
-                platformCounts[source] = (platformCounts[source] || 0) + 1;
-            });
-            
-            const total = allItems.length;
-            platformBars.innerHTML = Object.entries(platformCounts)
-                .sort((a, b) => b[1] - a[1])
-                .map(([platform, count]) => {
-                    const percent = total > 0 ? (count / total * 100).toFixed(1) : 0;
-                    const color = platformColors[platform] || '#95a5a6';
-                    const name = platformNames[platform] || platform;
-                    return `
-                        <div style="margin-bottom: 12px;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                                <span style="font-weight: 500;">${name}</span>
-                                <span style="color: #666;">${count} (${percent}%)</span>
-                            </div>
-                            <div style="background: #ecf0f1; height: 8px; border-radius: 4px; overflow: hidden;">
-                                <div style="background: ${color}; height: 100%; width: ${percent}%; transition: width 0.5s;"></div>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            
-            // 热度趋势图 - 使用真实数据
-            const trendChart = document.getElementById('trend-chart');
-            const hourlyData = data.trending_by_hour || [];
-            
-            if (hourlyData.length > 0) {
-                // 使用真实的小时趋势数据
-                const maxCount = Math.max(...hourlyData.map(d => d.count), 1);
-                trendChart.innerHTML = hourlyData.map(item => {
-                    const height = (item.count / maxCount * 100);
-                    const timeLabel = item.time ? item.time.split(' ')[1] : '';
-                    return `
-                        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;" title="数据量: ${item.count}, 平均热度: ${item.avg_hot_score}">
-                            <div style="width: 100%; background: linear-gradient(to top, #3b82f6, #60a5fa); border-radius: 4px 4px 0 0; height: ${height}%; transition: height 0.5s;"></div>
-                            <span style="font-size: 0.7em; color: #666;">${timeLabel}</span>
-                        </div>
-                    `;
-                }).join('');
-            } else {
-                // 没有数据时显示提示
-                trendChart.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无趋势数据</div>';
-            }
-            
-            // 活跃时段热力图 - 使用真实数据
-            const heatmapChart = document.getElementById('heatmap-chart');
-            const hourlyDistribution = data.hourly_distribution || [];
-            
-            if (hourlyDistribution.length > 0) {
-                const maxTotalHeat = Math.max(...hourlyDistribution.map(d => d.total_hot_score), 1);
-                
-                heatmapChart.innerHTML = hourlyDistribution.map((item, i) => {
-                    const intensity = item.total_hot_score / maxTotalHeat;
-                    const opacity = 0.15 + intensity * 0.85;
-                    const timeLabel = `${String(i).padStart(2, '0')}:00`;
-                    return `
-                        <div style="aspect-ratio: 1; background: #3b82f6; border-radius: 2px; opacity: ${opacity}; cursor: pointer;" 
-                             title="${timeLabel} - 数据量: ${item.count}, 总热度: ${Math.round(item.total_hot_score)}, 平均热度: ${item.avg_hot_score}"></div>
-                    `;
-                }).join('');
-            } else {
-                // 没有数据时显示灰色格子
-                heatmapChart.innerHTML = Array(24).fill(0).map((_, i) => {
-                    return `
-                        <div style="aspect-ratio: 1; background: #e1e4e8; border-radius: 2px; opacity: 0.3;" title="${String(i).padStart(2, '0')}:00 - 无数据"></div>
-                    `;
-                }).join('');
-            }
-        }
-
         // 仪表盘筛选事件
-        document.addEventListener('DOMContentLoaded', function() {
-            // 筛选按钮
-            document.querySelectorAll('.dashboard-filter').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    document.querySelectorAll('.dashboard-filter').forEach(b => {
-                        b.style.background = 'white';
-                        b.style.color = '#333';
+            document.addEventListener('DOMContentLoaded', function() {
+                // 筛选按钮
+                document.querySelectorAll('.dashboard-filter').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        document.querySelectorAll('.dashboard-filter').forEach(b => {
+                            b.classList.remove('active');
+                        });
+                        this.classList.add('active');
+                        dashboardFilter = this.dataset.filter;
+                        if (typeof window.REPORT_DATA !== 'undefined' && currentView === 'analysis') {
+                            renderAnalysis(window.REPORT_DATA);
+                        }
                     });
-                    this.style.background = '#3b82f6';
-                    this.style.color = 'white';
-                    dashboardFilter = this.dataset.filter;
-                    if (typeof window.REPORT_DATA !== 'undefined') {
-                        renderDashboard(window.REPORT_DATA);
+                });
+
+                // 排序选择
+                document.getElementById('dashboard-sort').addEventListener('change', function() {
+                    dashboardSort = this.value;
+                    if (typeof window.REPORT_DATA !== 'undefined' && currentView === 'analysis') {
+                        renderAnalysis(window.REPORT_DATA);
                     }
                 });
             });
-            
-            // 排序选择
-            document.getElementById('dashboard-sort').addEventListener('change', function() {
-                dashboardSort = this.value;
-                if (typeof window.REPORT_DATA !== 'undefined') {
-                    renderDashboard(window.REPORT_DATA);
-                }
-            });
-        });
 
         // ==================== 数据源状态管理 ====================
         
@@ -3158,15 +3492,53 @@
             }, 3000);
         }
         
+        // 渲染所有 Chart.js 图表
+        function renderAllCharts() {
+            if (typeof Chart === 'undefined') {
+                console.log('Chart.js 未加载，等待中...');
+                setTimeout(renderAllCharts, 100);
+                return;
+            }
+
+            if (!window.REPORT_DATA) {
+                console.log('报告数据未准备好');
+                return;
+            }
+
+            console.log('开始渲染图表...');
+            const trends = window.REPORT_DATA.trends || {};
+
+            if (trends.summary && trends.summary.total_trend && trends.summary.total_trend.length > 0) {
+                console.log('渲染总趋势图', trends.summary.total_trend);
+                updateTrendSummary(trends.summary);
+                renderTotalTrendChart(trends.summary);
+            } else {
+                console.log('总趋势图数据不足', trends.summary);
+            }
+
+            if (trends.source_trends && Object.keys(trends.source_trends).length > 0) {
+                console.log('渲染数据源趋势图');
+                renderSourceTrendChart(trends.source_trends);
+            }
+
+            if (trends.keyword_trends && Object.keys(trends.keyword_trends).length > 0) {
+                console.log('渲染关键词趋势图');
+                renderKeywordTrendChart(trends.keyword_trends);
+            }
+        }
+
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', function() {
             init();
-            
+
             // 加载数据源状态
             fetchSourceStatus();
-            
+
             // 每30秒刷新一次状态
             setInterval(fetchSourceStatus, 30000);
+
+            // 渲染图表（会等待 Chart.js 加载）
+            renderAllCharts();
         });
     </script>
     <!-- Chart.js 图表库 -->
