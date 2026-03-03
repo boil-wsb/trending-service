@@ -48,7 +48,10 @@ def check_service_status(host: str = None, port: int = None) -> dict:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(2)
         result = sock.connect_ex((host, port))
-        status['checks']['port'] = result == 0
+        port_open = result == 0
+        status['checks']['port'] = port_open
+        if not port_open:
+            status['checks']['port_error'] = f"端口 {port} 未开放 (错误码: {result})"
         sock.close()
     except Exception as e:
         status['checks']['port'] = False

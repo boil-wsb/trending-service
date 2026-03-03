@@ -39,11 +39,11 @@ class ReportGenerator:
         
         # 获取今天的数据
         today = date.today()
-        items = self.dao.get_items(start_date=today, end_date=today, limit=200)
+        items = self.dao.get_items(start_date=today, end_date=today, limit=500)
         
         if not items:
             print("⚠️ 今天没有数据，尝试获取最近的数据...")
-            items = self.dao.get_items(limit=200)
+            items = self.dao.get_items(limit=500)
         
         print(f"📊 获取到 {len(items)} 条数据")
         

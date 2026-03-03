@@ -16,6 +16,9 @@ project_root = Path(__file__).parent.parent.resolve()
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+# 导入配置
+from src.config import SERVER
+
 
 def start_service_background():
     """后台启动服务"""
@@ -68,7 +71,7 @@ def start_service_background():
 
     print(f"✅ Trending Service 已启动 (PID: {process.pid})")
     print(f"📝 PID文件: {pid_file}")
-    print(f"🌐 访问地址: http://localhost:8000/report.html")
+    print(f"🌐 访问地址: http://{SERVER['host']}:{SERVER['port']}/report.html")
     print(f"\n使用以下命令停止服务:")
     print(f"  python scripts/stop_service.py")
 

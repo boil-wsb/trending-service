@@ -155,32 +155,34 @@ class FetchFailureDAO:
             是否成功更新
         """
         now = datetime.now()
-        cursor = self.db.execute('''
+        # self.db.execute 返回的是 rowcount (int)，不是 cursor
+        updated_count = self.db.execute('''
             UPDATE fetch_failures
             SET status = 'success',
                 updated_at = ?
             WHERE source = ? AND status = 'pending'
         ''', (now, source))
-        return cursor.rowcount > 0
-    
+        return updated_count > 0
+
     def mark_failed(self, source: str) -> bool:
         """
         标记数据源最终失败（超过最大重试次数）
-        
+
         Args:
             source: 数据源名称
-            
+
         Returns:
             是否成功更新
         """
         now = datetime.now()
-        cursor = self.db.execute('''
+        # self.db.execute 返回的是 rowcount (int)，不是 cursor
+        updated_count = self.db.execute('''
             UPDATE fetch_failures
             SET status = 'failed',
                 updated_at = ?
             WHERE source = ? AND status = 'pending'
         ''', (now, source))
-        return cursor.rowcount > 0
+        return updated_count > 0
     
     def get_by_source(self, source: str) -> Optional[FetchFailure]:
         """
@@ -288,11 +290,12 @@ class FetchFailureDAO:
             删除的记录数
         """
         cutoff_date = datetime.now() - timedelta(days=days)
-        cursor = self.db.execute('''
+        # self.db.execute 返回的是 rowcount (int)，不是 cursor
+        deleted_count = self.db.execute('''
             DELETE FROM fetch_failures
             WHERE updated_at < ?
         ''', (cutoff_date,))
-        return cursor.rowcount
+        return deleted_count
     
     def clear_all(self) -> int:
         """
@@ -301,8 +304,9 @@ class FetchFailureDAO:
         Returns:
             删除的记录数
         """
-        cursor = self.db.execute('DELETE FROM fetch_failures')
-        return cursor.rowcount
+        # self.db.execute 返回的是 rowcount (int)，不是 cursor
+        deleted_count = self.db.execute('DELETE FROM fetch_failures')
+        return deleted_count
     
     def _row_to_failure(self, row: tuple) -> FetchFailure:
         """将数据库行转换为 FetchFailure 对象"""
