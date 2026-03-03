@@ -129,7 +129,7 @@ class FetchFailureDAO:
             return existing.id
         else:
             # 插入新记录
-            cursor = self.db.execute('''
+            self.db.execute('''
                 INSERT INTO fetch_failures
                 (source, error_message, retry_count, last_try_at, next_retry_at, status, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -142,7 +142,7 @@ class FetchFailureDAO:
                 'pending',
                 now
             ))
-            return cursor.lastrowid
+            return self.db.get_last_insert_id()
     
     def mark_success(self, source: str) -> bool:
         """

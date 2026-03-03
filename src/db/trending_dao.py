@@ -20,6 +20,10 @@ class TrendingDAO:
         """
         批量保存热点数据（已存在的会更新）
 
+        使用 INSERT OR REPLACE 实现 upsert 逻辑：
+        - 如果记录不存在（基于 source + url + fetched_date 唯一键），则插入新记录
+        - 如果记录已存在，则更新所有字段
+
         Args:
             items: 热点数据列表
 
@@ -30,37 +34,81 @@ class TrendingDAO:
             return 0
 
         import json
+        from datetime import date
 
         saved_count = 0
+        updated_count = 0
+
         for item in items:
             try:
-                # 使用 INSERT OR REPLACE 更新已存在的数据
-                self.db.execute('''
-                    INSERT OR REPLACE INTO trending_items
-                    (source, category, title, url, author, description, hot_score, keywords, extra, fetched_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    item.source,
-                    item.category,
-                    item.title,
-                    item.url,
-                    item.author,
-                    item.description,
-                    item.hot_score,
-                    ','.join(item.keywords) if item.keywords else '',
-                    json.dumps(item.extra, ensure_ascii=False) if item.extra else '{}',
-                    item.fetched_at or datetime.now()
-                ))
-                saved_count += 1
+                # 确保 fetched_at 有值
+                fetched_at = item.fetched_at or datetime.now()
+                fetched_date = fetched_at.date().isoformat()
+
+                # 先尝试查找是否存在相同记录
+                existing = self.db.fetch_one('''
+                    SELECT id FROM trending_items
+                    WHERE source = ? AND url = ? AND fetched_date = ?
+                ''', (item.source, item.url, fetched_date))
+
+                if existing:
+                    # 更新现有记录
+                    self.db.execute('''
+                        UPDATE trending_items SET
+                            category = ?,
+                            title = ?,
+                            author = ?,
+                            description = ?,
+                            hot_score = ?,
+                            keywords = ?,
+                            extra = ?,
+                            fetched_at = ?
+                        WHERE id = ?
+                    ''', (
+                        item.category,
+                        item.title,
+                        item.author,
+                        item.description,
+                        item.hot_score,
+                        ','.join(item.keywords) if item.keywords else '',
+                        json.dumps(item.extra, ensure_ascii=False) if item.extra else '{}',
+                        fetched_at,
+                        existing['id']
+                    ))
+                    updated_count += 1
+                else:
+                    # 插入新记录
+                    self.db.execute('''
+                        INSERT INTO trending_items
+                        (source, category, title, url, author, description, hot_score, keywords, extra, fetched_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        item.source,
+                        item.category,
+                        item.title,
+                        item.url,
+                        item.author,
+                        item.description,
+                        item.hot_score,
+                        ','.join(item.keywords) if item.keywords else '',
+                        json.dumps(item.extra, ensure_ascii=False) if item.extra else '{}',
+                        fetched_at
+                    ))
+                    saved_count += 1
+
             except Exception as e:
                 # 记录错误但继续处理其他数据
+                print(f"保存数据失败: {e}, source={item.source}, title={item.title[:30] if item.title else 'N/A'}")
                 continue
 
-        return saved_count
+        total = saved_count + updated_count
+        if updated_count > 0:
+            print(f"数据保存完成: 新增 {saved_count} 条, 更新 {updated_count} 条")
+        return total
 
     def refresh_items(self, items: List[TrendingItem]) -> int:
         """
-        刷新热点数据 - 先删除旧数据再插入新数据
+        刷新热点数据 - 使用 upsert 逻辑更新或插入
         用于需要完全重新获取数据的场景
 
         Args:
@@ -72,56 +120,8 @@ class TrendingDAO:
         if not items:
             return 0
 
-        from datetime import date
-        import json
-
-        # 按数据源和日期分组
-        from collections import defaultdict
-        items_by_source = defaultdict(list)
-        for item in items:
-            items_by_source[item.source].append(item)
-
-        saved_count = 0
-        today = date.today()
-
-        for source, source_items in items_by_source.items():
-            try:
-                # 删除该数据源今天的旧数据
-                self.db.execute('''
-                    DELETE FROM trending_items
-                    WHERE source = ? AND DATE(fetched_at) = ?
-                ''', (source, today.isoformat()))
-
-                # 插入新数据
-                for item in source_items:
-                    try:
-                        self.db.execute('''
-                            INSERT INTO trending_items
-                            (source, category, title, url, author, description, hot_score, keywords, extra, fetched_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', (
-                            item.source,
-                            item.category,
-                            item.title,
-                            item.url,
-                            item.author,
-                            item.description,
-                            item.hot_score,
-                            ','.join(item.keywords) if item.keywords else '',
-                            json.dumps(item.extra, ensure_ascii=False) if item.extra else '{}',
-                            item.fetched_at or datetime.now()
-                        ))
-                        saved_count += 1
-                    except Exception as e:
-                        # 记录错误但继续处理其他数据
-                        print(f"保存数据失败: {e}, title={item.title[:30]}")
-                        continue
-            except Exception as e:
-                # 记录错误但继续处理其他数据源
-                print(f"处理数据源 {source} 失败: {e}")
-                continue
-
-        return saved_count
+        # 使用 save_items 的 upsert 逻辑，不再删除旧数据
+        return self.save_items(items)
     
     def get_items(
         self,
