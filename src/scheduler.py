@@ -18,7 +18,7 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.config import SCHEDULE, DATA_SOURCES, REPORTS_DIR, BROWSER, SERVER, DATABASE
+from src.config import SCHEDULE, DATA_SOURCES, REPORTS_DIR, BROWSER, SERVER, DATABASE, is_time_to_run
 from src.utils import get_logger, ReportGenerator
 from src.utils.retry_manager import RetryManager, FetchResult, FetchStatus, RetryConfig
 from src.db import TrendingDAO, FetchFailureDAO
@@ -61,6 +61,14 @@ class TaskScheduler:
             'last_run': None
         }
         self.logger.info(f"添加任务: {name} (schedule: {schedule})")
+
+        # 尝试计算并显示下次执行时间
+        try:
+            from src.config import get_next_run_time
+            next_run = get_next_run_time(schedule)
+            self.logger.info(f"  下次执行时间: {next_run.strftime('%Y-%m-%d %H:%M')}")
+        except Exception as e:
+            self.logger.warning(f"  无法计算下次执行时间: {e}")
 
     def remove_task(self, name: str):
         """移除定时任务"""
@@ -133,20 +141,30 @@ class TaskScheduler:
         schedule = task['schedule']
         last_run = task['last_run']
 
-        # 简化版cron解析：支持 "HH:MM" 格式
-        if ':' in schedule:
-            try:
-                now = datetime.now()
-                target_time = datetime.strptime(schedule, "%H:%M").time()
-                current_time = now.time()
+        # 使用配置中的 is_time_to_run 函数检查是否应该执行
+        # 支持简单格式 "HH:MM" 和 cron 表达式 "0 */8 * * *"
+        try:
+            from src.config import is_time_to_run
 
-                # 检查是否到了执行时间且今天还没执行过
-                if (current_time.hour == target_time.hour and
-                    current_time.minute == target_time.minute):
-                    if last_run is None or last_run.date() != now.date():
-                        return True
-            except:
-                pass
+            # 构建调度配置
+            schedule_config = {
+                'schedule': schedule,
+                'enabled': True,
+                'timezone': 'Asia/Shanghai'
+            }
+
+            if is_time_to_run(schedule_config):
+                # 检查是否在当前分钟内已经执行过
+                now = datetime.now()
+                if last_run is None:
+                    return True
+                # 确保同一分钟内不会重复执行
+                time_diff = (now - last_run).total_seconds()
+                if time_diff >= 60:  # 至少间隔60秒
+                    return True
+
+        except Exception as e:
+            self.logger.error(f"检查任务执行时间失败: {e}")
 
         return False
 
@@ -269,10 +287,10 @@ class TrendingTaskScheduler(TaskScheduler):
             enabled=SCHEDULE['fetch_trending']['enabled']
         )
 
-        # 添加数据清理任务
+        # 添加数据清理任务（每天凌晨3点执行）
         self.add_task(
             name='cleanup_old_data',
-            schedule='03:00',
+            schedule='0 3 * * *',
             task_func=self._cleanup_old_data,
             enabled=True
         )

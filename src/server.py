@@ -13,7 +13,7 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from flask import Flask, jsonify, send_from_directory, redirect, Response
+from flask import Flask, jsonify, send_from_directory, redirect, Response, request
 from src.config import SERVER, REPORTS_DIR, ROUTES
 from src.utils import get_logger
 
@@ -96,6 +96,106 @@ class TrendingServer:
             except Exception as e:
                 self.logger.error(f"读取数据失败: {e}")
                 return jsonify({'error': str(e)}), 500
+
+        @app.route('/api/data')
+        def api_data_by_date():
+            """按日期获取数据 API"""
+            from datetime import datetime
+            from src.db import TrendingDAO
+            from src.config import DATABASE
+            
+            # 获取日期参数
+            date_param = request.args.get('date')
+            
+            if not date_param:
+                return jsonify({'success': False, 'error': 'Missing required parameter: date'}), 400
+            
+            # 验证日期格式
+            try:
+                target_date = datetime.strptime(date_param, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Invalid date format. Expected: YYYY-MM-DD'}), 400
+            
+            # 检查是否是未来日期
+            today = datetime.now().date()
+            if target_date > today:
+                return jsonify({'success': False, 'error': 'Cannot query future dates'}), 400
+            
+            try:
+                # 从数据库获取数据
+                dao = TrendingDAO(DATABASE['path'])
+                
+                # 获取指定日期的数据
+                items = dao.get_items(
+                    start_date=target_date,
+                    end_date=target_date,
+                    limit=10000
+                )
+                
+                # 如果没有数据，返回友好提示
+                if not items:
+                    return jsonify({
+                        'success': True,
+                        'data': {
+                            'date': date_param,
+                            'items': [],
+                            'sources': {},
+                            'total_items': 0,
+                            'message': f'No data available for {date_param}'
+                        }
+                    })
+                
+                # 按数据源分组，并按热度排序
+                sources = {}
+                for item in items:
+                    source = item.source
+                    if source not in sources:
+                        sources[source] = []
+                    sources[source].append({
+                        'title': item.title,
+                        'url': item.url,
+                        'hot_score': item.hot_score,
+                        'description': item.description,
+                        'author': item.author,
+                        'category': item.category,
+                        'keywords': item.keywords,
+                        'extra': item.extra
+                    })
+                
+                # 对每个数据源的数据按热度排序（降序）
+                for source in sources:
+                    sources[source].sort(key=lambda x: x.get('hot_score', 0) or 0, reverse=True)
+                
+                # 构建响应数据
+                response_data = {
+                    'success': True,
+                    'data': {
+                        'date': date_param,
+                        'items': [{
+                            'title': item.title,
+                            'url': item.url,
+                            'source': item.source,
+                            'hot_score': item.hot_score,
+                            'description': item.description,
+                            'author': item.author,
+                            'category': item.category,
+                            'keywords': item.keywords,
+                            'extra': item.extra
+                        } for item in items],
+                        'sources': sources,
+                        'total_items': len(items),
+                        'sources_count': len(sources),
+                        'generated_at': datetime.now().isoformat()
+                    }
+                }
+                
+                response = jsonify(response_data)
+                response.headers.add('Access-Control-Allow-Origin', '*')
+                return response
+                
+            except Exception as e:
+                self.logger.error(f"获取日期数据失败: {e}")
+                return jsonify({'success': False, 'error': f'Internal server error: {str(e)}'}), 500
 
         @app.route('/static/<path:filename>')
         def static_files(filename: str):

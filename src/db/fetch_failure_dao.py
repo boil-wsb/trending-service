@@ -5,7 +5,7 @@
 管理数据获取失败的记录和重试状态
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 from dataclasses import dataclass

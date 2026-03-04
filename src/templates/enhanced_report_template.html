@@ -1734,6 +1734,72 @@
         body.dark-mode .source-tag.active {
             background: #58a6ff;
             color: white;
+        }
+
+        /* 日期选择器样式 */
+        .date-picker-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+            padding-left: 10px;
+        }
+
+        .date-picker-label {
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .date-picker {
+            padding: 6px 10px;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            background: white;
+            color: #333;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        .date-picker:hover {
+            border-color: #58a6ff;
+        }
+
+        .date-picker:focus {
+            outline: none;
+            border-color: #58a6ff;
+            box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+        }
+
+        .date-loading {
+            font-size: 12px;
+            color: #666;
+            animation: pulse 1.5s infinite;
+        }
+
+        .date-loading.hidden {
+            display: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* 深色模式下的日期选择器 */
+        body.dark-mode .date-picker {
+            background: #1a1a2e;
+            border-color: #444;
+            color: #e0e0e0;
+        }
+
+        body.dark-mode .date-picker:hover {
+            border-color: #58a6ff;
+        }
+
+        body.dark-mode .date-loading {
+            color: #aaa;
             border-color: #58a6ff;
         }
 
@@ -1803,9 +1869,9 @@
                     <option value="video">视频平台</option>
                     <option value="academic">学术资源</option>
                 </select>
-                
+
                 <div class="source-divider"></div>
-                
+
                 <div class="source-tags">
                     <button class="source-tag active" data-source="all">全部</button>
                     <button class="source-tag" data-source="github">🐙 GitHub</button>
@@ -1816,6 +1882,15 @@
                     <button class="source-tag" data-source="zhihu">❓ 知乎</button>
                     <button class="source-tag" data-source="weibo">📱 微博</button>
                     <button class="source-tag" data-source="douyin">🎵 抖音</button>
+                </div>
+
+                <div class="source-divider"></div>
+
+                <!-- 日期选择器 -->
+                <div class="date-picker-container">
+                    <label for="date-picker" class="date-picker-label">📅</label>
+                    <input type="date" id="date-picker" class="date-picker" max="">
+                    <div id="date-loading" class="date-loading hidden">加载中...</div>
                 </div>
             </div>
         </div>
@@ -2570,7 +2645,7 @@
             const dbStats = data.db_stats || {};
 
             // 基础指标（优先使用数据库全量统计）
-            document.getElementById('metric-total').textContent = dbStats.total_count || allItems.length;
+            document.getElementById('metric-total').textContent = formatNumber(dbStats.total_count || allItems.length);
             document.getElementById('metric-platforms').textContent = dbStats.sources_count || new Set(allItems.map(i => i.source)).size;
 
             const maxHeat = allItems.length > 0 ? Math.max(...allItems.map(i => i.hot_score || 0)) : 0;
@@ -3119,7 +3194,7 @@
 
             // 设置统计数据 - 优先使用数据库全量统计
             const dbStats = data.db_stats || {};
-            document.getElementById('total-items').textContent = dbStats.total_count || data.total_items || 0;
+            document.getElementById('total-items').textContent = formatNumber(dbStats.total_count || data.total_items || 0);
             document.getElementById('total-sources').textContent =
                 dbStats.sources_count || (data.sources ? Object.keys(data.sources).length : 0);
             document.getElementById('total-topics').textContent =
@@ -3156,7 +3231,138 @@
             document.getElementById('source-category').addEventListener('change', function() {
                 filterByCategory(this.value);
             });
+
+            // 初始化日期选择器
+            initDatePicker();
         }
+
+        // 当前选中的日期
+        let currentSelectedDate = null;
+
+        // 初始化日期选择器
+        function initDatePicker() {
+            const datePicker = document.getElementById('date-picker');
+            const dateLoading = document.getElementById('date-loading');
+
+            // 设置最大日期为今天
+            const today = new Date().toISOString().split('T')[0];
+            datePicker.max = today;
+
+            // 默认选择今天
+            datePicker.value = today;
+            currentSelectedDate = today;
+
+            // 绑定日期变化事件
+            datePicker.addEventListener('change', function() {
+                const selectedDate = this.value;
+                if (!selectedDate) return;
+
+                currentSelectedDate = selectedDate;
+                loadDataForDate(selectedDate);
+            });
+        }
+
+        // 加载指定日期的数据
+        async function loadDataForDate(date) {
+            const datePicker = document.getElementById('date-picker');
+            const dateLoading = document.getElementById('date-loading');
+
+            // 显示加载状态
+            dateLoading.classList.remove('hidden');
+            datePicker.disabled = true;
+
+            try {
+                // 尝试从API加载数据
+                const response = await fetch(`/api/data?date=${date}`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.success && data.data) {
+                    // 更新全局数据
+                    window.REPORT_DATA = data.data;
+
+                    // 重新渲染页面
+                    renderOverview(data.data);
+                    renderKeywords(data.data);
+                    renderGitHubWeekly(data.data);
+
+                    // 更新统计信息
+                    const dbStats = data.data.db_stats || {};
+                    document.getElementById('total-items').textContent = formatNumber(dbStats.total_count || data.data.total_items || 0);
+                    document.getElementById('total-sources').textContent =
+                        dbStats.sources_count || (data.data.sources ? Object.keys(data.data.sources).length : 0);
+                    document.getElementById('total-topics').textContent =
+                        data.data.topics ? Object.keys(data.data.topics).length : 0;
+
+                    showToast(`✅ 已加载 ${date} 的数据`, 'success');
+                } else {
+                    throw new Error(data.message || '数据加载失败');
+                }
+            } catch (error) {
+                console.error('加载日期数据失败:', error);
+
+                // 如果API请求失败，检查是否是当前日期
+                const today = new Date().toISOString().split('T')[0];
+                if (date === today) {
+                    // 如果是今天，使用当前数据
+                    showToast('📊 显示当前数据', 'info');
+                } else {
+                    // 如果是历史日期，显示错误
+                    showToast(`❌ 无法加载 ${date} 的数据: ${error.message}`, 'error');
+                }
+            } finally {
+                // 隐藏加载状态
+                dateLoading.classList.add('hidden');
+                datePicker.disabled = false;
+            }
+        }
+
+        // 显示提示消息
+        function showToast(message, type = 'info') {
+            // 创建提示元素
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 12px 20px;
+                border-radius: 8px;
+                background: ${type === 'success' ? '#43e97b' : type === 'error' ? '#ff6b6b' : '#4facfe'};
+                color: white;
+                font-weight: 500;
+                z-index: 10000;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                animation: slideIn 0.3s ease;
+            `;
+
+            document.body.appendChild(toast);
+
+            // 3秒后自动移除
+            setTimeout(() => {
+                toast.style.animation = 'slideOut 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // 添加动画样式
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
 
         // 渲染GitHub本周增长
         function renderGitHubWeekly(data) {

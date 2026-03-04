@@ -58,6 +58,8 @@ class APIHandler(BaseHTTPRequestHandler):
             self._handle_get_status()
         elif path == '/api/health':
             self._handle_health_check()
+        elif path == '/api/data':
+            self._handle_get_data_by_date(query)
         else:
             self._send_error('Not Found', 404)
     
@@ -105,6 +107,110 @@ class APIHandler(BaseHTTPRequestHandler):
                 'timestamp': self._get_timestamp()
             }
         })
+
+    def _handle_get_data_by_date(self, query: Dict[str, list]):
+        """
+        按日期获取数据
+
+        Args:
+            query: URL 查询参数，支持 date 参数 (YYYY-MM-DD)
+        """
+        try:
+            # 获取日期参数
+            date_param = query.get('date', [None])[0]
+
+            if not date_param:
+                self._send_error('Missing required parameter: date', 400)
+                return
+
+            # 验证日期格式
+            from datetime import datetime
+            try:
+                target_date = datetime.strptime(date_param, '%Y-%m-%d').date()
+            except ValueError:
+                self._send_error('Invalid date format. Expected: YYYY-MM-DD', 400)
+                return
+
+            # 检查是否是未来日期
+            today = datetime.now().date()
+            if target_date > today:
+                self._send_error('Cannot query future dates', 400)
+                return
+
+            # 从数据库获取数据
+            from src.db import TrendingDAO
+            from src.config import DATABASE
+            from datetime import date
+
+            dao = TrendingDAO(DATABASE['path'])
+
+            # 获取指定日期的数据
+            items = dao.get_items(
+                start_date=target_date,
+                end_date=target_date,
+                limit=10000
+            )
+
+            # 如果没有数据，返回友好提示
+            if not items:
+                self._send_json_response({
+                    'success': True,
+                    'data': {
+                        'date': date_param,
+                        'items': [],
+                        'sources': {},
+                        'total_items': 0,
+                        'message': f'No data available for {date_param}'
+                    }
+                })
+                return
+
+            # 按数据源分组
+            sources = {}
+            for item in items:
+                source = item.source
+                if source not in sources:
+                    sources[source] = []
+                sources[source].append({
+                    'title': item.title,
+                    'url': item.url,
+                    'hot_score': item.hot_score,
+                    'description': item.description,
+                    'author': item.author,
+                    'category': item.category,
+                    'keywords': item.keywords,
+                    'extra': item.extra
+                })
+
+            # 构建响应数据
+            response_data = {
+                'success': True,
+                'data': {
+                    'date': date_param,
+                    'items': [{
+                        'title': item.title,
+                        'url': item.url,
+                        'source': item.source,
+                        'hot_score': item.hot_score,
+                        'description': item.description,
+                        'author': item.author,
+                        'category': item.category,
+                        'keywords': item.keywords,
+                        'extra': item.extra
+                    } for item in items],
+                    'sources': sources,
+                    'total_items': len(items),
+                    'sources_count': len(sources),
+                    'generated_at': self._get_timestamp()
+                }
+            }
+
+            self._send_json_response(response_data)
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"获取日期数据失败: {e}")
+            self._send_error(f'Internal server error: {str(e)}', 500)
     
     def _handle_refresh_source(self, source: str):
         """刷新指定数据源"""
