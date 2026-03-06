@@ -60,6 +60,22 @@ class APIHandler(BaseHTTPRequestHandler):
             self._handle_health_check()
         elif path == '/api/data':
             self._handle_get_data_by_date(query)
+        elif path == '/api/stock/market':
+            self._handle_get_stock_market()
+        elif path == '/api/stock/gainers':
+            self._handle_get_stock_gainers(query)
+        elif path == '/api/stock/losers':
+            self._handle_get_stock_losers(query)
+        elif path == '/api/stock/volume':
+            self._handle_get_stock_volume()
+        elif path == '/api/stock/market_cap':
+            self._handle_get_stock_market_cap()
+        elif path == '/api/stock/summary':
+            self._handle_get_stock_summary()
+        elif path == '/api/stock/detail':
+            self._handle_get_stock_detail(query)
+        elif path == '/api/stock/kline':
+            self._handle_get_stock_kline(query)
         else:
             self._send_error('Not Found', 404)
     
@@ -296,7 +312,191 @@ class APIHandler(BaseHTTPRequestHandler):
             if self.logger:
                 self.logger.error(f"刷新所有数据源失败: {e}")
             self._send_error(str(e), 500)
-    
+
+    def _handle_get_stock_market(self):
+        """获取A股市场概览数据"""
+        try:
+            from src.config import DATABASE
+            from src.db.stock_dao import StockDAO
+
+            dao = StockDAO(DATABASE['path'])
+            gainers = dao.get_gainers(10)
+            losers = dao.get_losers(10)
+            volume_list = dao.get_by_volume(10)
+
+            self._send_json_response({
+                'success': True,
+                'data': {
+                    'gainers': [s.to_dict() for s in gainers],
+                    'losers': [s.to_dict() for s in losers],
+                    'volume': [s.to_dict() for s in volume_list],
+                    'fetched_at': gainers[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if gainers else None
+                }
+            })
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"获取股票市场数据失败: {e}")
+            self._send_error(str(e), 500)
+
+    def _handle_get_stock_gainers(self, query):
+        """获取涨幅榜"""
+        try:
+            from src.config import DATABASE
+            from src.db.stock_dao import StockDAO
+
+            dao = StockDAO(DATABASE['path'])
+            limit = int(query.get('limit', [10])[0])
+            gainers = dao.get_gainers(limit)
+
+            self._send_json_response({
+                'success': True,
+                'data': {
+                    'gainers': [s.to_dict() for s in gainers],
+                    'count': len(gainers)
+                }
+            })
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"获取涨幅榜失败: {e}")
+            self._send_error(str(e), 500)
+
+    def _handle_get_stock_losers(self, query):
+        """获取跌幅榜"""
+        try:
+            from src.config import DATABASE
+            from src.db.stock_dao import StockDAO
+
+            dao = StockDAO(DATABASE['path'])
+            limit = int(query.get('limit', [10])[0])
+            losers = dao.get_losers(limit)
+
+            self._send_json_response({
+                'success': True,
+                'data': {
+                    'losers': [s.to_dict() for s in losers],
+                    'count': len(losers)
+                }
+            })
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"获取跌幅榜失败: {e}")
+            self._send_error(str(e), 500)
+
+    def _handle_get_stock_volume(self):
+        """获取成交额榜"""
+        try:
+            from src.config import DATABASE
+            from src.db.stock_dao import StockDAO
+
+            dao = StockDAO(DATABASE['path'])
+            volume_list = dao.get_by_volume(10)
+
+            self._send_json_response({
+                'success': True,
+                'data': {
+                    'volume': [s.to_dict() for s in volume_list],
+                    'count': len(volume_list)
+                }
+            })
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"获取成交额榜失败: {e}")
+            self._send_error(str(e), 500)
+
+    def _handle_get_stock_market_cap(self):
+        """获取市值榜"""
+        try:
+            from src.config import DATABASE
+            from src.db.stock_dao import StockDAO
+
+            dao = StockDAO(DATABASE['path'])
+            market_cap_list = dao.get_by_market_cap(10)
+
+            self._send_json_response({
+                'success': True,
+                'data': {
+                    'market_cap': [s.to_dict() for s in market_cap_list],
+                    'count': len(market_cap_list)
+                }
+            })
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"获取市值榜失败: {e}")
+            self._send_error(str(e), 500)
+
+    def _handle_get_stock_summary(self):
+        """获取市场整体概况"""
+        try:
+            from src.config import DATABASE
+            from src.db.stock_dao import StockDAO
+
+            dao = StockDAO(DATABASE['path'])
+            summary = dao.get_market_summary()
+
+            self._send_json_response({
+                'success': True,
+                'data': summary
+            })
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"获取市场概况失败: {e}")
+            self._send_error(str(e), 500)
+
+    def _handle_get_stock_detail(self, query):
+        """获取个股详情"""
+        try:
+            from src.config import DATABASE
+            from src.db.stock_dao import StockDAO
+
+            code = query.get('code', [None])[0]
+            if not code:
+                self._send_error('缺少股票代码参数: code', 400)
+                return
+
+            dao = StockDAO(DATABASE['path'])
+            detail = dao.get_stock_detail(code)
+
+            if not detail:
+                self._send_error(f'未找到股票: {code}', 404)
+                return
+
+            self._send_json_response({
+                'success': True,
+                'data': detail
+            })
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"获取股票详情失败: {e}")
+            self._send_error(str(e), 500)
+
+    def _handle_get_stock_kline(self, query):
+        """获取个股K线数据"""
+        try:
+            from src.fetchers.stock import StockFetcher
+
+            code = query.get('code', [None])[0]
+            if not code:
+                self._send_error('缺少股票代码参数: code', 400)
+                return
+
+            days = int(query.get('days', [30])[0])
+
+            fetcher = StockFetcher(logger=self.logger)
+            kline = fetcher.fetch_kline(code, days)
+
+            self._send_json_response({
+                'success': True,
+                'data': {
+                    'code': code,
+                    'kline': kline,
+                    'count': len(kline)
+                }
+            })
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"获取K线数据失败: {e}")
+            self._send_error(str(e), 500)
+
     def _get_timestamp(self) -> str:
         """获取当前时间戳"""
         from datetime import datetime

@@ -93,22 +93,15 @@ def wait_for_service(host, port, pid, max_wait=30):
     logger.info(f"⏳ 等待服务启动 (最多等待 {max_wait} 秒)...")
 
     while time.time() - start_time < max_wait:
-        # 检查进程是否存在
-        try:
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-            handle = kernel32.OpenProcess(1, False, pid)
-            if handle == 0:
-                return False, f"进程 {pid} 已退出"
-            kernel32.CloseHandle(handle)
-        except:
-            return False, f"无法检查进程 {pid} 状态"
-
-        # 检查端口是否开放
+        # 检查端口是否开放（主要检查项）
         if check_port_open(host, port):
             return True, f"服务已成功启动并在端口 {port} 监听"
 
         time.sleep(check_interval)
+
+    # 超时后再次检查端口，可能服务刚好启动
+    if check_port_open(host, port):
+        return True, f"服务已成功启动并在端口 {port} 监听"
 
     return False, f"等待超时 ({max_wait} 秒)，服务可能未正常启动"
 
@@ -185,11 +178,20 @@ def start_service_background():
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
     try:
+        # 使用 DETACHED_PROCESS 让子进程独立运行
+        # 同时将输出重定向到日志文件以便调试
+        log_dir = Path(LOGGING['file']).parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stdout_log = log_dir / 'service_stdout.log'
+        stderr_log = log_dir / 'service_stderr.log'
+
         process = subprocess.Popen(
             [python_exe, str(main_script)],
             cwd=str(project_root),
             env=env,
             startupinfo=startupinfo,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
         )
 
@@ -215,6 +217,7 @@ def start_service_background():
             error_msg = f"❌ 服务启动失败: {message}"
             print(error_msg)
             logger.error(error_msg)
+
             # 尝试终止进程
             try:
                 import ctypes
@@ -226,6 +229,7 @@ def start_service_background():
                     logger.info(f"已终止进程 {process.pid}")
             except:
                 pass
+
             raise RuntimeError(message)
 
     except Exception as e:

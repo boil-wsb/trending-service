@@ -60,12 +60,19 @@ class TrendingService:
             self.scheduler.start()
             self.logger.info("✅ 定时任务调度器已启动")
 
-            # 启动后立即获取热点信息
-            self.logger.info("🔄 正在获取热点信息...")
-            self.scheduler.run_task_now('fetch_trending')
-            self.logger.info("✅ 首次热点信息获取完成")
-
             self.running = True
+
+            # 启动后在后台异步获取热点信息（不阻塞启动流程）
+            import threading
+            def fetch_initial_data():
+                try:
+                    self.logger.info("🔄 正在后台获取热点信息...")
+                    self.scheduler.run_task_now('fetch_trending')
+                    self.logger.info("✅ 首次热点信息获取完成")
+                except Exception as e:
+                    self.logger.error(f"❌ 首次热点信息获取失败: {e}")
+
+            threading.Thread(target=fetch_initial_data, daemon=True).start()
 
             # 写入PID文件
             if self.pid_file:

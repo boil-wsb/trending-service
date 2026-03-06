@@ -84,6 +84,10 @@ DATA_SOURCES = {
     'douyin': {
         'enabled': True,
         'limit': 50,
+    },
+    'stock': {
+        'enabled': True,
+        'auto_fetch': False,  # 默认不自动获取股票数据
     }
 }
 
@@ -97,6 +101,12 @@ SCHEDULE = {
         'enabled': True,
         'description': "获取所有热点信息",
         'timezone': 'Asia/Shanghai'  # 时区设置
+    },
+    'fetch_stock': {
+        'schedule': "*/2 * * * *",  # 每2分钟执行一次
+        'enabled': False,  # 默认禁用股票数据获取
+        'description': "获取股票行情数据",
+        'timezone': 'Asia/Shanghai'
     }
 }
 

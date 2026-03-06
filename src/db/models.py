@@ -155,3 +155,59 @@ class Notification:
             'error_msg': self.error_msg,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+
+
+@dataclass
+class StockData:
+    """股票行情数据"""
+    id: Optional[int] = None
+    code: str = ""                       # 股票代码 (如 000001)
+    name: str = ""                        # 股票名称 (如 平安银行)
+    price: float = 0.0                    # 当前价格
+    change: float = 0.0                   # 涨跌额
+    change_pct: float = 0.0               # 涨跌幅 (%)
+    volume: int = 0                       # 成交量 (手)
+    amount: float = 0.0                   # 成交额 (元)
+    market_cap: float = 0.0               # 总市值 (元)
+    turnover_rate: float = 0.0            # 换手率 (%)
+    source: str = "eastmoney"             # 数据源
+    fetched_at: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> Dict:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'code': self.code,
+            'name': self.name,
+            'price': round(self.price, 2),
+            'change': round(self.change, 2),
+            'change_pct': round(self.change_pct, 2),
+            'volume': self.volume,
+            'amount': round(self.amount / 100000000, 2) if self.amount else 0,
+            'market_cap': round(self.market_cap / 100000000, 2) if self.market_cap else 0,
+            'turnover_rate': round(self.turnover_rate, 2),
+            'source': self.source,
+            'fetched_at': self.fetched_at.isoformat() if self.fetched_at else None
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'StockData':
+        """从字典创建对象"""
+        fetched_at = data.get('fetched_at')
+        if isinstance(fetched_at, str):
+            fetched_at = datetime.fromisoformat(fetched_at)
+
+        return cls(
+            id=data.get('id'),
+            code=data.get('code', ''),
+            name=data.get('name', ''),
+            price=data.get('price', 0.0),
+            change=data.get('change', 0.0),
+            change_pct=data.get('change_pct', 0.0),
+            volume=data.get('volume', 0),
+            amount=data.get('amount', 0.0),
+            market_cap=data.get('market_cap', 0.0),
+            turnover_rate=data.get('turnover_rate', 0.0),
+            source=data.get('source', 'eastmoney'),
+            fetched_at=fetched_at or datetime.now()
+        )

@@ -682,6 +682,482 @@
             flex-shrink: 0;
         }
 
+        /* 股票行情样式 */
+        .stock-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .stock-tabs .tab {
+            padding: 8px 20px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .stock-tabs .tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .stock-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .stock-table th,
+        .stock-table td {
+            padding: 12px 10px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        .stock-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #586069;
+        }
+
+        .stock-table .positive {
+            color: #e74c3c;
+        }
+
+        .stock-table .negative {
+            color: #27ae60;
+        }
+
+        .stock-code {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .stock-market-status {
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .market-status {
+            display: inline-block;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .market-status.open {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .market-status.closed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        body.dark-mode .market-status.open {
+            background: #1e4620;
+            color: #d4edda;
+        }
+
+        body.dark-mode .market-status.closed {
+            background: #4a1c1c;
+            color: #f8d7da;
+        }
+
+        .stock-section {
+            padding: 20px;
+        }
+
+        /* 股票数据获取控制按钮样式 */
+        .stock-control-bar {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+            border-radius: 12px;
+            border: 1px solid #e1e4e8;
+        }
+
+        body.dark-mode .stock-control-bar {
+            background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+            border-color: #4a5568;
+        }
+
+        .stock-control-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stock-control-label {
+            font-size: 14px;
+            font-weight: 500;
+            color: #24292e;
+        }
+
+        body.dark-mode .stock-control-label {
+            color: #e1e4e8;
+        }
+
+        .stock-control-switch {
+            position: relative;
+            width: 50px;
+            height: 26px;
+            background: #ccc;
+            border-radius: 13px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .stock-control-switch.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .stock-control-switch::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: all 0.3s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .stock-control-switch.active::after {
+            left: 27px;
+        }
+
+        .stock-control-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .stock-control-btn.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .stock-control-btn.primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .stock-control-btn:disabled {
+            background: #959da5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .stock-control-btn.loading {
+            cursor: wait;
+        }
+
+        .stock-control-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .stock-control-status.enabled {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .stock-control-status.disabled {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        body.dark-mode .stock-control-status.enabled {
+            background: #1e4620;
+            color: #d4edda;
+        }
+
+        body.dark-mode .stock-control-status.disabled {
+            background: #4a1c1c;
+            color: #f8d7da;
+        }
+
+        .stock-control-divider {
+            width: 1px;
+            height: 30px;
+            background: #d1d5da;
+        }
+
+        body.dark-mode .stock-control-divider {
+            background: #4a5568;
+        }
+
+        /* A股标准涨跌颜色 - 红涨绿跌 */
+        .stock-change-up {
+            color: #e74c3c !important;
+        }
+
+        .stock-change-down {
+            color: #27ae60 !important;
+        }
+
+        .stock-change-flat {
+            color: #95a5a6 !important;
+        }
+
+        body.dark-mode .stock-change-up {
+            color: #ff6b6b !important;
+        }
+
+        body.dark-mode .stock-change-down {
+            color: #51cf66 !important;
+        }
+
+        /* 图表容器样式 */
+        .stock-charts-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .stock-chart-box {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        body.dark-mode .stock-chart-box {
+            background: #2d2d2d;
+        }
+
+        .stock-chart-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        body.dark-mode .stock-chart-title {
+            color: #e0e0e0;
+        }
+
+        /* 市场趋势卡片 */
+        .market-trend-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            padding: 20px;
+            color: white;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .market-trend-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .market-trend-desc {
+            font-size: 14px;
+            opacity: 0.9;
+            line-height: 1.6;
+        }
+
+        /* 表格排序样式 */
+        .stock-table th.sortable {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            padding-right: 20px;
+        }
+
+        .stock-table th.sortable:hover {
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        .stock-table th.sortable::after {
+            content: '↕';
+            position: absolute;
+            right: 5px;
+            opacity: 0.5;
+            font-size: 12px;
+        }
+
+        .stock-table th.sortable.sort-asc::after {
+            content: '↑';
+            opacity: 1;
+            color: #667eea;
+        }
+
+        .stock-table th.sortable.sort-desc::after {
+            content: '↓';
+            opacity: 1;
+            color: #667eea;
+        }
+
+        /* 高亮样式 */
+        .stock-highlight {
+            background: rgba(231, 76, 60, 0.1) !important;
+        }
+
+        .stock-highlight-limit {
+            background: rgba(231, 76, 60, 0.2) !important;
+            font-weight: bold;
+        }
+
+        body.dark-mode .stock-highlight {
+            background: rgba(231, 76, 60, 0.2) !important;
+        }
+
+        body.dark-mode .stock-highlight-limit {
+            background: rgba(231, 76, 60, 0.3) !important;
+        }
+
+        .stock-summary {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            color: white;
+        }
+
+        .stock-summary-item {
+            text-align: center;
+            flex: 1;
+        }
+
+        .stock-summary-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .stock-summary-label {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .stock-detail {
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        .stock-detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .stock-detail-name {
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .stock-detail-price {
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .stock-detail-change {
+            font-size: 16px;
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+
+        .stock-detail-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .stock-detail-item {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stock-detail-item-label {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .stock-detail-item-value {
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 5px;
+        }
+
+        .stock-kline {
+            margin: 20px 0;
+            height: 300px;
+        }
+
+        .stock-source-info {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+            font-size: 12px;
+            color: #999;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .stock-analysis {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff9e6;
+            border-left: 4px solid #ffc107;
+            border-radius: 5px;
+        }
+
+        .stock-analysis-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #856404;
+        }
+
+        .btn-detail {
+            padding: 5px 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        .btn-detail:hover {
+            background: #5568d3;
+        }
+
         /* 空状态 */
         .empty-state {
             text-align: center;
@@ -1858,6 +2334,7 @@
                 <button class="nav-tab" data-view="keywords">🏷️ 关键词</button>
                 <button class="nav-tab" data-view="analysis">🔍 综合分析</button>
                 <button class="nav-tab" data-view="github-weekly">🔥 GitHub本周增长</button>
+                <button class="nav-tab" data-view="stock">📈 A股行情</button>
             </div>
             
             <!-- 第二行：数据源筛选器 -->
@@ -1934,6 +2411,63 @@
             </div>
             <div id="github-weekly-content">
                 <!-- GitHub本周增长项目列表 -->
+            </div>
+        </div>
+
+        <!-- A股行情 -->
+        <div id="stock" class="tab-content">
+            <div class="stock-section">
+                <!-- 数据获取控制栏 -->
+                <div class="stock-control-bar">
+                    <div class="stock-control-item">
+                        <span class="stock-control-label">自动获取数据</span>
+                        <div class="stock-control-switch" id="stock-auto-fetch-switch" onclick="toggleStockAutoFetch()"></div>
+                    </div>
+                    <div class="stock-control-item">
+                        <div class="stock-control-status" id="stock-fetch-status">
+                            <span>⚪</span>
+                            <span>加载中...</span>
+                        </div>
+                    </div>
+                    <div class="stock-control-divider"></div>
+                    <div class="stock-control-item">
+                        <button class="stock-control-btn primary" id="stock-manual-fetch-btn" onclick="manualFetchStockData()">
+                            <span>🔄</span>
+                            <span>立即获取</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="stock-market-status" class="stock-market-status"></div>
+                <div id="stock-summary" class="stock-summary"></div>
+
+                <!-- 图表区域 -->
+                <div class="stock-charts-container">
+                    <div class="stock-chart-box">
+                        <div class="stock-chart-title">📊 涨跌分布</div>
+                        <canvas id="stock-distribution-chart" width="200" height="200"></canvas>
+                    </div>
+                    <div class="stock-chart-box">
+                        <div class="stock-chart-title">📈 市场趋势</div>
+                        <div id="market-trend-content"></div>
+                    </div>
+                </div>
+
+                <div class="stock-tabs">
+                    <button class="tab active" data-tab="gainers" onclick="switchStockTab('gainers')">涨幅榜</button>
+                    <button class="tab" data-tab="losers" onclick="switchStockTab('losers')">跌幅榜</button>
+                    <button class="tab" data-tab="volume" onclick="switchStockTab('volume')">成交额榜</button>
+                    <button class="tab" data-tab="market" onclick="switchStockTab('market')">大盘分析</button>
+                </div>
+                <div id="stock-container" class="stock-list"></div>
+                <div id="stock-detail" class="stock-detail" style="display: none;"></div>
+                <div id="stock-kline" class="stock-kline" style="display: none;">
+                    <canvas id="kline-chart"></canvas>
+                </div>
+                <div class="stock-source-info">
+                    <span class="data-source">数据来源：东方财富</span>
+                    <span class="data-time" id="stock-data-time"></span>
+                </div>
             </div>
         </div>
 
@@ -3184,6 +3718,639 @@
             container.innerHTML = html;
         }
 
+        // 当前股票Tab
+        let currentStockTab = 'gainers';
+        let stockData = { gainers: [], losers: [], volume: [], market: {} };
+        let currentKlineChart = null;
+        let stockAutoFetchEnabled = true;
+        let isFetchingStock = false;
+
+        // 初始化股票数据获取控制
+        async function initStockFetchControl() {
+            try {
+                const response = await fetch('/api/stock/fetch-control');
+                const result = await response.json();
+                if (result.success) {
+                    stockAutoFetchEnabled = result.data.auto_fetch;
+                    updateStockControlUI();
+                }
+            } catch (error) {
+                console.error('初始化股票数据获取控制失败:', error);
+            }
+        }
+
+        // 更新股票控制UI
+        function updateStockControlUI() {
+            const switchEl = document.getElementById('stock-auto-fetch-switch');
+            const statusEl = document.getElementById('stock-fetch-status');
+
+            if (switchEl) {
+                if (stockAutoFetchEnabled) {
+                    switchEl.classList.add('active');
+                } else {
+                    switchEl.classList.remove('active');
+                }
+            }
+
+            if (statusEl) {
+                if (stockAutoFetchEnabled) {
+                    statusEl.className = 'stock-control-status enabled';
+                    statusEl.innerHTML = '<span>🟢</span><span>自动获取已开启</span>';
+                } else {
+                    statusEl.className = 'stock-control-status disabled';
+                    statusEl.innerHTML = '<span>🔴</span><span>自动获取已关闭</span>';
+                }
+            }
+        }
+
+        // 切换自动获取状态
+        async function toggleStockAutoFetch() {
+            try {
+                const newState = !stockAutoFetchEnabled;
+                const response = await fetch('/api/stock/fetch-control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ auto_fetch: newState })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    stockAutoFetchEnabled = result.data.auto_fetch;
+                    updateStockControlUI();
+                    showNotification(`股票数据自动获取已${stockAutoFetchEnabled ? '开启' : '关闭'}`, 'success');
+                } else {
+                    showNotification('设置失败: ' + (result.error || '未知错误'), 'error');
+                }
+            } catch (error) {
+                console.error('切换股票自动获取状态失败:', error);
+                showNotification('设置失败: ' + error.message, 'error');
+            }
+        }
+
+        // 手动获取股票数据
+        async function manualFetchStockData() {
+            if (isFetchingStock) return;
+
+            const btn = document.getElementById('stock-manual-fetch-btn');
+            isFetchingStock = true;
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.add('loading');
+                btn.innerHTML = '<span>⏳</span><span>获取中...</span>';
+            }
+
+            try {
+                const response = await fetch('/api/stock/trigger-fetch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showNotification(`股票数据获取完成: ${result.data.count} 条`, 'success');
+                    // 刷新股票数据显示
+                    loadStockData();
+                } else {
+                    showNotification('获取失败: ' + (result.error || '未知错误'), 'error');
+                }
+            } catch (error) {
+                console.error('手动获取股票数据失败:', error);
+                showNotification('获取失败: ' + error.message, 'error');
+            } finally {
+                isFetchingStock = false;
+                if (btn) {
+                    btn.disabled = false;
+                    btn.classList.remove('loading');
+                    btn.innerHTML = '<span>🔄</span><span>立即获取</span>';
+                }
+            }
+        }
+
+        // 检查是否在A股开盘时间
+        function isStockMarketOpen() {
+            const now = new Date();
+            const weekday = now.getDay();
+            const hour = now.getHours();
+            const minute = now.getMinutes();
+            const currentTime = hour * 60 + minute;
+
+            // A股开盘时间：周一至周五 9:30-11:30, 13:00-15:00
+            const isWeekday = weekday >= 1 && weekday <= 5;
+            const morningSession = (9 * 60 + 30) <= currentTime && currentTime <= (11 * 60 + 30);
+            const afternoonSession = (13 * 60) <= currentTime && currentTime <= (15 * 60);
+
+            return isWeekday && (morningSession || afternoonSession);
+        }
+
+        // 渲染市场状态
+        function renderMarketStatus() {
+            const container = document.getElementById('stock-market-status');
+            if (!container) return;
+
+            const isOpen = isStockMarketOpen();
+            const now = new Date();
+            const weekday = now.getDay();
+            const isWeekday = weekday >= 1 && weekday <= 5;
+
+            let statusHtml = '';
+            if (isOpen) {
+                statusHtml = '<span class="market-status open">🟢 交易中</span>';
+            } else if (!isWeekday) {
+                statusHtml = '<span class="market-status closed">🔴 休市（周末）</span>';
+            } else {
+                statusHtml = '<span class="market-status closed">🔴 休市</span>';
+            }
+
+            container.innerHTML = statusHtml;
+        }
+
+        // 股票数据去重（根据股票代码）
+        function deduplicateStocks(stocks) {
+            const seen = new Map();
+            stocks.forEach(stock => {
+                if (stock.code) {
+                    // 保留最新的数据
+                    if (!seen.has(stock.code) || (stock.fetched_at && seen.get(stock.code).fetched_at && stock.fetched_at > seen.get(stock.code).fetched_at)) {
+                        seen.set(stock.code, stock);
+                    }
+                }
+            });
+            return Array.from(seen.values());
+        }
+
+        // 加载A股行情数据
+        async function loadStockData() {
+            try {
+                // 渲染市场状态
+                renderMarketStatus();
+
+                const [marketRes, summaryRes] = await Promise.all([
+                    fetch('/api/stock/market'),
+                    fetch('/api/stock/summary')
+                ]);
+
+                const marketResult = await marketRes.json();
+                const summaryResult = await summaryRes.json();
+
+                if (marketResult.success && marketResult.data) {
+                    // 对股票数据进行去重
+                    const gainers = deduplicateStocks(marketResult.data.gainers || []);
+                    const losers = deduplicateStocks(marketResult.data.losers || []);
+                    const volume = deduplicateStocks(marketResult.data.volume || []);
+
+                    stockData = {
+                        gainers: gainers,
+                        losers: losers,
+                        volume: volume,
+                        market: summaryResult.data || {}
+                    };
+
+                    document.getElementById('stock-data-time').textContent =
+                        marketResult.data.fetched_at ? '更新时间: ' + marketResult.data.fetched_at : '';
+
+                    renderStockSummary(stockData.market);
+                    renderStockDistributionChart(stockData.market);
+                    renderMarketTrendCard(stockData.market);
+                    renderStockData(currentStockTab);
+                }
+            } catch (error) {
+                console.error('加载股票数据失败:', error);
+                const container = document.getElementById('stock-container');
+                if (container) {
+                    container.innerHTML = '<div class="empty-state">加载失败</div>';
+                }
+            }
+        }
+
+        // 渲染市场概况
+        function renderStockSummary(summary) {
+            const container = document.getElementById('stock-summary');
+            if (!container || !summary) return;
+
+            // 确保数据准确性：平盘数量 = 总数 - 上涨 - 下跌
+            const total = summary.total_stocks || 0;
+            const gainers = summary.gainers_count || 0;
+            const losers = summary.losers_count || 0;
+            const flat = total - gainers - losers;
+
+            container.innerHTML = `
+                <div class="stock-summary-item">
+                    <div class="stock-summary-value">${total}</div>
+                    <div class="stock-summary-label">股票总数</div>
+                </div>
+                <div class="stock-summary-item">
+                    <div class="stock-summary-value" style="color: #e74c3c;">${gainers}</div>
+                    <div class="stock-summary-label">上涨</div>
+                </div>
+                <div class="stock-summary-item">
+                    <div class="stock-summary-value" style="color: #27ae60;">${losers}</div>
+                    <div class="stock-summary-label">下跌</div>
+                </div>
+                <div class="stock-summary-item">
+                    <div class="stock-summary-value" style="color: #95a5a6;">${flat > 0 ? flat : 0}</div>
+                    <div class="stock-summary-label">平盘</div>
+                </div>
+            `;
+        }
+
+        // 当前排序状态
+        let currentSort = { column: null, direction: 'desc' };
+
+        // 渲染股票数据
+        function renderStockData(tab, sortColumn = null, sortDirection = 'desc') {
+            const container = document.getElementById('stock-container');
+            const detailContainer = document.getElementById('stock-detail');
+            const klineContainer = document.getElementById('stock-kline');
+            if (!container) return;
+
+            if (detailContainer) detailContainer.style.display = 'none';
+            if (klineContainer) klineContainer.style.display = 'none';
+            container.style.display = 'block';
+
+            if (tab === 'market') {
+                renderMarketAnalysis();
+                return;
+            }
+
+            let data = [...(stockData[tab] || [])];
+            if (data.length === 0) {
+                container.innerHTML = '<div class="empty-state">暂无数据</div>';
+                return;
+            }
+
+            // 排序
+            if (sortColumn) {
+                data.sort((a, b) => {
+                    let valA, valB;
+                    switch (sortColumn) {
+                        case 'price':
+                            valA = a.price || 0;
+                            valB = b.price || 0;
+                            break;
+                        case 'change':
+                            valA = a.change_pct || 0;
+                            valB = b.change_pct || 0;
+                            break;
+                        case 'amount':
+                            valA = a.amount || 0;
+                            valB = b.amount || 0;
+                            break;
+                        default:
+                            return 0;
+                    }
+                    return sortDirection === 'asc' ? valA - valB : valB - valA;
+                });
+            }
+
+            // 表头排序样式
+            const getSortClass = (col) => {
+                if (sortColumn === col) {
+                    return sortDirection === 'asc' ? 'sort-asc' : 'sort-desc';
+                }
+                return '';
+            };
+
+            let html = '<table class="stock-table"><thead><tr>';
+            html += '<th>排名</th><th>股票</th>';
+            html += `<th class="sortable ${getSortClass('price')}" onclick="sortStockTable('${tab}', 'price')">价格</th>`;
+            html += `<th class="sortable ${getSortClass('change')}" onclick="sortStockTable('${tab}', 'change')">涨跌幅</th>`;
+            html += `<th class="sortable ${getSortClass('amount')}" onclick="sortStockTable('${tab}', 'amount')">成交额</th>`;
+            html += '<th>操作</th>';
+            html += '</tr></thead><tbody>';
+
+            data.forEach((stock, index) => {
+                // A股标准：红涨绿跌
+                let changeClass = 'stock-change-flat';
+                if (stock.change_pct > 0) changeClass = 'stock-change-up';
+                else if (stock.change_pct < 0) changeClass = 'stock-change-down';
+
+                const changeSymbol = stock.change_pct > 0 ? '+' : '';
+
+                // 高亮涨幅超过5%的股票
+                let rowClass = '';
+                if (stock.change_pct >= 5) rowClass = 'stock-highlight-limit';
+                else if (stock.change_pct >= 3) rowClass = 'stock-highlight';
+
+                html += `
+                    <tr class="${rowClass}">
+                        <td>${index + 1}</td>
+                        <td><strong>${stock.name}</strong><br><span class="stock-code">${stock.code}</span></td>
+                        <td>${stock.price ? stock.price.toFixed(2) : '--'}</td>
+                        <td class="${changeClass}">${changeSymbol}${stock.change_pct ? stock.change_pct.toFixed(2) : '0.00'}%</td>
+                        <td>${stock.amount ? stock.amount.toFixed(2) : '0.00'}亿</td>
+                        <td><button class="btn-detail" onclick="showStockDetail('${stock.code}', '${stock.name}')">详情</button></td>
+                    </tr>
+                `;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        // 排序表格
+        function sortStockTable(tab, column) {
+            if (currentSort.column === column) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.column = column;
+                currentSort.direction = 'desc';
+            }
+            renderStockData(tab, currentSort.column, currentSort.direction);
+        }
+
+        // 渲染涨跌分布饼图
+        function renderStockDistributionChart(summary) {
+            const canvas = document.getElementById('stock-distribution-chart');
+            if (!canvas || !summary) return;
+
+            const total = summary.total_stocks || 0;
+            const gainers = summary.gainers_count || 0;
+            const losers = summary.losers_count || 0;
+            const flat = Math.max(0, total - gainers - losers);
+
+            const ctx = canvas.getContext('2d');
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(centerX, centerY) - 10;
+
+            // 清空画布
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (total === 0) {
+                ctx.fillStyle = '#999';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('暂无数据', centerX, centerY);
+                return;
+            }
+
+            const data = [
+                { value: gainers, color: '#e74c3c', label: '上涨' },
+                { value: losers, color: '#27ae60', label: '下跌' },
+                { value: flat, color: '#95a5a6', label: '平盘' }
+            ];
+
+            let currentAngle = -Math.PI / 2;
+
+            data.forEach(item => {
+                if (item.value > 0) {
+                    const sliceAngle = (item.value / total) * 2 * Math.PI;
+
+                    // 绘制扇形
+                    ctx.beginPath();
+                    ctx.moveTo(centerX, centerY);
+                    ctx.arc(centerX, centerY, radius, currentAngle, currentAngle + sliceAngle);
+                    ctx.closePath();
+                    ctx.fillStyle = item.color;
+                    ctx.fill();
+
+                    // 绘制标签
+                    const labelAngle = currentAngle + sliceAngle / 2;
+                    const labelX = centerX + Math.cos(labelAngle) * (radius * 0.7);
+                    const labelY = centerY + Math.sin(labelAngle) * (radius * 0.7);
+
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const percentage = ((item.value / total) * 100).toFixed(1);
+                    ctx.fillText(`${item.label}`, labelX, labelY - 8);
+                    ctx.fillText(`${percentage}%`, labelX, labelY + 8);
+
+                    currentAngle += sliceAngle;
+                }
+            });
+        }
+
+        // 渲染市场趋势卡片
+        function renderMarketTrendCard(summary) {
+            const container = document.getElementById('market-trend-content');
+            if (!container || !summary) return;
+
+            const gainersRate = summary.gainers_rate || 0;
+            let marketTrend = '';
+            let analysis = '';
+            let trendIcon = '';
+
+            if (gainersRate > 60) {
+                marketTrend = '强势上涨';
+                analysis = '市场整体表现强劲，上涨股票占比超过60%，市场情绪乐观。建议关注热点板块轮动机会。';
+                trendIcon = '🚀';
+            } else if (gainersRate > 50) {
+                marketTrend = '小幅上涨';
+                analysis = '市场整体偏多，但涨幅有限。建议关注业绩预增的优质标的。';
+                trendIcon = '📈';
+            } else if (gainersRate > 40) {
+                marketTrend = '震荡整理';
+                analysis = '市场处于震荡状态，多空双方力量相对平衡，建议保持谨慎观望。';
+                trendIcon = '〰️';
+            } else if (gainersRate > 30) {
+                marketTrend = '小幅下跌';
+                analysis = '市场整体偏弱，建议控制仓位，关注防御性板块。';
+                trendIcon = '📉';
+            } else {
+                marketTrend = '明显下跌';
+                analysis = '市场整体表现较弱，下跌股票占比超过70%，建议观望为主，等待市场企稳。';
+                trendIcon = '🔻';
+            }
+
+            container.innerHTML = `
+                <div class="market-trend-card">
+                    <div class="market-trend-title">${trendIcon} ${marketTrend}</div>
+                    <div class="market-trend-desc">${analysis}</div>
+                </div>
+            `;
+        }
+
+        // 渲染大盘分析
+        function renderMarketAnalysis() {
+            const container = document.getElementById('stock-container');
+            if (!container) return;
+
+            container.style.display = 'block';
+            document.getElementById('stock-detail').style.display = 'none';
+            document.getElementById('stock-kline').style.display = 'none';
+
+            const summary = stockData.market;
+            const gainersRate = summary.gainers_rate || 0;
+            let marketTrend = '';
+            let analysis = '';
+
+            if (gainersRate > 60) {
+                marketTrend = '强势上涨';
+                analysis = '市场整体表现强劲，上涨股票占比超过60%，市场情绪乐观。建议关注热点板块轮动机会。';
+            } else if (gainersRate > 50) {
+                marketTrend = '小幅上涨';
+                analysis = '市场整体偏多，但涨幅有限。，建议关注业绩预增的优质标的。';
+            } else if (gainersRate > 40) {
+                marketTrend = '震荡整理';
+                analysis = '市场处于震荡状态，多空双方力量相对平衡，建议保持谨慎观望。';
+            } else if (gainersRate > 30) {
+                marketTrend = '小幅下跌';
+                analysis = '市场整体偏弱，建议控制仓位，关注防御性板块。';
+            } else {
+                marketTrend = '明显下跌';
+                analysis = '市场整体表现较弱，下跌股票占比超过70%，建议观望为主，等待市场企稳。';
+            }
+
+            container.innerHTML = `
+                <div class="stock-analysis">
+                    <div class="stock-analysis-title">📊 市场分析</div>
+                    <p><strong>市场趋势：</strong>${marketTrend}</p>
+                    <p><strong>数据分析：</strong>${analysis}</p>
+                    <p><strong>涨跌统计：</strong>上涨 ${summary.gainers_count || 0} 家，下跌 ${summary.losers_count || 0} 家</p>
+                </div>
+            `;
+        }
+
+        // 显示股票详情
+        async function showStockDetail(code, name) {
+            try {
+                const response = await fetch(`/api/stock/detail?code=${code}`);
+                const result = await response.json();
+
+                if (result.success && result.data) {
+                    const detail = result.data;
+                    const changeClass = detail.change_pct > 0 ? 'positive' : (detail.change_pct < 0 ? 'negative' : '');
+                    const changeSymbol = detail.change_pct > 0 ? '+' : '';
+
+                    document.getElementById('stock-container').style.display = 'none';
+                    document.getElementById('stock-detail').style.display = 'block';
+
+                    document.getElementById('stock-detail').innerHTML = `
+                        <div class="stock-detail-header">
+                            <div>
+                                <div class="stock-detail-name">${detail.name}</div>
+                                <div class="stock-code">${detail.code}</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div class="stock-detail-price">${detail.price.toFixed(2)}</div>
+                                <div class="stock-detail-change ${changeClass}">${changeSymbol}${detail.change_pct.toFixed(2)}%</div>
+                            </div>
+                        </div>
+                        <div class="stock-detail-grid">
+                            <div class="stock-detail-item">
+                                <div class="stock-detail-item-label">开盘</div>
+                                <div class="stock-detail-item-value">${detail.open.toFixed(2)}</div>
+                            </div>
+                            <div class="stock-detail-item">
+                                <div class="stock-detail-item-label">最高</div>
+                                <div class="stock-detail-item-value">${detail.high.toFixed(2)}</div>
+                            </div>
+                            <div class="stock-detail-item">
+                                <div class="stock-detail-item-label">最低</div>
+                                <div class="stock-detail-item-value">${detail.low.toFixed(2)}</div>
+                            </div>
+                            <div class="stock-detail-item">
+                                <div class="stock-detail-item-label">昨收</div>
+                                <div class="stock-detail-item-value">${detail.pre_close.toFixed(2)}</div>
+                            </div>
+                            <div class="stock-detail-item">
+                                <div class="stock-detail-item-label">成交量</div>
+                                <div class="stock-detail-item-value">${(detail.volume / 1000000).toFixed(2)}万手</div>
+                            </div>
+                            <div class="stock-detail-item">
+                                <div class="stock-detail-item-label">成交额</div>
+                                <div class="stock-detail-item-value">${(detail.amount / 100000000).toFixed(2)}亿</div>
+                            </div>
+                            <div class="stock-detail-item">
+                                <div class="stock-detail-item-label">总市值</div>
+                                <div class="stock-detail-item-value">${(detail.market_cap / 100000000).toFixed(0)}亿</div>
+                            </div>
+                            <div class="stock-detail-item">
+                                <div class="stock-detail-item-label">换手率</div>
+                                <div class="stock-detail-item-value">${detail.turnover_rate.toFixed(2)}%</div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 15px; text-align: right;">
+                            <button class="btn-detail" onclick="showStockKline('${code}')">查看K线图</button>
+                            <button class="btn-detail" onclick="switchStockTab('${currentStockTab}')">返回列表</button>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('获取股票详情失败:', error);
+            }
+        }
+
+        // 显示K线图
+        async function showStockKline(code) {
+            try {
+                const response = await fetch(`/api/stock/kline?code=${code}&days=30`);
+                const result = await response.json();
+
+                if (result.success && result.data && result.data.kline) {
+                    document.getElementById('stock-detail').style.display = 'none';
+                    document.getElementById('stock-kline').style.display = 'block';
+
+                    renderKlineChart(result.data.kline);
+                }
+            } catch (error) {
+                console.error('获取K线数据失败:', error);
+            }
+        }
+
+        // 渲染K线图
+        function renderKlineChart(klineData) {
+            const canvas = document.getElementById('kline-chart');
+            if (!canvas) return;
+
+            if (currentKlineChart) {
+                currentKlineChart.destroy();
+            }
+
+            const labels = klineData.map(k => k.date);
+            const openData = klineData.map(k => k.open);
+            const closeData = klineData.map(k => k.close);
+            const highData = klineData.map(k => k.high);
+            const lowData = klineData.map(k => k.low);
+
+            currentKlineChart = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '开盘价',
+                            data: openData,
+                            borderColor: '#667eea',
+                            backgroundColor: 'transparent',
+                            tension: 0.1
+                        },
+                        {
+                            label: '收盘价',
+                            data: closeData,
+                            borderColor: '#feca57',
+                            backgroundColor: 'transparent',
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '股价走势 (近30日)'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        }
+
+        // 切换股票Tab
+        function switchStockTab(tab) {
+            currentStockTab = tab;
+            document.querySelectorAll('.stock-tabs .tab').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`.stock-tabs .tab[data-tab="${tab}"]`)?.classList.add('active');
+            renderStockData(tab);
+        }
+
         // 初始化页面
         function init() {
             const data = window.REPORT_DATA;
@@ -3746,6 +4913,12 @@
 
             // 渲染图表（会等待 Chart.js 加载）
             renderAllCharts();
+
+            // 加载A股行情数据
+            loadStockData();
+
+            // 初始化股票数据获取控制
+            initStockFetchControl();
         });
     </script>
     <!-- Chart.js 图表库 -->

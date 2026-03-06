@@ -70,8 +70,8 @@ class TrendAnalyzer:
     
     def get_hot_keywords_trend(
         self,
-        days: int = 7,
-        top_n: int = 10
+        days: int = 3,
+        top_n: int = 16
     ) -> Dict[str, List[Dict]]:
         """
         获取热门关键词的趋势
@@ -84,7 +84,7 @@ class TrendAnalyzer:
             Dict[str, List[Dict]]: 各关键词的趋势数据
         """
         # 先获取最近的热门关键词
-        recent_keywords = self.dao.get_trending_keywords(days=1, top_n=top_n)
+        recent_keywords = self.dao.get_trending_keywords(days=3, top_n=top_n)
         
         result = {}
         for kw_data in recent_keywords:

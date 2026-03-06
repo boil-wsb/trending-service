@@ -15,6 +15,11 @@
 - 📡 **API接口** 提供数据访问
 - 🛠️ **服务管理** 脚本（启动/停止/检查）
 
+## 环境要求
+
+- **Python**: 3.8 或更高版本（推荐 3.10+）
+- **操作系统**: Windows / Linux / macOS
+
 ## 安装说明
 
 ### 1. 克隆项目
@@ -24,13 +29,26 @@ git clone <repository-url>
 cd trending-service
 ```
 
-### 2. 安装依赖
+### 2. 创建虚拟环境（推荐）
+
+```bash
+# 创建虚拟环境
+python -m venv venv
+
+# 激活虚拟环境
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+```
+
+### 3. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 配置项目
+### 4. 配置项目
 
 项目配置位于 `src/config.py` 文件中，可根据需要调整服务器端口、定时任务时间等设置。
 

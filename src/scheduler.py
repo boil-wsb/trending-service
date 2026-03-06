@@ -136,10 +136,28 @@ class TaskScheduler:
 
         self.logger.info("调度器已停止")
 
+    def _is_stock_trading_time(self) -> bool:
+        """检查当前是否为A股交易时间"""
+        from datetime import datetime
+
+        now = datetime.now()
+        weekday = now.weekday()
+        hour = now.hour
+        minute = now.minute
+        current_time = hour * 60 + minute  # 转换为分钟数便于比较
+
+        # A股开盘时间：周一至周五 9:30-11:30, 13:00-15:00
+        is_weekday = weekday < 5  # 0-4 表示周一到周五
+        morning_session = (9 * 60 + 30) <= current_time <= (11 * 60 + 30)
+        afternoon_session = (13 * 60) <= current_time <= (15 * 60)
+
+        return is_weekday and (morning_session or afternoon_session)
+
     def _should_run(self, task: Dict) -> bool:
         """检查任务是否应该执行"""
         schedule = task['schedule']
         last_run = task['last_run']
+        task_name = task.get('name', '')
 
         # 使用配置中的 is_time_to_run 函数检查是否应该执行
         # 支持简单格式 "HH:MM" 和 cron 表达式 "0 */8 * * *"
@@ -157,10 +175,22 @@ class TaskScheduler:
                 # 检查是否在当前分钟内已经执行过
                 now = datetime.now()
                 if last_run is None:
+                    # 对于股票任务，额外检查是否在交易时间和自动获取是否启用
+                    if task_name == 'fetch_stock':
+                        if not self._is_stock_trading_time():
+                            return False
+                        if not self.is_stock_auto_fetch_enabled():
+                            return False
                     return True
                 # 确保同一分钟内不会重复执行
                 time_diff = (now - last_run).total_seconds()
                 if time_diff >= 60:  # 至少间隔60秒
+                    # 对于股票任务，额外检查是否在交易时间和自动获取是否启用
+                    if task_name == 'fetch_stock':
+                        if not self._is_stock_trading_time():
+                            return False
+                        if not self.is_stock_auto_fetch_enabled():
+                            return False
                     return True
 
         except Exception as e:
@@ -287,6 +317,14 @@ class TrendingTaskScheduler(TaskScheduler):
             enabled=SCHEDULE['fetch_trending']['enabled']
         )
 
+        # 添加获取股票数据任务
+        self.add_task(
+            name='fetch_stock',
+            schedule=SCHEDULE['fetch_stock']['schedule'],
+            task_func=self._fetch_stock_data,
+            enabled=SCHEDULE['fetch_stock']['enabled']
+        )
+
         # 添加数据清理任务（每天凌晨3点执行）
         self.add_task(
             name='cleanup_old_data',
@@ -294,6 +332,24 @@ class TrendingTaskScheduler(TaskScheduler):
             task_func=self._cleanup_old_data,
             enabled=True
         )
+
+    def is_stock_auto_fetch_enabled(self) -> bool:
+        """检查股票自动获取是否启用"""
+        from src.config import DATA_SOURCES
+        return DATA_SOURCES.get('stock', {}).get('auto_fetch', True)
+
+    def set_stock_auto_fetch(self, enabled: bool):
+        """设置股票自动获取状态"""
+        from src.config import DATA_SOURCES
+        if 'stock' not in DATA_SOURCES:
+            DATA_SOURCES['stock'] = {}
+        DATA_SOURCES['stock']['auto_fetch'] = enabled
+        self.logger.info(f"股票自动获取已{'启用' if enabled else '禁用'}")
+
+    def is_stock_enabled(self) -> bool:
+        """检查股票数据源是否启用"""
+        from src.config import DATA_SOURCES
+        return DATA_SOURCES.get('stock', {}).get('enabled', True)
 
     def _run_scheduler(self):
         """调度器主循环（集成重试逻辑）"""
@@ -657,3 +713,18 @@ class TrendingTaskScheduler(TaskScheduler):
             self.logger.info(f"✅ 清理完成: 删除 {deleted_failures} 条过期失败记录")
         except Exception as e:
             self.logger.error(f"❌ 清理数据失败: {e}")
+
+    def _fetch_stock_data(self):
+        """获取股票数据"""
+        try:
+            # 注意：交易时间检查已在调度器层面 (_should_run) 完成
+            # 这里直接执行数据获取
+            self.logger.info("📈 开始获取股票数据...")
+            from src.fetchers.stock import StockFetcher
+            from src.config import DATABASE
+
+            fetcher = StockFetcher(logger=self.logger)
+            count = fetcher.save_to_db(DATABASE['path'])
+            self.logger.info(f"✅ 股票数据获取完成: {count} 条")
+        except Exception as e:
+            self.logger.error(f"❌ 获取股票数据失败: {e}")

@@ -6,6 +6,7 @@ HTTP服务器模块
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 # 添加项目根目录到 Python 路径
@@ -14,7 +15,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from flask import Flask, jsonify, send_from_directory, redirect, Response, request
-from src.config import SERVER, REPORTS_DIR, ROUTES
+from src.config import SERVER, REPORTS_DIR, ROUTES, DATABASE
 from src.utils import get_logger
 
 
@@ -48,6 +49,232 @@ class TrendingServer:
 
     def _register_routes(self, app: Flask):
         """注册路由"""
+        
+        # ========== 股票行情API (必须在通用路由之前注册) ==========
+        
+        @app.route('/api/stock/fetch-control', methods=['GET', 'POST'])
+        def api_stock_fetch_control():
+            """股票数据获取控制"""
+            try:
+                from src.config import DATA_SOURCES
+
+                if request.method == 'GET':
+                    # 获取当前状态
+                    return jsonify({
+                        'success': True,
+                        'data': {
+                            'enabled': DATA_SOURCES.get('stock', {}).get('enabled', True),
+                            'auto_fetch': DATA_SOURCES.get('stock', {}).get('auto_fetch', True)
+                        }
+                    })
+                else:
+                    # POST - 更新状态
+                    data = request.get_json()
+                    if data is None:
+                        return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
+
+                    enabled = data.get('enabled')
+                    auto_fetch = data.get('auto_fetch')
+
+                    # 更新配置
+                    if 'stock' not in DATA_SOURCES:
+                        DATA_SOURCES['stock'] = {}
+
+                    if enabled is not None:
+                        DATA_SOURCES['stock']['enabled'] = bool(enabled)
+                    if auto_fetch is not None:
+                        DATA_SOURCES['stock']['auto_fetch'] = bool(auto_fetch)
+
+                    self.logger.info(f"股票数据获取控制更新: enabled={DATA_SOURCES['stock'].get('enabled')}, auto_fetch={DATA_SOURCES['stock'].get('auto_fetch')}")
+
+                    return jsonify({
+                        'success': True,
+                        'data': {
+                            'enabled': DATA_SOURCES['stock'].get('enabled', True),
+                            'auto_fetch': DATA_SOURCES['stock'].get('auto_fetch', True)
+                        }
+                    })
+            except Exception as e:
+                self.logger.error(f"股票数据获取控制失败: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+        @app.route('/api/stock/trigger-fetch', methods=['POST'])
+        def api_stock_trigger_fetch():
+            """手动触发股票数据获取"""
+            try:
+                from src.fetchers.stock import StockFetcher
+                from src.config import DATABASE
+
+                fetcher = StockFetcher(logger=self.logger)
+                count = fetcher.save_to_db(DATABASE['path'])
+
+                self.logger.info(f"手动触发股票数据获取完成: {count} 条")
+
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'count': count,
+                        'message': f'成功获取 {count} 条股票数据'
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"手动触发股票数据获取失败: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+        @app.route('/api/stock/market')
+        def api_stock_market():
+            """A股市场概览数据"""
+            try:
+                from src.db.stock_dao import StockDAO
+
+                dao = StockDAO(DATABASE['path'])
+                gainers = dao.get_gainers(10)
+                losers = dao.get_losers(10)
+                volume_list = dao.get_by_volume(10)
+
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'gainers': [s.to_dict() for s in gainers],
+                        'losers': [s.to_dict() for s in losers],
+                        'volume': [s.to_dict() for s in volume_list],
+                        'fetched_at': gainers[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if gainers else None
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"获取股票市场数据失败: {e}")
+                return jsonify({'error': str(e)}), 500
+
+        @app.route('/api/stock/summary')
+        def api_stock_summary():
+            """市场整体概况"""
+            try:
+                from src.db.stock_dao import StockDAO
+
+                dao = StockDAO(DATABASE['path'])
+                summary = dao.get_market_summary()
+
+                return jsonify({
+                    'success': True,
+                    'data': summary
+                })
+            except Exception as e:
+                self.logger.error(f"获取市场概况失败: {e}")
+                return jsonify({'error': str(e)}), 500
+
+        @app.route('/api/stock/gainers')
+        def api_stock_gainers():
+            """涨幅榜"""
+            try:
+                from src.db.stock_dao import StockDAO
+                from flask import request
+
+                dao = StockDAO(DATABASE['path'])
+                limit = int(request.args.get('limit', 10))
+                gainers = dao.get_gainers(limit)
+
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'gainers': [s.to_dict() for s in gainers],
+                        'count': len(gainers)
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"获取涨幅榜失败: {e}")
+                return jsonify({'error': str(e)}), 500
+
+        @app.route('/api/stock/losers')
+        def api_stock_losers():
+            """跌幅榜"""
+            try:
+                from src.db.stock_dao import StockDAO
+                from flask import request
+
+                dao = StockDAO(DATABASE['path'])
+                limit = int(request.args.get('limit', 10))
+                losers = dao.get_losers(limit)
+
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'losers': [s.to_dict() for s in losers],
+                        'count': len(losers)
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"获取跌幅榜失败: {e}")
+                return jsonify({'error': str(e)}), 500
+
+        @app.route('/api/stock/volume')
+        def api_stock_volume():
+            """成交额榜"""
+            try:
+                from src.db.stock_dao import StockDAO
+
+                dao = StockDAO(DATABASE['path'])
+                volume_list = dao.get_by_volume(10)
+
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'volume': [s.to_dict() for s in volume_list],
+                        'count': len(volume_list)
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"获取成交额榜失败: {e}")
+                return jsonify({'error': str(e)}), 500
+
+        @app.route('/api/stock/detail')
+        def api_stock_detail():
+            """个股详情"""
+            try:
+                from src.db.stock_dao import StockDAO
+                from flask import request
+
+                code = request.args.get('code')
+                if not code:
+                    return jsonify({'error': '缺少股票代码参数: code'}), 400
+
+                dao = StockDAO(DATABASE['path'])
+                detail = dao.get_stock_detail(code)
+
+                if not detail:
+                    return jsonify({'error': f'未找到股票: {code}'}), 404
+
+                return jsonify({
+                    'success': True,
+                    'data': detail
+                })
+            except Exception as e:
+                self.logger.error(f"获取股票详情失败: {e}")
+                return jsonify({'error': str(e)}), 500
+
+        @app.route('/api/stock/kline')
+        def api_stock_kline():
+            """K线数据"""
+            try:
+                from src.fetchers.stock import StockFetcher
+                from flask import request
+
+                code = request.args.get('code')
+                if not code:
+                    return jsonify({'error': '缺少股票代码参数: code'}), 400
+
+                days = int(request.args.get('days', 30))
+                fetcher = StockFetcher(logger=self.logger)
+                kline = fetcher.fetch_kline(code, days)
+
+                return jsonify({
+                    'success': True,
+                    'data': kline
+                })
+            except Exception as e:
+                self.logger.error(f"获取K线数据失败: {e}")
+                return jsonify({'error': str(e)}), 500
+
+        # ========== 通用API路由 ==========
         
         @app.route('/')
         def index():
@@ -197,13 +424,26 @@ class TrendingServer:
                 self.logger.error(f"获取日期数据失败: {e}")
                 return jsonify({'success': False, 'error': f'Internal server error: {str(e)}'}), 500
 
+        @app.route('/api/status')
+        def api_status():
+            """服务状态检查"""
+            return jsonify({
+                'success': True,
+                'status': 'running',
+                'timestamp': datetime.now().isoformat(),
+                'server': {
+                    'host': self.host,
+                    'port': self.port
+                }
+            })
+
         @app.route('/static/<path:filename>')
         def static_files(filename: str):
             """静态文件服务"""
             static_dir = project_root / 'static'
             if not static_dir.exists():
                 return "Static directory not found", 404
-            
+
             try:
                 return send_from_directory(static_dir, filename)
             except Exception as e:
