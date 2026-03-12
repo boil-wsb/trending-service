@@ -33,5 +33,8 @@ python-dateutil>=2.8.2
 # 无头浏览器（用于知乎数据获取）
 playwright>=1.40.0
 
+# Python 3.8 时区支持
+backports.zoneinfo>=0.2.1;python_version<"3.9"
+
 # 环境变量管理
 python-dotenv>=1.0.0

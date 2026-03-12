@@ -150,7 +150,14 @@ def start_service_background():
                 pass
 
     # 获取 Python 解释器路径
-    python_exe = sys.executable
+    # 优先使用 Python 3.12.10
+    python_312 = Path.home() / '.pyenv' / 'pyenv-win' / 'versions' / '3.12.10' / 'python.exe'
+    if python_312.exists():
+        python_exe = str(python_312)
+        logger.info(f"🐍 使用 Python 3.12.10: {python_exe}")
+    else:
+        python_exe = sys.executable
+        logger.info(f"🐍 使用默认 Python: {python_exe}")
 
     # 启动脚本路径
     main_script = project_root / 'src' / 'main.py'

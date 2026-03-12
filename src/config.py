@@ -206,7 +206,10 @@ def get_next_run_time(cron_expr: str, timezone: str = 'Asia/Shanghai') -> 'datet
         下次执行的datetime对象
     """
     from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
     
     parsed = parse_cron_expression(cron_expr)
     now = datetime.now(ZoneInfo(timezone))
@@ -239,7 +242,10 @@ def is_time_to_run(schedule_config: dict, current_time: 'datetime' = None) -> bo
         是否应该执行
     """
     from datetime import datetime
-    from zoneinfo import ZoneInfo
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
     
     if not schedule_config.get('enabled', False):
         return False
