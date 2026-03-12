@@ -129,54 +129,81 @@ class APIHandler(BaseHTTPRequestHandler):
         按日期获取数据
 
         Args:
-            query: URL 查询参数，支持 date 参数 (YYYY-MM-DD)
+            query: URL 查询参数，支持:
+                - date: 单个日期 (YYYY-MM-DD)
+                - start_date: 开始日期 (YYYY-MM-DD)
+                - end_date: 结束日期 (YYYY-MM-DD)
         """
         try:
             # 获取日期参数
             date_param = query.get('date', [None])[0]
+            start_date_param = query.get('start_date', [None])[0]
+            end_date_param = query.get('end_date', [None])[0]
 
-            if not date_param:
-                self._send_error('Missing required parameter: date', 400)
-                return
+            from datetime import datetime, date
 
-            # 验证日期格式
-            from datetime import datetime
-            try:
-                target_date = datetime.strptime(date_param, '%Y-%m-%d').date()
-            except ValueError:
-                self._send_error('Invalid date format. Expected: YYYY-MM-DD', 400)
+            # 验证日期格式并计算日期范围
+            if date_param:
+                # 单个日期模式
+                try:
+                    target_date = datetime.strptime(date_param, '%Y-%m-%d').date()
+                    start_date = target_date
+                    end_date = target_date
+                except ValueError:
+                    self._send_error('Invalid date format. Expected: YYYY-MM-DD', 400)
+                    return
+            elif start_date_param and end_date_param:
+                # 日期范围模式
+                try:
+                    start_date = datetime.strptime(start_date_param, '%Y-%m-%d').date()
+                    end_date = datetime.strptime(end_date_param, '%Y-%m-%d').date()
+                except ValueError:
+                    self._send_error('Invalid date format. Expected: YYYY-MM-DD', 400)
+                    return
+
+                # 验证日期范围
+                if start_date > end_date:
+                    self._send_error('start_date cannot be later than end_date', 400)
+                    return
+            else:
+                self._send_error('Missing required parameters: date or start_date/end_date', 400)
                 return
 
             # 检查是否是未来日期
             today = datetime.now().date()
-            if target_date > today:
+            if end_date > today:
                 self._send_error('Cannot query future dates', 400)
                 return
 
             # 从数据库获取数据
             from src.db import TrendingDAO
             from src.config import DATABASE
-            from datetime import date
 
             dao = TrendingDAO(DATABASE['path'])
 
-            # 获取指定日期的数据
+            # 获取指定日期范围的数据
             items = dao.get_items(
-                start_date=target_date,
-                end_date=target_date,
+                start_date=start_date,
+                end_date=end_date,
                 limit=10000
             )
+
+            # 构建日期范围字符串
+            if start_date == end_date:
+                date_range_str = start_date.isoformat()
+            else:
+                date_range_str = f"{start_date.isoformat()} to {end_date.isoformat()}"
 
             # 如果没有数据，返回友好提示
             if not items:
                 self._send_json_response({
                     'success': True,
                     'data': {
-                        'date': date_param,
+                        'date': date_range_str,
                         'items': [],
                         'sources': {},
                         'total_items': 0,
-                        'message': f'No data available for {date_param}'
+                        'message': f'No data available for {date_range_str}'
                     }
                 })
                 return
@@ -202,7 +229,9 @@ class APIHandler(BaseHTTPRequestHandler):
             response_data = {
                 'success': True,
                 'data': {
-                    'date': date_param,
+                    'date': date_range_str,
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat(),
                     'items': [{
                         'title': item.title,
                         'url': item.url,

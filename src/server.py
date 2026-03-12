@@ -326,36 +326,64 @@ class TrendingServer:
 
         @app.route('/api/data')
         def api_data_by_date():
-            """按日期获取数据 API"""
+            """按日期获取数据 API
+            
+            支持参数:
+                - date: 单个日期 (YYYY-MM-DD)
+                - start_date: 开始日期 (YYYY-MM-DD)
+                - end_date: 结束日期 (YYYY-MM-DD)
+            """
             from datetime import datetime
             from src.db import TrendingDAO
             from src.config import DATABASE
             
             # 获取日期参数
             date_param = request.args.get('date')
+            start_date_param = request.args.get('start_date')
+            end_date_param = request.args.get('end_date')
             
-            if not date_param:
-                return jsonify({'success': False, 'error': 'Missing required parameter: date'}), 400
-            
-            # 验证日期格式
-            try:
-                target_date = datetime.strptime(date_param, '%Y-%m-%d').date()
-            except ValueError:
-                return jsonify({'success': False, 'error': 'Invalid date format. Expected: YYYY-MM-DD'}), 400
+            # 验证日期格式并计算日期范围
+            if date_param:
+                # 单个日期模式
+                try:
+                    target_date = datetime.strptime(date_param, '%Y-%m-%d').date()
+                    start_date = target_date
+                    end_date = target_date
+                except ValueError:
+                    return jsonify({'success': False, 'error': 'Invalid date format. Expected: YYYY-MM-DD'}), 400
+            elif start_date_param and end_date_param:
+                # 日期范围模式
+                try:
+                    start_date = datetime.strptime(start_date_param, '%Y-%m-%d').date()
+                    end_date = datetime.strptime(end_date_param, '%Y-%m-%d').date()
+                except ValueError:
+                    return jsonify({'success': False, 'error': 'Invalid date format. Expected: YYYY-MM-DD'}), 400
+                
+                # 验证日期范围
+                if start_date > end_date:
+                    return jsonify({'success': False, 'error': 'start_date cannot be later than end_date'}), 400
+            else:
+                return jsonify({'success': False, 'error': 'Missing required parameters: date or start_date/end_date'}), 400
             
             # 检查是否是未来日期
             today = datetime.now().date()
-            if target_date > today:
+            if end_date > today:
                 return jsonify({'success': False, 'error': 'Cannot query future dates'}), 400
+            
+            # 构建日期范围字符串
+            if start_date == end_date:
+                date_range_str = start_date.isoformat()
+            else:
+                date_range_str = f"{start_date.isoformat()} to {end_date.isoformat()}"
             
             try:
                 # 从数据库获取数据
                 dao = TrendingDAO(DATABASE['path'])
                 
-                # 获取指定日期的数据
+                # 获取指定日期范围的数据
                 items = dao.get_items(
-                    start_date=target_date,
-                    end_date=target_date,
+                    start_date=start_date,
+                    end_date=end_date,
                     limit=10000
                 )
                 
@@ -364,11 +392,13 @@ class TrendingServer:
                     return jsonify({
                         'success': True,
                         'data': {
-                            'date': date_param,
+                            'date': date_range_str,
+                            'start_date': start_date.isoformat(),
+                            'end_date': end_date.isoformat(),
                             'items': [],
                             'sources': {},
                             'total_items': 0,
-                            'message': f'No data available for {date_param}'
+                            'message': f'No data available for {date_range_str}'
                         }
                     })
                 
@@ -397,7 +427,9 @@ class TrendingServer:
                 response_data = {
                     'success': True,
                     'data': {
-                        'date': date_param,
+                        'date': date_range_str,
+                        'start_date': start_date.isoformat(),
+                        'end_date': end_date.isoformat(),
                         'items': [{
                             'title': item.title,
                             'url': item.url,
