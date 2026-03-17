@@ -2353,10 +2353,6 @@
                     <div class="stat-value" id="total-sources">--</div>
                     <div class="stat-label">数据源</div>
                 </div>
-                <div class="stat-item">
-                    <div class="stat-value" id="total-topics">--</div>
-                    <div class="stat-label">话题数</div>
-                </div>
             </div>
         </div>
 
@@ -4418,8 +4414,6 @@
             document.getElementById('total-items').textContent = formatNumber(dbStats.total_count || data.total_items || 0);
             document.getElementById('total-sources').textContent =
                 dbStats.sources_count || (data.sources ? Object.keys(data.sources).length : 0);
-            document.getElementById('total-topics').textContent =
-                data.topics ? Object.keys(data.topics).length : 0;
 
             // 渲染各部分内容
             renderOverview(data);
@@ -4558,9 +4552,6 @@
                     document.getElementById('total-items').textContent = formatNumber(dbStats.total_count || data.data.total_items || 0);
                     document.getElementById('total-sources').textContent =
                         dbStats.sources_count || (data.data.sources ? Object.keys(data.data.sources).length : 0);
-                    document.getElementById('total-topics').textContent =
-                        data.data.topics ? Object.keys(data.data.topics).length : 0;
-
                     showToast(`✅ 已加载 ${startDate} 至 ${endDate} 的数据`, 'success');
                 } else {
                     throw new Error(data.message || '数据加载失败');
@@ -4634,10 +4625,11 @@
         function renderGitHubWeekly(data) {
             const container = document.getElementById('github-weekly-content');
             const sources = data.sources || {};
-            const githubItems = sources.github || [];
+            // 使用 github_ai 数据源（本周增长数据）
+            const githubItems = sources.github_ai || [];
 
             if (githubItems.length === 0) {
-                container.innerHTML = '<div class="empty-state"><div class="emoji">📭</div><div>暂无GitHub数据</div></div>';
+                container.innerHTML = '<div class="empty-state"><div class="emoji">📭</div><div>暂无GitHub本周增长数据</div></div>';
                 return;
             }
 

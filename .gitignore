@@ -81,3 +81,4 @@ reports/*.json
 *.bak
 *.backup
 docs/
+.trae/

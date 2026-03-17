@@ -1,18 +1,19 @@
 """
 GitHub热门数据获取器
-使用 GitHub Search API 获取最近7天创建的仓库，按星标排序
+支持两种数据源：
+1. GitHub Trending 页面 (今日趋势) - 用于普通 GitHub 按钮
+2. GitHub Search API (本周增长) - 用于 GitHub本周增长 按钮
 """
 
 import sys
-import io
 import requests
 import json
 import os
-import re
 import time
 import random
+import re
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 # 添加项目根目录到路径
@@ -24,23 +25,28 @@ from .base import BaseFetcher, TrendingItem
 
 
 class GitHubTrendingFetcher(BaseFetcher):
-    """GitHub热门数据获取器 - 使用 Search API"""
+    """GitHub热门数据获取器"""
     
     name = "github"
 
     def __init__(self, config: Dict = None, logger=None):
         super().__init__(config, logger)
         self.base_url = "https://github.com"
+        self.trending_url = "https://github.com/trending"
         self.api_url = "https://api.github.com/search/repositories"
         self.session = requests.Session()
         
-        # GitHub API 请求头
+        # 设置请求头
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
         })
         
-        # 如果配置了 GitHub Token，添加到请求头（提高速率限制）
+        # 如果配置了 GitHub Token，添加到请求头（提高API速率限制）
         github_token = os.getenv('GITHUB_TOKEN')
         if github_token:
             self.session.headers.update({'Authorization': f'token {github_token}'})
@@ -57,6 +63,168 @@ class GitHubTrendingFetcher(BaseFetcher):
         """
         date = datetime.now() - timedelta(days=days)
         return date.strftime('%Y-%m-%d')
+
+    def fetch_trending_from_page(self, language: str = "", since: str = "daily", limit: int = 20) -> List[Dict]:
+        """
+        从 GitHub Trending 页面爬取数据
+        
+        Args:
+            language: 编程语言筛选，如 "python", "javascript", "" 表示所有语言
+            since: 时间周期，"daily", "weekly", "monthly"
+            limit: 返回结果数量限制
+            
+        Returns:
+            List[Dict]: 仓库列表
+        """
+        url = self.trending_url
+        params = {}
+        
+        if language:
+            url = f"{self.trending_url}/{language}"
+        if since:
+            params['since'] = since
+            
+        # 添加随机延迟
+        delay = random.uniform(2, 5)
+        self.logger.info(f"等待 {delay:.1f} 秒后请求...")
+        time.sleep(delay)
+        
+        # 重试机制
+        for attempt in range(self.max_retries):
+            try:
+                self.logger.info(f"请求 GitHub Trending 页面: {url} (尝试 {attempt + 1}/{self.max_retries})")
+                
+                # 设置代理
+                proxies = None
+                if PROXY.get('enabled'):
+                    proxies = {
+                        'http': PROXY.get('http', ''),
+                        'https': PROXY.get('https', '')
+                    }
+                
+                response = self.session.get(
+                    url,
+                    params=params,
+                    timeout=REQUESTS['timeout'],
+                    proxies=proxies
+                )
+                response.raise_for_status()
+                
+                # 解析HTML
+                repos = self._parse_trending_page(response.text, limit)
+                self.logger.info(f"从 Trending 页面解析到 {len(repos)} 个仓库")
+                return repos
+                
+            except requests.exceptions.RequestException as e:
+                self.logger.warning(f"请求失败 (尝试 {attempt + 1}/{self.max_retries}): {e}")
+                if attempt < self.max_retries - 1:
+                    wait_time = self.retry_delay * (attempt + 1) + random.uniform(1, 3)
+                    self.logger.info(f"等待 {wait_time:.1f} 秒后重试...")
+                    time.sleep(wait_time)
+                else:
+                    self.logger.error(f"获取Trending页面失败，已重试 {self.max_retries} 次: {e}")
+                    return []
+            except Exception as e:
+                self.logger.error(f"解析Trending页面失败: {e}")
+                return []
+        
+        return []
+    
+    def _parse_trending_page(self, html: str, limit: int = 20) -> List[Dict]:
+        """
+        解析 GitHub Trending 页面 HTML
+        
+        Args:
+            html: 页面HTML内容
+            limit: 返回结果数量限制
+            
+        Returns:
+            List[Dict]: 解析后的仓库列表
+        """
+        repos = []
+        
+        # 使用正则表达式解析HTML
+        # 查找所有仓库条目
+        article_pattern = r'<article[^>]*class="[^"]*Box-row[^"]*"[^>]*>(.*?)</article>'
+        articles = re.findall(article_pattern, html, re.DOTALL)
+        
+        for article in articles[:limit]:
+            try:
+                # 获取仓库名称和链接
+                title_match = re.search(r'<h2[^>]*class="[^"]*h3[^"]*"[^>]*>.*?<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', article, re.DOTALL)
+                if not title_match:
+                    continue
+                    
+                href = title_match.group(1).strip()
+                full_name = href.lstrip('/')
+                repo_url = f"{self.base_url}{href}"
+                
+                # 获取描述
+                desc_match = re.search(r'<p[^>]*class="[^"]*col-9[^"]*"[^>]*>(.*?)</p>', article, re.DOTALL)
+                description = re.sub(r'<[^>]+>', '', desc_match.group(1)).strip() if desc_match else ''
+                
+                # 获取编程语言
+                lang_match = re.search(r'<span[^>]*itemprop="programmingLanguage"[^>]*>(.*?)</span>', article)
+                language = lang_match.group(1).strip() if lang_match else 'Unknown'
+                
+                # 获取 stars 数量
+                stars_match = re.search(r'<a[^>]*href="[^"]*stargazers[^"]*"[^>]*>(.*?)</a>', article, re.DOTALL)
+                stars = 0
+                if stars_match:
+                    stars_text = re.sub(r'<[^>]+>', '', stars_match.group(1)).strip()
+                    stars = self._parse_number(stars_text)
+                
+                # 获取 forks 数量
+                forks_match = re.search(r'<a[^>]*href="[^"]*forks[^"]*"[^>]*>(.*?)</a>', article, re.DOTALL)
+                forks = 0
+                if forks_match:
+                    forks_text = re.sub(r'<[^>]+>', '', forks_match.group(1)).strip()
+                    forks = self._parse_number(forks_text)
+                
+                # 获取今日新增 stars
+                today_stars_match = re.search(r'<span[^>]*class="[^"]*d-inline-block[^"]*float-sm-right[^"]*"[^>]*>(.*?)</span>', article, re.DOTALL)
+                today_stars = 0
+                if today_stars_match:
+                    stars_text = re.sub(r'<[^>]+>', '', today_stars_match.group(1)).strip()
+                    match = re.search(r'(\d+(?:,\d+)*)\s*stars?', stars_text)
+                    if match:
+                        today_stars = int(match.group(1).replace(',', ''))
+                
+                # 获取作者头像
+                built_by = []
+                avatar_matches = re.findall(r'<img[^>]*class="[^"]*avatar[^"]*"[^>]*alt="([^"]*)"[^>]*src="([^"]*)"', article)
+                for username, avatar_url in avatar_matches:
+                    built_by.append({
+                        'username': username,
+                        'avatar': avatar_url
+                    })
+                
+                repos.append({
+                    'full_name': full_name,
+                    'url': repo_url,
+                    'description': description,
+                    'language': language,
+                    'stars': stars,
+                    'forks': forks,
+                    'today_stars': today_stars,
+                    'builtBy': built_by
+                })
+                
+            except Exception as e:
+                self.logger.warning(f"解析仓库失败: {e}")
+                continue
+        
+        return repos
+    
+    def _parse_number(self, text: str) -> int:
+        """解析数字字符串，如 '1.2k' -> 1200"""
+        text = text.strip().lower()
+        
+        if 'k' in text:
+            num = float(text.replace('k', '').replace(',', ''))
+            return int(num * 1000)
+        
+        return int(text.replace(',', ''))
 
     def fetch_repositories_from_api(self, language: str = None, days: int = 7, limit: int = 30) -> List[Dict]:
         """
@@ -185,43 +353,39 @@ class GitHubTrendingFetcher(BaseFetcher):
     def fetch(self) -> List[TrendingItem]:
         """
         获取GitHub热门数据（实现基类方法）
-        使用 Search API 获取最近7天创建的仓库，按星标排序
+        从 GitHub Trending 页面获取今日热门仓库
         
         Returns:
             List[TrendingItem]: 热点数据列表
         """
-        self.logger.info("开始获取GitHub热门数据（Search API）...")
+        self.logger.info("开始获取GitHub热门数据（Trending页面）...")
         
         items = []
-        
-        # 获取最近7天创建的仓库，按星标排序
-        days = self.config.get('days', 7)  # 默认查询最近7天
         limit = self.config.get('limit', 20)
         
-        raw_repos = self.fetch_repositories_from_api(language=None, days=days, limit=limit)
-        if raw_repos:
-            repos = self.parse_api_repos(raw_repos, limit=limit)
-            for repo in repos:
-                item = TrendingItem(
-                    source=self.name,
-                    title=repo.get('full_name', ''),
-                    url=repo.get('url', ''),
-                    author=repo.get('builtBy')[0].get('username') if repo.get('builtBy') else None,
-                    description=repo.get('description'),
-                    hot_score=float(repo.get('stars', 0)),  # 使用总星标作为热度
-                    category=repo.get('language'),
-                    extra={
-                        'stars': repo.get('stars', 0),
-                        'forks': repo.get('forks', 0),
-                        'language': repo.get('language', 'Unknown'),
-                        'built_by': repo.get('builtBy', []),
-                        'created_at': repo.get('created_at', ''),
-                        'updated_at': repo.get('updated_at', '')
-                    }
-                )
-                items.append(item)
+        # 从 GitHub Trending 页面获取今日热门
+        repos = self.fetch_trending_from_page(language="", since="daily", limit=limit)
         
-        self.logger.info(f"GitHub: 获取 {len(items)} 条数据")
+        for repo in repos:
+            item = TrendingItem(
+                source=self.name,
+                title=repo.get('full_name', ''),
+                url=repo.get('url', ''),
+                author=repo.get('builtBy')[0].get('username') if repo.get('builtBy') else None,
+                description=repo.get('description'),
+                hot_score=float(repo.get('today_stars', 0)),  # 使用今日新增星标作为热度
+                category=repo.get('language'),
+                extra={
+                    'stars': repo.get('stars', 0),
+                    'forks': repo.get('forks', 0),
+                    'language': repo.get('language', 'Unknown'),
+                    'built_by': repo.get('builtBy', []),
+                    'today_stars': repo.get('today_stars', 0)
+                }
+            )
+            items.append(item)
+        
+        self.logger.info(f"GitHub: 从Trending页面获取 {len(items)} 条数据")
         return items
 
     def get_ai_repos(self) -> List[TrendingItem]:
