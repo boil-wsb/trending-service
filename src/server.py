@@ -469,6 +469,72 @@ class TrendingServer:
                 }
             })
 
+        @app.route('/api/refresh/<source>', methods=['POST'])
+        def api_refresh_source(source: str):
+            """刷新单个数据源"""
+            try:
+                from src.scheduler import TrendingTaskScheduler
+                
+                self.logger.info(f"收到刷新数据源请求: {source}")
+                
+                # 验证数据源是否有效
+                valid_sources = ['github', 'github_ai', 'bilibili', 'arxiv', 
+                               'hackernews', 'zhihu', 'weibo', 'douyin']
+                if source not in valid_sources:
+                    return jsonify({
+                        'success': False, 
+                        'message': f'未知的数据源: {source}. 有效的数据源: {", ".join(valid_sources)}'
+                    }), 400
+                
+                # 创建临时调度器来执行刷新
+                scheduler = TrendingTaskScheduler(logger=self.logger)
+                result = scheduler.refresh_data([source])
+                
+                self.logger.info(f"数据源 {source} 刷新完成")
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'{source} 数据刷新成功',
+                    'data': {
+                        'source': source,
+                        'refreshed_at': datetime.now().isoformat()
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"刷新数据源 {source} 失败: {e}")
+                return jsonify({
+                    'success': False, 
+                    'message': f'刷新失败: {str(e)}'
+                }), 500
+
+        @app.route('/api/refresh-all', methods=['POST'])
+        def api_refresh_all():
+            """刷新所有数据源"""
+            try:
+                from src.scheduler import TrendingTaskScheduler
+                
+                self.logger.info("收到刷新所有数据源请求")
+                
+                # 创建临时调度器来执行刷新
+                scheduler = TrendingTaskScheduler(logger=self.logger)
+                result = scheduler.refresh_data()
+                
+                self.logger.info("所有数据源刷新完成")
+                
+                return jsonify({
+                    'success': True,
+                    'message': '所有数据源刷新成功',
+                    'data': {
+                        'refreshed_at': datetime.now().isoformat()
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"刷新所有数据源失败: {e}")
+                return jsonify({
+                    'success': False, 
+                    'message': f'刷新失败: {str(e)}'
+                }), 500
+
         @app.route('/static/<path:filename>')
         def static_files(filename: str):
             """静态文件服务"""

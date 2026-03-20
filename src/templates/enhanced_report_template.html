@@ -2895,7 +2895,17 @@
         // 渲染数据源卡片网格
         function renderSourceCards(items, sourceName) {
             if (!items || items.length === 0) {
-                return '<div class="empty-state"><div class="emoji">📭</div><div>暂无数据</div></div>';
+                const config = sourceConfig[sourceName] || { name: sourceName };
+                return `
+                    <div class="empty-state">
+                        <div class="emoji">📭</div>
+                        <div>暂无数据</div>
+                        <button class="refresh-btn" data-source="${sourceName}" onclick="refreshSource('${sourceName}')" style="margin-top: 15px; padding: 8px 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; gap: 6px;">
+                            <span>🔄</span>
+                            <span>获取${config.name}数据</span>
+                        </button>
+                    </div>
+                `;
             }
             return `
                 <div class="items-card-grid">
