@@ -15,10 +15,12 @@ if hasattr(sys.stdout, 'buffer') and not sys.stdout.closed:
 
 import requests
 import re
+import time
 from typing import List, Dict
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import quote
+import threading
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -30,8 +32,11 @@ from .base import BaseFetcher, TrendingItem
 
 class ArxivPapersFetcher(BaseFetcher):
     """arXiv论文数据获取器"""
-    
+
     name = "arxiv"
+    _last_request_time = 0
+    _rate_limit_lock = threading.Lock()
+    _MIN_REQUEST_INTERVAL = 3.0  # arXiv API 要求至少 3 秒间隔
 
     def __init__(self, config: Dict = None, logger=None):
         super().__init__(config, logger)
@@ -43,6 +48,17 @@ class ArxivPapersFetcher(BaseFetcher):
         })
         self.logger = logger or get_logger('arxiv_papers')
         self.config = config or DATA_SOURCES['arxiv']
+
+    def _wait_for_rate_limit(self):
+        """等待满足 arXiv API 的请求频率限制"""
+        with self._rate_limit_lock:
+            now = time.time()
+            elapsed = now - self._last_request_time
+            if elapsed < self._MIN_REQUEST_INTERVAL:
+                wait_time = self._MIN_REQUEST_INTERVAL - elapsed
+                self.logger.debug(f"等待 {wait_time:.1f} 秒以满足 arXiv API 频率限制...")
+                time.sleep(wait_time)
+            self._last_request_time = time.time()
 
     def fetch(self) -> List[TrendingItem]:
         """
@@ -67,6 +83,9 @@ class ArxivPapersFetcher(BaseFetcher):
         }
 
         try:
+            # 等待以满足 arXiv API 频率限制
+            self._wait_for_rate_limit()
+
             response = self.session.get(self.base_url, params=params, timeout=REQUESTS['timeout'])
             response.raise_for_status()
 

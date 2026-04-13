@@ -73,7 +73,7 @@ def check_port_open(host, port, timeout=1):
         return False
 
 
-def wait_for_service(host, port, pid, max_wait=30):
+def wait_for_service(host, port, pid, max_wait=60):
     """
     等待服务启动并健康检查
 
