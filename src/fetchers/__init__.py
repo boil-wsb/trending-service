@@ -11,6 +11,7 @@ from .hackernews import HackerNewsFetcher
 from .zhihu_hot import ZhihuHotFetcher
 from .weibo_hot import WeiboHotFetcher
 from .douyin_hot import DouyinHotFetcher
+from .aihot import AihotFetcher
 
 __all__ = [
     'BaseFetcher',
@@ -22,4 +23,5 @@ __all__ = [
     'ZhihuHotFetcher',
     'WeiboHotFetcher',
     'DouyinHotFetcher',
+    'AihotFetcher',
 ]

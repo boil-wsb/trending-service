@@ -15,7 +15,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from flask import Flask, jsonify, send_from_directory, redirect, Response, request
-from src.config import SERVER, REPORTS_DIR, ROUTES, DATABASE
+from src.config import SERVER, REPORTS_DIR, ROUTES, DATABASE, ConfigHotReloader
 from src.utils import get_logger
 
 
@@ -29,6 +29,7 @@ class TrendingServer:
         self.app = self._create_app()
         self.server_thread = None
         self.running = False
+        self.config_watcher = ConfigHotReloader(interval=2.0)
 
     def _create_app(self) -> Flask:
         """创建 Flask 应用"""
@@ -479,7 +480,7 @@ class TrendingServer:
                 
                 # 验证数据源是否有效
                 valid_sources = ['github', 'github_ai', 'bilibili', 'arxiv', 
-                               'hackernews', 'zhihu', 'weibo', 'douyin']
+                               'hackernews', 'zhihu', 'weibo', 'douyin', 'aihot']
                 if source not in valid_sources:
                     return jsonify({
                         'success': False, 
@@ -630,8 +631,10 @@ class TrendingServer:
                 time.sleep(1)
                 self.running = True
                 self.logger.info(f"✅ HTTP 服务器已启动: http://{self.host}:{self.port}")
+                self.config_watcher.start()
             else:
                 self.running = True
+                self.config_watcher.start()
                 self._run_server()
                 
         except Exception as e:
@@ -666,6 +669,7 @@ class TrendingServer:
             pass
         
         self.running = False
+        self.config_watcher.stop()
         self.logger.info("✅ HTTP 服务器已停止")
 
     def is_running(self) -> bool:

@@ -29,7 +29,8 @@ from src.fetchers import (
     HackerNewsFetcher,
     ZhihuHotFetcher,
     WeiboHotFetcher,
-    DouyinHotFetcher
+    DouyinHotFetcher,
+    AihotFetcher
 )
 from src.analytics import extract_keywords_for_items
 
@@ -250,6 +251,7 @@ class TrendingTaskScheduler(TaskScheduler):
             'zhihu': lambda: ZhihuHotFetcher(logger=self.logger).fetch(),
             'weibo': lambda: WeiboHotFetcher(logger=self.logger).fetch(),
             'douyin': lambda: DouyinHotFetcher(logger=self.logger).fetch(),
+            'aihot': lambda: AihotFetcher(logger=self.logger).fetch(),
         }
         
         for source, fetcher in fetchers.items():
@@ -560,6 +562,7 @@ class TrendingTaskScheduler(TaskScheduler):
             'zhihu': (ZhihuHotFetcher, "🔥 刷新 知乎热榜...", 'fetch'),
             'weibo': (WeiboHotFetcher, "📱 刷新 微博热搜...", 'fetch'),
             'douyin': (DouyinHotFetcher, "🎵 刷新 抖音热榜...", 'fetch'),
+            'aihot': (AihotFetcher, "🔥 刷新 AIHOT资讯...", 'fetch'),
         }
 
         # 如果没有指定数据源，刷新所有启用的

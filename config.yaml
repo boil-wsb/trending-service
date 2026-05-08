@@ -1,0 +1,122 @@
+# Trending Service 配置文件
+# 此文件支持热加载，修改后无需重启服务即可生效
+
+database:
+  path: data/db/trending.db
+  backup_count: 7
+  cleanup_days: 30
+
+server:
+  host: localhost
+  port: 8888
+  debug: false
+  threaded: true
+
+data_sources:
+  github:
+    enabled: true
+    limit: 20
+    languages:
+      - python
+      - javascript
+      - go
+      - rust
+      - java
+    since: weekly
+  bilibili:
+    enabled: true
+    limit: 20
+    categories:
+      - 科技
+      - 人工智能
+      - 编程
+  arxiv:
+    enabled: true
+    limit: 20
+    categories:
+      - cs.AI
+      - cs.LG
+      - cs.CV
+  ai:
+    enabled: true
+    limit: 20
+    keywords:
+      - ai
+      - machine
+      - learning
+      - ml
+      - neural
+      - gpt
+  hackernews:
+    enabled: true
+    limit: 30
+  zhihu:
+    enabled: true
+    limit: 30
+  weibo:
+    enabled: true
+    limit: 30
+  douyin:
+    enabled: true
+    limit: 20
+  aihot:
+    enabled: true
+    limit: 100
+    mode: selected
+    category: null
+  stock:
+    enabled: true
+    auto_fetch: false
+
+schedule:
+  fetch_trending:
+    schedule: "0 */8 * * *"
+    enabled: true
+    description: "获取所有热点信息"
+    timezone: Asia/Shanghai
+  fetch_stock:
+    schedule: "*/2 * * * *"
+    enabled: false
+    description: "获取股票行情数据"
+    timezone: Asia/Shanghai
+
+logging:
+  level: INFO
+  format: "%(asctime)s.%(msecs)03d - %(levelname)s - %(name)s:%(lineno)d - %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+  file: data/logs/trending_service.log
+  max_size: 10485760
+  backup_count: 5
+
+data_files:
+  github_trending: data/reports/github_trending.json
+  github_weekly_growth: data/reports/github_weekly_growth.json
+  ai_trending: data/reports/ai_trending.json
+  bilibili_trending: data/reports/bilibili_trending.json
+  arxiv_biology: data/reports/arxiv_biology.json
+  arxiv_computer_ai: data/reports/arxiv_computer_ai.json
+
+routes:
+  report: /report.html
+  api: /api/
+  static: /static/
+
+browser:
+  auto_open: true
+  url: http://localhost:8000/report.html
+
+requests:
+  timeout: 60
+  retry_count: 3
+  delay: 1
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+proxy:
+  enabled: false
+  http: ""
+  https: ""
+
+source_urls:
+  github_trending: https://github.com/trending
+  bilibili_hot: https://www.bilibili.com/hot
+  arxiv_search: https://arxiv.org/search

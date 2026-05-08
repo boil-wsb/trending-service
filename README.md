@@ -50,9 +50,15 @@ pip install -r requirements.txt
 
 ### 4. 配置项目
 
-项目配置位于 `src/config.py` 文件中，可根据需要调整服务器端口、定时任务时间等设置。
+项目配置位于 `config.yaml` 文件中，可根据需要调整服务器端口、定时任务时间、数据源等设置。配置支持热加载，修改后无需重启服务即可生效。
 
 ## 使用方法
+
+### 手动生成报告
+
+```bash
+python -c "from src.utils import ReportGenerator; ReportGenerator().generate_report()"
+```
 
 ### 启动服务（前台模式）
 
@@ -203,8 +209,9 @@ data/logs/trending_service.log
 
 1. 定期检查日志文件，确保服务正常运行
 2. 监控服务运行状态，可使用 `check_service.py` 脚本
-3. 根据需要调整定时任务时间（在 `src/config.py` 中）
+3. 根据需要调整定时任务时间（在 `config.yaml` 中）
 4. 如需修改数据源或添加新的数据源，可修改 `src/fetchers/` 目录下的相应文件
+5. 配置文件 `config.yaml` 支持热加载，修改后约 2 秒内自动生效
 
 ## 常见问题
 
@@ -216,7 +223,7 @@ data/logs/trending_service.log
 
 ### 数据不更新
 
-- 检查定时任务是否启用（在 `src/config.py` 中）
+- 检查定时任务是否启用（在 `config.yaml` 中）
 - 手动运行服务，查看控制台输出了解错误
 - 检查网络连接是否正常
 
