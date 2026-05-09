@@ -5,6 +5,7 @@
 
 import json
 import sys
+import yaml
 from pathlib import Path
 from typing import Dict, List, Any
 from datetime import datetime, date
@@ -14,7 +15,7 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.config import DATABASE, REPORTS_DIR
+from src.config import DATABASE, REPORTS_DIR, PROJECT_ROOT
 from src.db import TrendingDAO, TrendingItem
 from src.analytics import KeywordExtractor, TopicCluster, extract_keywords_for_items, generate_trend_chart_data
 
@@ -271,16 +272,33 @@ class ReportGenerator:
     def _generate_html(self, data: Dict) -> str:
         """生成HTML内容"""
         template = self._get_template()
-        
+
         # 将数据嵌入到HTML中
         json_data = json.dumps(data, ensure_ascii=False, indent=2)
-        
+
         html = template.replace(
             'window.REPORT_DATA = {};',
             f'window.REPORT_DATA = {json_data};'
         )
-        
+
+        # 读取UI配置
+        ui_config = self._get_ui_config()
+        html = html.replace(
+            "window.UI_CONFIG = { default_theme: 'light' };",
+            f"window.UI_CONFIG = {{ default_theme: '{ui_config['default_theme']}' }};"
+        )
+
         return html
+
+    def _get_ui_config(self) -> Dict[str, Any]:
+        """获取UI配置"""
+        config_path = PROJECT_ROOT / 'config.yaml'
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                return config.get('ui', {'default_theme': 'light'})
+        except Exception:
+            return {'default_theme': 'light'}
 
     def _get_template(self) -> str:
         """获取HTML模板"""

@@ -12,6 +12,9 @@ server:
   debug: false
   threaded: true
 
+ui:
+  default_theme: dark  # 默认主题选项: light 或 dark
+
 data_sources:
   github:
     enabled: true
@@ -103,7 +106,7 @@ routes:
 
 browser:
   auto_open: true
-  url: http://localhost:8000/report.html
+  url: http://localhost:8888/report.html
 
 requests:
   timeout: 60

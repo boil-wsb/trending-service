@@ -20,9 +20,9 @@ class TrendingDAO:
         """
         批量保存热点数据（已存在的会更新）
 
-        使用 INSERT OR REPLACE 实现 upsert 逻辑：
-        - 如果记录不存在（基于 source + url + fetched_date 唯一键），则插入新记录
-        - 如果记录已存在，则更新所有字段
+        使用 upsert 逻辑（基于 source + title + fetched_date）：
+        - 如果记录不存在，则插入新记录
+        - 如果记录已存在（相同数据源、相同标题、相同日期），则更新热度等字段
 
         Args:
             items: 热点数据列表
@@ -45,18 +45,18 @@ class TrendingDAO:
                 fetched_at = item.fetched_at or datetime.now()
                 fetched_date = fetched_at.date().isoformat()
 
-                # 先尝试查找是否存在相同记录
+                # 先尝试查找是否存在相同记录（基于 source + title + fetched_date）
                 existing = self.db.fetch_one('''
                     SELECT id FROM trending_items
-                    WHERE source = ? AND url = ? AND fetched_date = ?
-                ''', (item.source, item.url, fetched_date))
+                    WHERE source = ? AND title = ? AND fetched_date = ?
+                ''', (item.source, item.title, fetched_date))
 
                 if existing:
                     # 更新现有记录
                     self.db.execute('''
                         UPDATE trending_items SET
                             category = ?,
-                            title = ?,
+                            url = ?,
                             author = ?,
                             description = ?,
                             hot_score = ?,
@@ -66,7 +66,7 @@ class TrendingDAO:
                         WHERE id = ?
                     ''', (
                         item.category,
-                        item.title,
+                        item.url,
                         item.author,
                         item.description,
                         item.hot_score,

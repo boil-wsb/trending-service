@@ -453,6 +453,13 @@ class TrendingTaskScheduler(TaskScheduler):
                 all_items.extend(self._get_items_from_result(result))
             fetch_results.append(result)
 
+        # 获取AIHOT数据
+        if DATA_SOURCES.get('aihot', {}).get('enabled'):
+            result = self._fetch_source('aihot', "🔥 获取 AIHOT...")
+            if result and result.success:
+                all_items.extend(self._get_items_from_result(result))
+            fetch_results.append(result)
+
         # 提取关键词
         if all_items:
             self.logger.info("🔍 提取关键词...")
