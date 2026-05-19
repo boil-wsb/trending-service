@@ -620,15 +620,26 @@ class TrendingServer:
         try:
             self.logger.info(f"🌐 启动 Flask HTTP 服务器: http://{self.host}:{self.port}")
             
-            # 在非阻塞模式下使用线程运行服务器
             if not blocking:
                 self.server_thread = threading.Thread(
                     target=self._run_server,
                     daemon=True
                 )
                 self.server_thread.start()
-                # 等待服务器启动
-                time.sleep(1)
+                
+                import socket as _socket
+                for _ in range(60):
+                    try:
+                        s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+                        s.settimeout(0.5)
+                        result = s.connect_ex((self.host, self.port))
+                        s.close()
+                        if result == 0:
+                            break
+                    except Exception:
+                        pass
+                    time.sleep(0.5)
+                
                 self.running = True
                 self.logger.info(f"✅ HTTP 服务器已启动: http://{self.host}:{self.port}")
                 self.config_watcher.start()

@@ -17,7 +17,6 @@ if str(project_root) not in sys.path:
 
 from src.config import DATABASE, REPORTS_DIR, PROJECT_ROOT
 from src.db import TrendingDAO, TrendingItem
-from src.analytics import KeywordExtractor, TopicCluster, extract_keywords_for_items, generate_trend_chart_data
 
 
 class ReportGenerator:
@@ -26,8 +25,22 @@ class ReportGenerator:
     def __init__(self, reports_dir: Path = None):
         self.reports_dir = reports_dir or REPORTS_DIR
         self.dao = TrendingDAO(DATABASE['path'])
-        self.keyword_extractor = KeywordExtractor(top_k=5)
-        self.topic_cluster = TopicCluster(n_clusters=5)
+        self._keyword_extractor = None
+        self._topic_cluster = None
+
+    @property
+    def keyword_extractor(self):
+        if self._keyword_extractor is None:
+            from src.analytics.keywords import KeywordExtractor
+            self._keyword_extractor = KeywordExtractor(top_k=5)
+        return self._keyword_extractor
+
+    @property
+    def topic_cluster(self):
+        if self._topic_cluster is None:
+            from src.analytics.clustering import TopicCluster
+            self._topic_cluster = TopicCluster(n_clusters=5)
+        return self._topic_cluster
 
     def generate_report(self) -> Path:
         """
@@ -49,9 +62,11 @@ class ReportGenerator:
         print(f"📊 获取到 {len(items)} 条今日数据")
         
         # 提取关键词
+        from src.analytics import extract_keywords_for_items
         items = extract_keywords_for_items(items, top_k=5)
         
         # 生成趋势图表数据（基于数据库全量数据）
+        from src.analytics import generate_trend_chart_data
         trend_data = generate_trend_chart_data(self.dao, days=7)
         
         # 获取真实的小时分布数据（基于数据库全量数据）

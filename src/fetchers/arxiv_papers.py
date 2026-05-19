@@ -86,7 +86,7 @@ class ArxivPapersFetcher(BaseFetcher):
             # 等待以满足 arXiv API 频率限制
             self._wait_for_rate_limit()
 
-            response = self.session.get(self.base_url, params=params, timeout=REQUESTS['timeout'])
+            response = self.session.get(self.base_url, params=params, timeout=15)
             response.raise_for_status()
 
             items = self._parse_response(response.text)

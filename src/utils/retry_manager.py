@@ -30,6 +30,7 @@ class FetchResult:
     item_count: int               # 获取条目数
     error_message: Optional[str]  # 错误信息
     timestamp: datetime           # 时间戳
+    items: List = field(default_factory=list)  # 实际获取的数据项
     retry_count: int = 0          # 重试次数
     status: FetchStatus = FetchStatus.PENDING  # 状态
     
@@ -242,6 +243,7 @@ class RetryManager:
                 source=source,
                 success=len(items) > 0,
                 item_count=len(items),
+                items=items,
                 error_message=None,
                 timestamp=datetime.now(),
                 retry_count=self._get_retry_count(source),
@@ -256,6 +258,7 @@ class RetryManager:
                 source=source,
                 success=False,
                 item_count=0,
+                items=[],
                 error_message=str(e),
                 timestamp=datetime.now(),
                 retry_count=self._get_retry_count(source) + 1,
