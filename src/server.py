@@ -457,6 +457,64 @@ class TrendingServer:
                 self.logger.error(f"获取日期数据失败: {e}")
                 return jsonify({'success': False, 'error': f'Internal server error: {str(e)}'}), 500
 
+        @app.route('/api/search')
+        def api_search():
+            """搜索数据库记录
+
+            支持参数:
+                - q: 搜索关键词（搜索 title 和 description）
+                - source: 数据源筛选（可选）
+                - limit: 返回数量（默认 50，最大 200）
+            """
+            from src.db import TrendingDAO
+            from src.config import DATABASE
+
+            query = request.args.get('q', '').strip()
+            source = request.args.get('source')
+            try:
+                limit = min(int(request.args.get('limit', 50)), 200)
+            except (ValueError, TypeError):
+                limit = 50
+
+            if not query:
+                return jsonify({'success': False, 'error': 'Missing search query parameter: q'}), 400
+
+            try:
+                dao = TrendingDAO(DATABASE['path'])
+                items = dao.get_items(
+                    source=source if source and source != 'all' else None,
+                    keyword=query,
+                    limit=limit
+                )
+
+                results = []
+                for item in items:
+                    results.append({
+                        'title': item.title,
+                        'url': item.url,
+                        'source': item.source,
+                        'hot_score': item.hot_score,
+                        'description': item.description,
+                        'author': item.author,
+                        'category': item.category,
+                        'keywords': item.keywords,
+                        'fetched_at': item.fetched_at.isoformat() if item.fetched_at else None,
+                        'extra': item.extra
+                    })
+
+                response = jsonify({
+                    'success': True,
+                    'query': query,
+                    'total': len(results),
+                    'items': results
+                })
+                response.headers.add('Access-Control-Allow-Origin', '*')
+                return response
+
+            except Exception as e:
+                self.logger.error(f"搜索失败: {e}")
+                return jsonify({'success': False, 'error': f'Internal server error: {str(e)}'}), 500
+
         @app.route('/api/status')
         def api_status():
             """服务状态检查"""

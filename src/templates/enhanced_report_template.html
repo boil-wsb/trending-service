@@ -2641,6 +2641,248 @@
             display: none;
         }
 
+        .search-container {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding-left: 10px;
+        }
+
+        .search-input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .search-input {
+            padding: 6px 10px 6px 32px;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            background: white;
+            color: #333;
+            font-size: 13px;
+            width: 180px;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #58a6ff;
+            box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+            width: 240px;
+        }
+
+        .search-input::placeholder {
+            color: #999;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 9px;
+            font-size: 14px;
+            color: #999;
+            pointer-events: none;
+        }
+
+        .search-btn {
+            padding: 6px 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .search-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .search-btn:active {
+            transform: translateY(0);
+        }
+
+        .search-clear-btn {
+            padding: 6px 10px;
+            background: #f0f0f0;
+            color: #666;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            display: none;
+        }
+
+        .search-clear-btn:hover {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .search-clear-btn.visible {
+            display: inline-block;
+        }
+
+        .search-results-panel {
+            display: none;
+            background: var(--bg-secondary, #161b22);
+            border: 1px solid var(--border-color, #30363d);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .search-results-panel.visible {
+            display: block;
+        }
+
+        .search-results-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .search-results-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary, #e6edf3);
+        }
+
+        .search-results-count {
+            font-size: 12px;
+            color: var(--text-secondary, #8b949e);
+        }
+
+        .search-results-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .search-result-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: var(--bg-tertiary, #21262d);
+            border-radius: 6px;
+            border: 1px solid var(--border-color, #30363d);
+            transition: all 0.15s ease;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .search-result-item:hover {
+            border-color: #58a6ff;
+            background: rgba(88, 166, 255, 0.04);
+        }
+
+        .search-result-source {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+            white-space: nowrap;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .search-result-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .search-result-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary, #e6edf3);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .search-result-title mark {
+            background: rgba(210, 153, 34, 0.3);
+            color: #d29922;
+            padding: 0 2px;
+            border-radius: 2px;
+        }
+
+        .search-result-desc {
+            font-size: 12px;
+            color: var(--text-secondary, #8b949e);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 2px;
+        }
+
+        .search-result-desc mark {
+            background: rgba(210, 153, 34, 0.3);
+            color: #d29922;
+            padding: 0 2px;
+            border-radius: 2px;
+        }
+
+        .search-result-score {
+            font-size: 12px;
+            color: var(--text-secondary, #8b949e);
+            white-space: nowrap;
+        }
+
+        .search-result-date {
+            font-size: 11px;
+            color: var(--text-secondary, #8b949e);
+            white-space: nowrap;
+        }
+
+        .search-loading {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-secondary, #8b949e);
+            font-size: 14px;
+        }
+
+        .search-no-results {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-secondary, #8b949e);
+            font-size: 14px;
+        }
+
+        body.dark-mode .search-input {
+            background: #21262d;
+            border-color: #30363d;
+            color: #e6edf3;
+        }
+
+        body.dark-mode .search-input:focus {
+            border-color: #58a6ff;
+        }
+
+        body.dark-mode .search-input::placeholder {
+            color: #484f58;
+        }
+
+        body.dark-mode .search-clear-btn {
+            background: #21262d;
+            color: #8b949e;
+            border-color: #30363d;
+        }
+
+        body.dark-mode .search-clear-btn:hover {
+            background: #30363d;
+            color: #e6edf3;
+        }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
@@ -2758,11 +3000,29 @@
                     <button id="date-apply-btn" class="date-apply-btn" title="应用日期范围">应用</button>
                     <div id="date-loading" class="date-loading hidden">加载中...</div>
                 </div>
+
+                <div class="source-divider"></div>
+
+                <div class="search-container">
+                    <div class="search-input-wrapper">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="search-input" class="search-input" placeholder="搜索数据库记录..." title="搜索标题和描述">
+                    </div>
+                    <button id="search-btn" class="search-btn" title="搜索">搜索</button>
+                    <button id="search-clear-btn" class="search-clear-btn" title="清除搜索">清除</button>
+                </div>
             </div>
         </div>
 
         <!-- 总览 -->
         <div id="overview" class="tab-content active">
+            <div id="search-results-panel" class="search-results-panel">
+                <div class="search-results-header">
+                    <span class="search-results-title">🔍 搜索结果</span>
+                    <span id="search-results-count" class="search-results-count"></span>
+                </div>
+                <div id="search-results-list" class="search-results-list"></div>
+            </div>
             <div id="overview-content" class="source-grid"></div>
         </div>
 
@@ -3356,10 +3616,117 @@
             tooltip.style.top = top + 'px';
         }
 
+        const SOURCE_STYLES = {
+            github: { emoji: '🐙', label: 'GitHub', color: '#24292e', bg: '#f0f0f0' },
+            github_ai: { emoji: '🤖', label: 'AI', color: '#6e40c9', bg: '#f5f0ff' },
+            hackernews: { emoji: '📰', label: 'HN', color: '#ff6600', bg: '#fff5eb' },
+            bilibili: { emoji: '📺', label: 'B站', color: '#00a1d6', bg: '#e6f7ff' },
+            arxiv: { emoji: '📚', label: 'ArXiv', color: '#b31b1b', bg: '#fff0f0' },
+            zhihu: { emoji: '❓', label: '知乎', color: '#0084ff', bg: '#e6f3ff' },
+            weibo: { emoji: '📱', label: '微博', color: '#e6162d', bg: '#fff0f0' },
+            douyin: { emoji: '🎵', label: '抖音', color: '#161823', bg: '#f0f0f5' },
+            aihot: { emoji: '🔥', label: 'AIHOT', color: '#d29922', bg: '#fff8e6' },
+            stock: { emoji: '📈', label: 'A股', color: '#c0392b', bg: '#fdf0ef' }
+        };
+
+        function initSearch() {
+            const searchInput = document.getElementById('search-input');
+            const searchBtn = document.getElementById('search-btn');
+            const searchClearBtn = document.getElementById('search-clear-btn');
+            const searchPanel = document.getElementById('search-results-panel');
+            const searchList = document.getElementById('search-results-list');
+            const searchCount = document.getElementById('search-results-count');
+
+            function highlightText(text, query) {
+                if (!text || !query) return text || '';
+                const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`(${escaped})`, 'gi');
+                return text.replace(regex, '<mark>$1</mark>');
+            }
+
+            function getSourceStyle(source) {
+                return SOURCE_STYLES[source] || { emoji: '📌', label: source, color: '#666', bg: '#f5f5f5' };
+            }
+
+            function formatScore(score) {
+                if (!score) return '';
+                if (score >= 10000) return (score / 10000).toFixed(1) + '万';
+                if (score >= 1000) return (score / 1000).toFixed(1) + 'k';
+                return score.toString();
+            }
+
+            async function doSearch() {
+                const query = searchInput.value.trim();
+                if (!query) return;
+
+                searchBtn.textContent = '...';
+                searchList.innerHTML = '<div class="search-loading">搜索中...</div>';
+                searchPanel.classList.add('visible');
+                searchClearBtn.classList.add('visible');
+
+                try {
+                    const activeSource = document.querySelector('.source-tag.active');
+                    const sourceParam = activeSource && activeSource.dataset.source !== 'all' ? `&source=${activeSource.dataset.source}` : '';
+                    const resp = await fetch(`/api/search?q=${encodeURIComponent(query)}${sourceParam}&limit=100`);
+                    const data = await resp.json();
+
+                    if (!data.success) {
+                        searchList.innerHTML = `<div class="search-no-results">搜索失败: ${data.error}</div>`;
+                        return;
+                    }
+
+                    const items = data.items || [];
+                    searchCount.textContent = `共 ${items.length} 条结果`;
+
+                    if (items.length === 0) {
+                        searchList.innerHTML = `<div class="search-no-results">未找到与 "${query}" 相关的记录</div>`;
+                        return;
+                    }
+
+                    searchList.innerHTML = items.map(item => {
+                        const style = getSourceStyle(item.source);
+                        const title = highlightText(item.title, query);
+                        const desc = item.description ? highlightText(item.description.substring(0, 120), query) : '';
+                        const date = item.fetched_at ? item.fetched_at.substring(0, 10) : '';
+                        return `
+                            <a href="${item.url || '#'}" target="_blank" class="search-result-item">
+                                <span class="search-result-source" style="background:${style.bg};color:${style.color}">${style.emoji} ${style.label}</span>
+                                <div class="search-result-info">
+                                    <div class="search-result-title">${title}</div>
+                                    ${desc ? `<div class="search-result-desc">${desc}</div>` : ''}
+                                </div>
+                                ${item.hot_score ? `<span class="search-result-score">🔥 ${formatScore(item.hot_score)}</span>` : ''}
+                                ${date ? `<span class="search-result-date">${date}</span>` : ''}
+                            </a>
+                        `;
+                    }).join('');
+                } catch (e) {
+                    searchList.innerHTML = `<div class="search-no-results">搜索出错: ${e.message}</div>`;
+                } finally {
+                    searchBtn.textContent = '搜索';
+                }
+            }
+
+            function clearSearch() {
+                searchInput.value = '';
+                searchPanel.classList.remove('visible');
+                searchClearBtn.classList.remove('visible');
+                searchList.innerHTML = '';
+                searchCount.textContent = '';
+            }
+
+            searchBtn.addEventListener('click', doSearch);
+            searchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') doSearch();
+            });
+            searchClearBtn.addEventListener('click', clearSearch);
+        }
+
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', () => {
             initBounceEffects();
             initDescriptionTooltip();
+            initSearch();
         });
 
         // 渲染总览
