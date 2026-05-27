@@ -2211,6 +2211,39 @@
             align-items: center;
             justify-content: center;
             min-height: 120px;
+            position: relative;
+        }
+
+        .trend-data-point {
+            cursor: pointer;
+        }
+
+        .trend-tooltip {
+            position: absolute;
+            background: rgba(30, 30, 50, 0.92);
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 0.82em;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .trend-tooltip.visible {
+            opacity: 1;
+        }
+
+        .trend-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 12px;
+            border: 5px solid transparent;
+            border-top-color: rgba(30, 30, 50, 0.92);
         }
 
         .daily-counts-grid {
@@ -2273,6 +2306,14 @@
         body.dark-mode .overview-title {
             color: var(--dm-text-0);
             flex-shrink: 0;
+        }
+
+        body.dark-mode .trend-tooltip {
+            background: rgba(50, 50, 80, 0.95);
+        }
+
+        body.dark-mode .trend-tooltip::after {
+            border-top-color: rgba(50, 50, 80, 0.95);
         }
 
         body.dark-mode #platform-bars > div {
@@ -4147,44 +4188,71 @@
             if (dailyCounts.length > 0) {
                 const counts = dailyCounts.map(d => d.count || 0);
                 const maxCount = Math.max(...counts, 1);
-                const minCount = Math.min(...counts.filter(c => c > 0)) || 0;
+                const minCount = Math.min(...counts);
                 const range = maxCount - minCount || 1;
 
-                // 构建 SVG 折线图
-                const width = 100;
-                const height = 60;
-                const points = counts.map((count, i) => {
-                    const x = (i / (counts.length - 1)) * width;
-                    const y = height - ((count - minCount) / range * height * 0.8 + height * 0.1);
-                    return `${x},${y}`;
-                }).join(' ');
+                const svgWidth = 100;
+                const chartHeight = 50;
+                const chartTop = 5;
+                const labelY = 72;
+                const chartBottom = chartTop + chartHeight;
 
-                // 构建面积图路径
-                const areaPath = `0,${height} ${points} ${width},${height}`;
+                const dataPoints = counts.map((count, i) => {
+                    const x = counts.length === 1 ? svgWidth / 2 : (i / (counts.length - 1)) * svgWidth;
+                    const normalizedY = (count - minCount) / range;
+                    const y = chartBottom - normalizedY * chartHeight * 0.85 - chartHeight * 0.05;
+                    return { x, y: Math.max(chartTop, Math.min(chartBottom, y)), count };
+                });
+
+                const linePoints = dataPoints.map(p => `${p.x},${p.y}`).join(' ');
+                const areaPoints = `0,${chartBottom} ${linePoints} ${svgWidth},${chartBottom}`;
 
                 dailyTrendChart.innerHTML = `
-                    <svg viewBox="0 0 100 75" style="width: 100%; height: 100%; overflow: visible;">
-                        <!-- 渐变定义 -->
+                    <svg viewBox="0 0 ${svgWidth} 80" style="width: 100%; height: 100%; overflow: hidden;" class="daily-trend-svg">
                         <defs>
                             <linearGradient id="trendGradient" x1="0%" y1="0%" x2="0%" y2="100%">
                                 <stop offset="0%" style="stop-color:#667eea;stop-opacity:0.3" />
                                 <stop offset="100%" style="stop-color:#667eea;stop-opacity:0.05" />
                             </linearGradient>
                         </defs>
-                        <!-- 面积填充 -->
-                        <polygon points="${areaPath}" fill="url(#trendGradient)" />
-                        <!-- 折线 -->
-                        <polyline points="${points}" fill="none" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                        <!-- 数据点 -->
-                        ${counts.map((count, i) => {
-                            const x = (i / (counts.length - 1)) * width;
-                            const y = height - ((count - minCount) / range * height * 0.8 + height * 0.1);
+                        <polygon points="${areaPoints}" fill="url(#trendGradient)" />
+                        <polyline points="${linePoints}" fill="none" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        ${dataPoints.map((p, i) => {
                             const dateLabel = dailyCounts[i].date ? new Date(dailyCounts[i].date).toLocaleDateString('zh-CN', {month: 'numeric', day: 'numeric'}) : '';
-                            return `<circle cx="${x}" cy="${y}" r="3" fill="#667eea" stroke="white" stroke-width="1.5" />
-                                    <text x="${x}" y="${height + 12}" text-anchor="middle" font-size="6" fill="#666">${dateLabel}</text>`;
+                            return `<g class="trend-data-point" data-count="${p.count}" data-date="${dateLabel}">
+                                <circle cx="${p.x}" cy="${p.y}" r="8" fill="transparent" class="trend-hit-area" />
+                                <circle cx="${p.x}" cy="${p.y}" r="3" fill="#667eea" stroke="white" stroke-width="1.5" class="trend-dot" />
+                                <text x="${p.x}" y="${labelY}" text-anchor="middle" font-size="6" fill="#666">${dateLabel}</text>
+                            </g>`;
                         }).join('')}
                     </svg>
+                    <div class="trend-tooltip" id="daily-trend-tooltip"></div>
                 `;
+
+                const tooltip = document.getElementById('daily-trend-tooltip');
+                const svgEl = dailyTrendChart.querySelector('.daily-trend-svg');
+                dailyTrendChart.querySelectorAll('.trend-data-point').forEach(g => {
+                    g.addEventListener('mouseenter', (e) => {
+                        const count = g.dataset.count;
+                        const date = g.dataset.date;
+                        const dot = g.querySelector('.trend-dot');
+                        dot.setAttribute('r', '5');
+                        dot.setAttribute('fill', '#4f46e5');
+                        tooltip.textContent = `${date}：${count} 条`;
+                        tooltip.classList.add('visible');
+                    });
+                    g.addEventListener('mousemove', (e) => {
+                        const rect = dailyTrendChart.getBoundingClientRect();
+                        tooltip.style.left = (e.clientX - rect.left + 10) + 'px';
+                        tooltip.style.top = (e.clientY - rect.top - 30) + 'px';
+                    });
+                    g.addEventListener('mouseleave', () => {
+                        const dot = g.querySelector('.trend-dot');
+                        dot.setAttribute('r', '3');
+                        dot.setAttribute('fill', '#667eea');
+                        tooltip.classList.remove('visible');
+                    });
+                });
             } else {
                 dailyTrendChart.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无趋势数据</div>';
             }
