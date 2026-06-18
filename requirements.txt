@@ -38,3 +38,6 @@ backports.zoneinfo>=0.2.1;python_version<"3.9"
 
 # 环境变量管理
 python-dotenv>=1.0.0
+
+# 指数行情数据（申万行业指数）
+akshare>=1.12.0

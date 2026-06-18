@@ -63,9 +63,54 @@ class TrendingService:
             self.running = True
 
             # 启动后在后台异步获取热点信息（不阻塞启动流程）
+            # 优化：先检查数据库是否存在上一个运行周期的数据，存在则跳过
             import threading
+            from datetime import datetime, timedelta
+
+            def _parse_schedule_hours(cron_expr: str) -> int:
+                """从 cron 表达式估算调度周期（小时），用于判断是否跳过启动获取"""
+                try:
+                    parts = cron_expr.strip().split()
+                    if len(parts) != 5:
+                        return 0
+                    hour_part = parts[1]
+                    if hour_part.startswith('*/'):
+                        return int(hour_part[2:])
+                    if hour_part.isdigit():
+                        return 24  # 每天一次
+                    return 0
+                except Exception:
+                    return 0
+
             def fetch_initial_data():
                 try:
+                    from src.config import SCHEDULE as _SCHEDULE, DATABASE as _DATABASE
+                    from src.db import TrendingDAO
+
+                    # 检查数据库中各数据源的最新抓取时间
+                    cron = _SCHEDULE.get('fetch_trending', {}).get('schedule', '0 */8 * * *')
+                    cycle_hours = _parse_schedule_hours(cron) or 8
+                    skip_threshold = timedelta(hours=cycle_hours - 1)  # 留 1 小时缓冲
+
+                    try:
+                        dao = TrendingDAO(_DATABASE['path'])
+                        fetch_times = dao.get_source_fetch_times()
+                    except Exception as e:
+                        self.logger.warning(f"查询数据抓取时间失败，将执行获取: {e}")
+                        fetch_times = {}
+
+                    now = datetime.now()
+                    if fetch_times:
+                        latest_overall = max(t for t in fetch_times.values() if t) if any(fetch_times.values()) else None
+                        if latest_overall and (now - latest_overall) < skip_threshold:
+                            self.logger.info(
+                                f"⏭️  数据库已有上一个运行周期内的数据"
+                                f"（最新抓取: {latest_overall.strftime('%Y-%m-%d %H:%M')}，"
+                                f"距今 {(now - latest_overall).total_seconds() / 3600:.1f} 小时），跳过启动获取"
+                            )
+                            self.logger.info("✅ 首次热点信息获取完成（跳过）")
+                            return
+
                     self.logger.info("🔄 正在后台获取热点信息...")
                     self.scheduler.run_task_now('fetch_trending')
                     self.logger.info("✅ 首次热点信息获取完成")

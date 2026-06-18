@@ -35,6 +35,7 @@ _FETCHER_METHOD_MAP = {
     'weibo': 'fetch',
     'douyin': 'fetch',
     'aihot': 'fetch',
+    'index': 'fetch',
 }
 
 
@@ -122,25 +123,9 @@ class TaskScheduler:
 
         self.logger.info("调度器已停止")
 
-    def _is_stock_trading_time(self) -> bool:
-        from datetime import datetime
-
-        now = datetime.now()
-        weekday = now.weekday()
-        hour = now.hour
-        minute = now.minute
-        current_time = hour * 60 + minute
-
-        is_weekday = weekday < 5
-        morning_session = (9 * 60 + 30) <= current_time <= (11 * 60 + 30)
-        afternoon_session = (13 * 60) <= current_time <= (15 * 60)
-
-        return is_weekday and (morning_session or afternoon_session)
-
     def _should_run(self, task: Dict) -> bool:
         schedule = task['schedule']
         last_run = task['last_run']
-        task_name = task.get('name', '')
 
         try:
             from src.config import is_time_to_run
@@ -154,19 +139,9 @@ class TaskScheduler:
             if is_time_to_run(schedule_config):
                 now = datetime.now()
                 if last_run is None:
-                    if task_name == 'fetch_stock':
-                        if not self._is_stock_trading_time():
-                            return False
-                        if not self.is_stock_auto_fetch_enabled():
-                            return False
                     return True
                 time_diff = (now - last_run).total_seconds()
                 if time_diff >= 60:
-                    if task_name == 'fetch_stock':
-                        if not self._is_stock_trading_time():
-                            return False
-                        if not self.is_stock_auto_fetch_enabled():
-                            return False
                     return True
 
         except Exception as e:
@@ -278,10 +253,17 @@ class TrendingTaskScheduler(TaskScheduler):
         )
 
         self.add_task(
-            name='fetch_stock',
-            schedule=SCHEDULE['fetch_stock']['schedule'],
-            task_func=self._fetch_stock_data,
-            enabled=SCHEDULE['fetch_stock']['enabled']
+            name='fetch_index',
+            schedule=SCHEDULE['fetch_index']['schedule'],
+            task_func=self._fetch_index_data,
+            enabled=SCHEDULE['fetch_index']['enabled']
+        )
+
+        self.add_task(
+            name='fetch_index_kline',
+            schedule='30 15 * * 1-5',
+            task_func=self._fetch_index_kline_data,
+            enabled=True
         )
 
         self.add_task(
@@ -290,21 +272,6 @@ class TrendingTaskScheduler(TaskScheduler):
             task_func=self._cleanup_old_data,
             enabled=True
         )
-
-    def is_stock_auto_fetch_enabled(self) -> bool:
-        from src.config import DATA_SOURCES
-        return DATA_SOURCES.get('stock', {}).get('auto_fetch', True)
-
-    def set_stock_auto_fetch(self, enabled: bool):
-        from src.config import DATA_SOURCES
-        if 'stock' not in DATA_SOURCES:
-            DATA_SOURCES['stock'] = {}
-        DATA_SOURCES['stock']['auto_fetch'] = enabled
-        self.logger.info(f"股票自动获取已{'启用' if enabled else '禁用'}")
-
-    def is_stock_enabled(self) -> bool:
-        from src.config import DATA_SOURCES
-        return DATA_SOURCES.get('stock', {}).get('enabled', True)
 
     def _run_scheduler(self):
         self.logger.info("调度器开始运行（集成重试机制）...")
@@ -586,20 +553,93 @@ class TrendingTaskScheduler(TaskScheduler):
             days = DATABASE.get('cleanup_days', 30)
             deleted = self.dao.delete_old_data(days)
             self.logger.info(f"✅ 清理完成: 删除 {deleted} 条过期数据")
-            
+
             deleted_failures = self.failure_dao.delete_old_failures(days=7)
             self.logger.info(f"✅ 清理完成: 删除 {deleted_failures} 条过期失败记录")
         except Exception as e:
             self.logger.error(f"❌ 清理数据失败: {e}")
 
-    def _fetch_stock_data(self):
+    def _is_trading_hours(self) -> bool:
+        """判断当前是否在 A 股开盘时间内
+
+        开盘时间窗口和交易日期从 config.yaml 的 schedule.fetch_index 读取：
+        - trading_hours: [{start: "09:30", end: "11:30"}, {start: "13:00", end: "15:00"}]
+        - trading_days: [1, 2, 3, 4, 5]  # 1=周一 ... 7=周日（ISO 标准）
+        """
         try:
-            self.logger.info("📈 开始获取股票数据...")
-            from src.fetchers.stock import StockFetcher
+            from datetime import datetime, time as dt_time
+            try:
+                from zoneinfo import ZoneInfo
+            except ImportError:
+                from backports.zoneinfo import ZoneInfo  # type: ignore
+
+            cfg = SCHEDULE.get('fetch_index', {})
+            trading_hours_cfg = cfg.get('trading_hours')
+            trading_days = cfg.get('trading_days', [1, 2, 3, 4, 5])
+            tz_name = cfg.get('timezone', 'Asia/Shanghai')
+
+            # 未配置 trading_hours 时，默认允许任意时间执行（向后兼容）
+            if not trading_hours_cfg:
+                return True
+
+            tz = ZoneInfo(tz_name)
+            now = datetime.now(tz)
+
+            # 周几判断（ISO: 1=周一 ... 7=周日）
+            if now.isoweekday() not in trading_days:
+                return False
+
+            now_time = now.time()
+
+            for window in trading_hours_cfg:
+                start_str = window.get('start')
+                end_str = window.get('end')
+                if not start_str or not end_str:
+                    continue
+                sh, sm = map(int, start_str.split(':'))
+                eh, em = map(int, end_str.split(':'))
+                if dt_time(sh, sm) <= now_time <= dt_time(eh, em):
+                    return True
+
+            return False
+        except Exception as e:
+            self.logger.error(f"判断开盘时间失败: {e}，默认允许执行")
+            return True
+
+    def _fetch_index_data(self):
+        """获取 A 股指数行情数据（市场指数 + 申万行业指数）
+
+        仅在 A 股开盘时间内执行（9:30-11:30, 13:00-15:00，周一至周五）。
+        非开盘时间直接跳过，避免无效请求。
+        """
+        if not self._is_trading_hours():
+            self.logger.info("⏭️  当前非 A 股开盘时间，跳过指数行情数据获取")
+            return
+
+        try:
+            self.logger.info("📈 开始获取指数行情数据...")
+            from src.fetchers.index import IndexFetcher
             from src.config import DATABASE
 
-            fetcher = StockFetcher(logger=self.logger)
+            fetcher = IndexFetcher(logger=self.logger)
             count = fetcher.save_to_db(DATABASE['path'])
-            self.logger.info(f"✅ 股票数据获取完成: {count} 条")
+            self.logger.info(f"✅ 指数行情数据获取完成: {count} 条")
         except Exception as e:
-            self.logger.error(f"❌ 获取股票数据失败: {e}")
+            self.logger.error(f"❌ 获取指数行情数据失败: {e}")
+
+    def _fetch_index_kline_data(self):
+        """每日缓存所有市场指数的 K 线数据到数据库
+
+        调度：每个交易日 15:30 执行（收盘后 30 分钟）
+        作用：避免前端每次请求 K 线都从腾讯源实时拉取，提升响应速度
+        """
+        try:
+            self.logger.info("📊 开始每日缓存指数 K 线数据...")
+            from src.fetchers.index import IndexFetcher
+            from src.config import DATABASE
+
+            fetcher = IndexFetcher(logger=self.logger)
+            count = fetcher.fetch_and_cache_all_klines(DATABASE['path'], days=365)
+            self.logger.info(f"✅ 指数 K 线数据缓存完成: {count} 条")
+        except Exception as e:
+            self.logger.error(f"❌ 缓存指数 K 线数据失败: {e}")

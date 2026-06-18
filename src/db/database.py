@@ -74,7 +74,51 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
+
+        # 指数行情数据表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS index_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL,
+                name TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'market',
+                price REAL DEFAULT 0,
+                change REAL DEFAULT 0,
+                change_pct REAL DEFAULT 0,
+                high REAL DEFAULT 0,
+                low REAL DEFAULT 0,
+                open REAL DEFAULT 0,
+                pre_close REAL DEFAULT 0,
+                volume INTEGER DEFAULT 0,
+                amount REAL DEFAULT 0,
+                turnover_rate REAL DEFAULT 0,
+                source TEXT DEFAULT 'eastmoney',
+                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                fetched_date DATE GENERATED ALWAYS AS (DATE(fetched_at)) STORED,
+                UNIQUE(code, source, fetched_date)
+            )
+        ''')
+
+        # 指数K线历史数据表（每日缓存）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS index_kline (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL,
+                date TEXT NOT NULL,
+                open REAL DEFAULT 0,
+                close REAL DEFAULT 0,
+                high REAL DEFAULT 0,
+                low REAL DEFAULT 0,
+                volume INTEGER DEFAULT 0,
+                amount REAL DEFAULT 0,
+                change REAL DEFAULT 0,
+                change_pct REAL DEFAULT 0,
+                source TEXT DEFAULT 'tx',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(code, date, source)
+            )
+        ''')
+
         conn.commit()
     
     def _create_indexes(self, conn: sqlite3.Connection):
@@ -104,7 +148,31 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_stats_source 
             ON daily_stats(source)
         ''')
-        
+
+        # 指数行情数据表索引
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_index_code
+            ON index_data(code)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_index_category
+            ON index_data(category)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_index_fetched_at
+            ON index_data(fetched_at)
+        ''')
+
+        # 指数K线数据表索引
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_kline_code
+            ON index_kline(code)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_kline_date
+            ON index_kline(date)
+        ''')
+
         conn.commit()
     
     @contextmanager

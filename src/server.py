@@ -50,233 +50,236 @@ class TrendingServer:
 
     def _register_routes(self, app: Flask):
         """注册路由"""
-        
-        # ========== 股票行情API (必须在通用路由之前注册) ==========
-        
-        @app.route('/api/stock/fetch-control', methods=['GET', 'POST'])
-        def api_stock_fetch_control():
-            """股票数据获取控制"""
+
+        # ========== 指数行情API ==========
+
+        @app.route('/api/index/market')
+        def api_index_market():
+            """A股市场指数列表"""
             try:
-                from src.config import DATA_SOURCES
+                from src.db.index_dao import IndexDAO
 
-                if request.method == 'GET':
-                    # 获取当前状态
-                    return jsonify({
-                        'success': True,
-                        'data': {
-                            'enabled': DATA_SOURCES.get('stock', {}).get('enabled', True),
-                            'auto_fetch': DATA_SOURCES.get('stock', {}).get('auto_fetch', True)
-                        }
-                    })
-                else:
-                    # POST - 更新状态
-                    data = request.get_json()
-                    if data is None:
-                        return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
+                dao = IndexDAO(DATABASE['path'])
+                indices = dao.get_market_indices(limit=50)
 
-                    enabled = data.get('enabled')
-                    auto_fetch = data.get('auto_fetch')
-
-                    # 更新配置
-                    if 'stock' not in DATA_SOURCES:
-                        DATA_SOURCES['stock'] = {}
-
-                    if enabled is not None:
-                        DATA_SOURCES['stock']['enabled'] = bool(enabled)
-                    if auto_fetch is not None:
-                        DATA_SOURCES['stock']['auto_fetch'] = bool(auto_fetch)
-
-                    self.logger.info(f"股票数据获取控制更新: enabled={DATA_SOURCES['stock'].get('enabled')}, auto_fetch={DATA_SOURCES['stock'].get('auto_fetch')}")
-
-                    return jsonify({
-                        'success': True,
-                        'data': {
-                            'enabled': DATA_SOURCES['stock'].get('enabled', True),
-                            'auto_fetch': DATA_SOURCES['stock'].get('auto_fetch', True)
-                        }
-                    })
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'indices': [idx.to_dict() for idx in indices],
+                        'count': len(indices),
+                        'fetched_at': indices[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if indices else None
+                    }
+                })
             except Exception as e:
-                self.logger.error(f"股票数据获取控制失败: {e}")
+                self.logger.error(f"获取市场指数失败: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
 
-        @app.route('/api/stock/trigger-fetch', methods=['POST'])
-        def api_stock_trigger_fetch():
-            """手动触发股票数据获取"""
+        @app.route('/api/index/industry')
+        def api_index_industry():
+            """申万行业指数列表（含 3日/7日 涨跌幅）"""
             try:
-                from src.fetchers.stock import StockFetcher
-                from src.config import DATABASE
+                from src.db.index_dao import IndexDAO
+                from flask import request
 
-                fetcher = StockFetcher(logger=self.logger)
+                try:
+                    limit = min(int(request.args.get('limit', 50)), 200)
+                except (ValueError, TypeError):
+                    limit = 50
+
+                dao = IndexDAO(DATABASE['path'])
+                # 使用带多日涨跌幅的方法
+                indices = dao.get_industry_indices_with_changes(limit=limit)
+
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'indices': [idx.to_dict() for idx in indices],
+                        'count': len(indices),
+                        'fetched_at': indices[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if indices else None
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"获取行业指数失败: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+        @app.route('/api/index/latest')
+        def api_index_latest():
+            """最新指数数据（可选 category 参数: market/industry）"""
+            try:
+                from src.db.index_dao import IndexDAO
+                from flask import request
+
+                category = request.args.get('category')
+                try:
+                    limit = min(int(request.args.get('limit', 50)), 200)
+                except (ValueError, TypeError):
+                    limit = 50
+
+                dao = IndexDAO(DATABASE['path'])
+                indices = dao.get_latest(category=category, limit=limit)
+
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'indices': [idx.to_dict() for idx in indices],
+                        'count': len(indices),
+                        'category': category or 'all'
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"获取最新指数数据失败: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+        @app.route('/api/index/detail')
+        def api_index_detail():
+            """指数历史数据（按代码查询）"""
+            try:
+                from src.db.index_dao import IndexDAO
+                from flask import request
+
+                code = request.args.get('code')
+                if not code:
+                    return jsonify({'success': False, 'error': '缺少指数代码参数: code'}), 400
+
+                try:
+                    limit = min(int(request.args.get('limit', 30)), 200)
+                except (ValueError, TypeError):
+                    limit = 30
+
+                dao = IndexDAO(DATABASE['path'])
+                indices = dao.get_index_by_code(code, limit=limit)
+
+                if not indices:
+                    return jsonify({'success': False, 'error': f'未找到指数: {code}'}), 404
+
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'code': code,
+                        'name': indices[0].name,
+                        'category': indices[0].category,
+                        'history': [idx.to_dict() for idx in indices],
+                        'count': len(indices)
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"获取指数详情失败: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+        @app.route('/api/index/kline')
+        def api_index_kline():
+            """指数K线数据（优先读数据库缓存，缓存不存在或过期时按指数类型从对应数据源拉取）
+
+            数据源映射：
+            - 申万行业指数（code 以 80 开头，6 位数字）：source='sw'
+            - 市场指数（code 是 6 位数字）：source='sina'
+            - 概念板块（code 是中文名称）：source='ths'
+            """
+            try:
+                from src.fetchers.index import IndexFetcher
+                from src.db.index_dao import IndexDAO
+                from flask import request
+                from datetime import datetime, timedelta
+
+                code = request.args.get('code')
+                if not code:
+                    return jsonify({'success': False, 'error': '缺少指数代码参数: code'}), 400
+
+                try:
+                    days = min(int(request.args.get('days', 30)), 365)
+                except (ValueError, TypeError):
+                    days = 30
+
+                # 根据指数代码类型确定数据源
+                if code.startswith('80') and len(code) == 6 and code.isdigit():
+                    source = 'sw'      # 申万行业指数
+                elif code.isdigit() and len(code) == 6:
+                    source = 'sina'    # 市场指数（新浪源）
+                else:
+                    source = 'ths'     # 概念板块（同花顺源）
+
+                dao = IndexDAO(DATABASE['path'])
+
+                # 1. 先读数据库缓存（使用对应数据源）
+                cached = dao.get_klines(code, days=days, source=source)
+                latest_date = dao.get_kline_latest_date(code, source=source)
+
+                # 2. 判断缓存是否需要刷新（最新日期不是今天且不是周末）
+                today = datetime.now().date()
+                need_refresh = True
+                if latest_date:
+                    try:
+                        latest_dt = datetime.strptime(latest_date, '%Y-%m-%d').date()
+                        # 如果缓存最新日期是今天，或今天是周末（市场休市），则不需要刷新
+                        if latest_dt >= today or today.weekday() >= 5:
+                            need_refresh = False
+                        # 如果缓存最新日期是昨天且今天还没到收盘时间（15:00），也不刷新
+                        elif latest_dt == today - timedelta(days=1) and datetime.now().hour < 15:
+                            need_refresh = False
+                    except ValueError:
+                        pass
+
+                # 3. 如果缓存有效，直接返回
+                if cached and not need_refresh:
+                    return jsonify({
+                        'success': True,
+                        'data': {
+                            'code': code,
+                            'kline': cached,
+                            'count': len(cached),
+                            'source': 'cache'
+                        }
+                    })
+
+                # 4. 缓存不存在或过期，按指数类型从对应数据源拉取
+                fetcher = IndexFetcher(logger=self.logger)
+                kline = fetcher.fetch_kline(code, days=days)
+
+                # 5. 保存到数据库缓存（使用对应数据源标识）
+                if kline:
+                    try:
+                        dao.save_klines(code, kline, source=source)
+                        self.logger.info(f"K线数据已缓存: {code} {len(kline)} 条 (source={source})")
+                    except Exception as e:
+                        self.logger.warning(f"K线数据缓存失败: {e}")
+
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'code': code,
+                        'kline': kline,
+                        'count': len(kline),
+                        'source': source
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"获取指数K线失败: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+        @app.route('/api/index/trigger-fetch', methods=['POST'])
+        def api_index_trigger_fetch():
+            """手动触发指数数据获取"""
+            try:
+                from src.fetchers.index import IndexFetcher
+
+                fetcher = IndexFetcher(logger=self.logger)
                 count = fetcher.save_to_db(DATABASE['path'])
 
-                self.logger.info(f"手动触发股票数据获取完成: {count} 条")
+                self.logger.info(f"手动触发指数数据获取完成: {count} 条")
 
                 return jsonify({
                     'success': True,
                     'data': {
                         'count': count,
-                        'message': f'成功获取 {count} 条股票数据'
+                        'message': f'成功获取 {count} 条指数数据'
                     }
                 })
             except Exception as e:
-                self.logger.error(f"手动触发股票数据获取失败: {e}")
+                self.logger.error(f"手动触发指数数据获取失败: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
 
-        @app.route('/api/stock/market')
-        def api_stock_market():
-            """A股市场概览数据"""
-            try:
-                from src.db.stock_dao import StockDAO
-
-                dao = StockDAO(DATABASE['path'])
-                gainers = dao.get_gainers(10)
-                losers = dao.get_losers(10)
-                volume_list = dao.get_by_volume(10)
-
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'gainers': [s.to_dict() for s in gainers],
-                        'losers': [s.to_dict() for s in losers],
-                        'volume': [s.to_dict() for s in volume_list],
-                        'fetched_at': gainers[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if gainers else None
-                    }
-                })
-            except Exception as e:
-                self.logger.error(f"获取股票市场数据失败: {e}")
-                return jsonify({'error': str(e)}), 500
-
-        @app.route('/api/stock/summary')
-        def api_stock_summary():
-            """市场整体概况"""
-            try:
-                from src.db.stock_dao import StockDAO
-
-                dao = StockDAO(DATABASE['path'])
-                summary = dao.get_market_summary()
-
-                return jsonify({
-                    'success': True,
-                    'data': summary
-                })
-            except Exception as e:
-                self.logger.error(f"获取市场概况失败: {e}")
-                return jsonify({'error': str(e)}), 500
-
-        @app.route('/api/stock/gainers')
-        def api_stock_gainers():
-            """涨幅榜"""
-            try:
-                from src.db.stock_dao import StockDAO
-                from flask import request
-
-                dao = StockDAO(DATABASE['path'])
-                limit = int(request.args.get('limit', 10))
-                gainers = dao.get_gainers(limit)
-
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'gainers': [s.to_dict() for s in gainers],
-                        'count': len(gainers)
-                    }
-                })
-            except Exception as e:
-                self.logger.error(f"获取涨幅榜失败: {e}")
-                return jsonify({'error': str(e)}), 500
-
-        @app.route('/api/stock/losers')
-        def api_stock_losers():
-            """跌幅榜"""
-            try:
-                from src.db.stock_dao import StockDAO
-                from flask import request
-
-                dao = StockDAO(DATABASE['path'])
-                limit = int(request.args.get('limit', 10))
-                losers = dao.get_losers(limit)
-
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'losers': [s.to_dict() for s in losers],
-                        'count': len(losers)
-                    }
-                })
-            except Exception as e:
-                self.logger.error(f"获取跌幅榜失败: {e}")
-                return jsonify({'error': str(e)}), 500
-
-        @app.route('/api/stock/volume')
-        def api_stock_volume():
-            """成交额榜"""
-            try:
-                from src.db.stock_dao import StockDAO
-
-                dao = StockDAO(DATABASE['path'])
-                volume_list = dao.get_by_volume(10)
-
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'volume': [s.to_dict() for s in volume_list],
-                        'count': len(volume_list)
-                    }
-                })
-            except Exception as e:
-                self.logger.error(f"获取成交额榜失败: {e}")
-                return jsonify({'error': str(e)}), 500
-
-        @app.route('/api/stock/detail')
-        def api_stock_detail():
-            """个股详情"""
-            try:
-                from src.db.stock_dao import StockDAO
-                from flask import request
-
-                code = request.args.get('code')
-                if not code:
-                    return jsonify({'error': '缺少股票代码参数: code'}), 400
-
-                dao = StockDAO(DATABASE['path'])
-                detail = dao.get_stock_detail(code)
-
-                if not detail:
-                    return jsonify({'error': f'未找到股票: {code}'}), 404
-
-                return jsonify({
-                    'success': True,
-                    'data': detail
-                })
-            except Exception as e:
-                self.logger.error(f"获取股票详情失败: {e}")
-                return jsonify({'error': str(e)}), 500
-
-        @app.route('/api/stock/kline')
-        def api_stock_kline():
-            """K线数据"""
-            try:
-                from src.fetchers.stock import StockFetcher
-                from flask import request
-
-                code = request.args.get('code')
-                if not code:
-                    return jsonify({'error': '缺少股票代码参数: code'}), 400
-
-                days = int(request.args.get('days', 30))
-                fetcher = StockFetcher(logger=self.logger)
-                kline = fetcher.fetch_kline(code, days)
-
-                return jsonify({
-                    'success': True,
-                    'data': kline
-                })
-            except Exception as e:
-                self.logger.error(f"获取K线数据失败: {e}")
-                return jsonify({'error': str(e)}), 500
-
         # ========== 通用API路由 ==========
-        
+
         @app.route('/')
         def index():
             """首页重定向到报告页面"""

@@ -313,6 +313,56 @@ class TrendingDAO:
             'SELECT DISTINCT source FROM trending_items ORDER BY source'
         )
         return [row['source'] for row in rows]
+
+    def get_latest_fetch_time(self, source: Optional[str] = None) -> Optional[datetime]:
+        """
+        获取数据最新抓取时间
+
+        Args:
+            source: 数据源名称，None 表示所有数据源中的最新时间
+
+        Returns:
+            最新抓取时间（datetime 对象），无数据时返回 None
+        """
+        if source:
+            row = self.db.fetch_one(
+                'SELECT MAX(fetched_at) as latest FROM trending_items WHERE source = ?',
+                (source,)
+            )
+        else:
+            row = self.db.fetch_one(
+                'SELECT MAX(fetched_at) as latest FROM trending_items'
+            )
+        if not row or not row['latest']:
+            return None
+        latest = row['latest']
+        if isinstance(latest, str):
+            try:
+                return datetime.fromisoformat(latest)
+            except ValueError:
+                return None
+        return latest
+
+    def get_source_fetch_times(self) -> Dict[str, Optional[datetime]]:
+        """
+        获取各数据源的最新抓取时间
+
+        Returns:
+            {source_name: latest_datetime} 字典，无数据的数据源值为 None
+        """
+        rows = self.db.fetch_all(
+            'SELECT source, MAX(fetched_at) as latest FROM trending_items GROUP BY source'
+        )
+        result: Dict[str, Optional[datetime]] = {}
+        for row in rows:
+            latest = row['latest']
+            if isinstance(latest, str):
+                try:
+                    latest = datetime.fromisoformat(latest)
+                except ValueError:
+                    latest = None
+            result[row['source']] = latest
+        return result
     
     def get_count(
         self,

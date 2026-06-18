@@ -17,6 +17,7 @@ _FETCHER_REGISTRY = {
     'weibo': ('src.fetchers.weibo_hot', 'WeiboHotFetcher'),
     'douyin': ('src.fetchers.douyin_hot', 'DouyinHotFetcher'),
     'aihot': ('src.fetchers.aihot', 'AihotFetcher'),
+    'index': ('src.fetchers.index', 'IndexFetcher'),
 }
 
 _cached_classes = {}

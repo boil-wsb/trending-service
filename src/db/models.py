@@ -158,20 +158,27 @@ class Notification:
 
 
 @dataclass
-class StockData:
-    """股票行情数据"""
+class IndexData:
+    """指数行情数据（A股市场指数 + 申万行业指数）"""
     id: Optional[int] = None
-    code: str = ""                       # 股票代码 (如 000001)
-    name: str = ""                        # 股票名称 (如 平安银行)
-    price: float = 0.0                    # 当前价格
+    code: str = ""                        # 指数代码 (如 000001 上证指数、801010 农林牧渔)
+    name: str = ""                        # 指数名称 (如 上证指数)
+    category: str = "market"              # 分类: market(市场指数) / industry(行业指数)
+    price: float = 0.0                    # 最新价
     change: float = 0.0                   # 涨跌额
     change_pct: float = 0.0               # 涨跌幅 (%)
+    high: float = 0.0                     # 最高价
+    low: float = 0.0                      # 最低价
+    open: float = 0.0                     # 开盘价
+    pre_close: float = 0.0                # 昨收价
     volume: int = 0                       # 成交量 (手)
     amount: float = 0.0                   # 成交额 (元)
-    market_cap: float = 0.0               # 总市值 (元)
     turnover_rate: float = 0.0            # 换手率 (%)
     source: str = "eastmoney"             # 数据源
     fetched_at: datetime = field(default_factory=datetime.now)
+    # 多日涨跌幅（从历史快照计算，可选字段）
+    change_pct_3d: Optional[float] = None  # 3日涨跌幅 (%)
+    change_pct_7d: Optional[float] = None  # 7日涨跌幅 (%)
 
     def to_dict(self) -> Dict:
         """转换为字典"""
@@ -179,19 +186,25 @@ class StockData:
             'id': self.id,
             'code': self.code,
             'name': self.name,
+            'category': self.category,
             'price': round(self.price, 2),
             'change': round(self.change, 2),
             'change_pct': round(self.change_pct, 2),
+            'high': round(self.high, 2),
+            'low': round(self.low, 2),
+            'open': round(self.open, 2),
+            'pre_close': round(self.pre_close, 2),
             'volume': self.volume,
             'amount': round(self.amount / 100000000, 2) if self.amount else 0,
-            'market_cap': round(self.market_cap / 100000000, 2) if self.market_cap else 0,
             'turnover_rate': round(self.turnover_rate, 2),
             'source': self.source,
-            'fetched_at': self.fetched_at.isoformat() if self.fetched_at else None
+            'fetched_at': self.fetched_at.isoformat() if self.fetched_at else None,
+            'change_pct_3d': self.change_pct_3d,
+            'change_pct_7d': self.change_pct_7d
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'StockData':
+    def from_dict(cls, data: Dict) -> 'IndexData':
         """从字典创建对象"""
         fetched_at = data.get('fetched_at')
         if isinstance(fetched_at, str):
@@ -201,12 +214,16 @@ class StockData:
             id=data.get('id'),
             code=data.get('code', ''),
             name=data.get('name', ''),
+            category=data.get('category', 'market'),
             price=data.get('price', 0.0),
             change=data.get('change', 0.0),
             change_pct=data.get('change_pct', 0.0),
+            high=data.get('high', 0.0),
+            low=data.get('low', 0.0),
+            open=data.get('open', 0.0),
+            pre_close=data.get('pre_close', 0.0),
             volume=data.get('volume', 0),
             amount=data.get('amount', 0.0),
-            market_cap=data.get('market_cap', 0.0),
             turnover_rate=data.get('turnover_rate', 0.0),
             source=data.get('source', 'eastmoney'),
             fetched_at=fetched_at or datetime.now()
