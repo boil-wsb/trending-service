@@ -193,18 +193,18 @@ class IndexDAO:
         """
         获取最新日期的行业指数，并计算 3日/7日 涨跌幅
 
+        先查询全部行业指数（不 limit），计算多日涨跌幅，按今日涨跌幅降序排序后再 limit。
         优先从 index_kline 表（K线缓存）获取历史收盘价计算涨跌幅，
-        因为 K 线缓存通常有更多历史数据（每日缓存 365 天）。
         如果 K 线缓存不足，则回退到 index_data 表的每日快照。
 
         Args:
-            limit: 返回数量上限
+            limit: 返回数量上限（排序后截取）
 
         Returns:
             带有 change_pct_3d 和 change_pct_7d 的指数数据列表
         """
-        # 1. 获取最新日期的行业指数
-        indices = self.get_industry_indices(limit=limit)
+        # 1. 获取最新日期的全部行业指数（不 limit，先查全部再排序后截取）
+        indices = self.get_industry_indices(limit=500)
         if not indices:
             return indices
 
@@ -265,7 +265,9 @@ class IndexDAO:
                     else:
                         idx.change_pct_7d = None
 
-                return indices
+                # 先排序后 limit（按今日涨跌幅降序）
+                indices.sort(key=lambda x: x.change_pct, reverse=True)
+                return indices[:limit]
         except Exception:
             pass
 
@@ -317,7 +319,9 @@ class IndexDAO:
             else:
                 idx.change_pct_7d = None
 
-        return indices
+        # 先排序后 limit（按今日涨跌幅降序）
+        indices.sort(key=lambda x: x.change_pct, reverse=True)
+        return indices[:limit]
 
     def get_index_by_code(self, code: str, limit: int = 30) -> List[IndexData]:
         """

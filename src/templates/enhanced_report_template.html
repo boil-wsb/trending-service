@@ -2918,6 +2918,203 @@
             width: 100% !important;
             height: 100% !important;
         }
+
+        .kline-volume-container {
+            height: 156px;
+            margin-top: 8px;
+        }
+
+        .kline-indicator-tabs {
+            display: flex;
+            gap: 4px;
+            margin-top: 12px;
+        }
+
+        .indicator-tab {
+            padding: 4px 12px;
+            border: 1px solid #ddd;
+            background: transparent;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .indicator-tab.active {
+            background: #4a90d9;
+            color: #fff;
+            border-color: #4a90d9;
+        }
+
+        .kline-indicator-desc {
+            font-size: 11px;
+            color: #888;
+            margin-top: 4px;
+            padding: 4px 8px;
+            background: rgba(0,0,0,0.03);
+            border-radius: 4px;
+        }
+
+        .kline-indicator-container {
+            height: 150px;
+            margin-top: 4px;
+        }
+
+        .risk-metrics-card {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 12px;
+            padding: 12px;
+            background: rgba(0,0,0,0.03);
+            border-radius: 8px;
+        }
+
+        .risk-metric-item {
+            flex: 1;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .risk-metric-label {
+            font-size: 11px;
+            color: #888;
+        }
+
+        .risk-metric-value {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 4px 0;
+        }
+
+        .risk-metric-desc {
+            font-size: 10px;
+            color: #aaa;
+        }
+
+        body.dark-mode .indicator-tab {
+            border-color: #444;
+            color: #ccc;
+        }
+
+        body.dark-mode .kline-indicator-desc {
+            background: rgba(255,255,255,0.05);
+            color: #888;
+        }
+
+        body.dark-mode .risk-metrics-card {
+            background: rgba(255,255,255,0.05);
+        }
+
+        /* 行业轮动分析 */
+        .rotation-refresh-btn {
+            padding: 4px 12px; font-size: 12px; border: 1px solid #4a90d9;
+            border-radius: 4px; background: transparent; color: #4a90d9; cursor: pointer;
+        }
+        .rotation-refresh-btn:hover { background: #4a90d9; color: #fff; }
+        .rotation-layout { display: flex; gap: 16px; margin-bottom: 16px; }
+        .rotation-ranking { flex: 0 0 45%; display: flex; flex-direction: column; gap: 12px; }
+        .rotation-heatmap { flex: 1; }
+        .rotation-strong h4, .rotation-weak h4, .rotation-heatmap h4, .rotation-trend h4 {
+            font-size: 13px; margin-bottom: 8px; color: #555;
+        }
+        .rotation-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 6px 10px; margin-bottom: 4px; border-radius: 4px; font-size: 13px;
+        }
+        .rotation-item.rank-1 { background: rgba(231, 76, 60, 0.15); }
+        .rotation-item.rank-2 { background: rgba(231, 76, 60, 0.10); }
+        .rotation-item.rank-3 { background: rgba(231, 76, 60, 0.05); }
+        .rotation-weak .rotation-item.rank-1 { background: rgba(39, 174, 96, 0.15); }
+        .rotation-weak .rotation-item.rank-2 { background: rgba(39, 174, 96, 0.10); }
+        .rotation-weak .rotation-item.rank-3 { background: rgba(39, 174, 96, 0.05); }
+        .rotation-item-name { font-weight: 500; }
+        .rotation-item-value { font-weight: bold; }
+        .rotation-item-rank {
+            display: inline-block; width: 20px; height: 20px; line-height: 20px;
+            text-align: center; border-radius: 50%; font-size: 11px; margin-right: 8px;
+            background: #ddd; color: #fff;
+        }
+        .rotation-item.rank-1 .rotation-item-rank { background: #e74c3c; }
+        .rotation-item.rank-2 .rotation-item-rank { background: #e67e22; }
+        .rotation-item.rank-3 .rotation-item-rank { background: #f39c12; }
+        .rotation-weak .rotation-item.rank-1 .rotation-item-rank { background: #27ae60; }
+        .rotation-weak .rotation-item.rank-2 .rotation-item-rank { background: #2ecc71; }
+        .rotation-weak .rotation-item.rank-3 .rotation-item-rank { background: #1abc9c; }
+
+        /* 热力图 */
+        .heatmap-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 3px; padding: 8px; border-radius: 8px; background: rgba(0,0,0,0.03);
+        }
+        .heatmap-cell {
+            padding: 8px 4px; text-align: center; border-radius: 4px; font-size: 11px;
+            cursor: pointer; transition: transform 0.2s; position: relative;
+        }
+        .heatmap-cell:hover { transform: scale(1.1); z-index: 10; }
+        .heatmap-cell-name { font-weight: 500; margin-bottom: 2px; }
+        .heatmap-cell-value { font-size: 10px; opacity: 0.9; }
+
+        /* 轮动趋势表 */
+        .rotation-trend-table-wrapper { overflow-x: auto; max-height: 400px; overflow-y: auto; }
+        .rank-change-up { color: #27ae60; font-weight: bold; }
+        .rank-change-down { color: #e74c3c; font-weight: bold; }
+        .rank-change-flat { color: #888; }
+
+        body.dark-mode .heatmap-grid { background: rgba(255,255,255,0.05); }
+        body.dark-mode .rotation-strong h4,
+        body.dark-mode .rotation-weak h4,
+        body.dark-mode .rotation-heatmap h4,
+        body.dark-mode .rotation-trend h4 { color: #aaa; }
+
+        /* 合并的轮动列样式 */
+        .rotation-col { font-variant-numeric: tabular-nums; }
+        .rotation-merge-hint {
+            font-size: 11px; font-weight: 400; color: #4a90d9;
+            background: rgba(74,144,217,0.10); padding: 2px 8px; border-radius: 10px;
+            margin-left: 8px; vertical-align: middle; cursor: help;
+        }
+        body.dark-mode .rotation-merge-hint { background: rgba(88,166,255,0.15); color: #58a6ff; }
+
+        /* === A股市场指数：展开/收起 === */
+        .market-indices-grid.collapsed .market-index-card:nth-child(n+7) { display: none; }
+        .market-indices-toggle {
+            display: flex; justify-content: center; align-items: center;
+            margin-top: 12px; padding: 8px 16px;
+            border: 1px dashed #c8d6e5; border-radius: 8px;
+            background: var(--bg-card, #f8f9fa);
+            color: #4a90d9; font-size: 13px; font-weight: 500;
+            cursor: pointer; transition: all 0.2s ease; user-select: none;
+        }
+        .market-indices-toggle:hover { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+        .market-indices-toggle .toggle-arrow { display: inline-block; margin-left: 6px; transition: transform 0.25s ease; }
+        .market-indices-grid:not(.collapsed) ~ .market-indices-toggle .toggle-arrow { transform: rotate(180deg); }
+        body.dark-mode .market-indices-toggle { background: #2a3a4a; border-color: #3a4a5a; color: #58a6ff; }
+        body.dark-mode .market-indices-toggle:hover { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+
+        /* === 行业热力图：容器包裹，与行业 top 一致 === */
+        .rotation-heatmap { display: flex; flex-direction: column; }
+        .rotation-heatmap-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px;
+        }
+        .rotation-heatmap-body {
+            flex: 1; overflow-y: auto; max-height: 560px;
+            border-radius: 8px; padding-right: 4px;
+            scrollbar-width: thin; scrollbar-color: #c8d6e5 transparent;
+        }
+        .rotation-heatmap-body::-webkit-scrollbar { width: 6px; }
+        .rotation-heatmap-body::-webkit-scrollbar-thumb { background: #c8d6e5; border-radius: 3px; }
+        .rotation-heatmap-body::-webkit-scrollbar-track { background: transparent; }
+        .rotation-heatmap-body.expanded { max-height: none; }
+        .heatmap-toggle {
+            padding: 2px 10px; font-size: 11px; border: 1px solid #4a90d9;
+            border-radius: 4px; background: transparent; color: #4a90d9; cursor: pointer;
+            white-space: nowrap;
+        }
+        .heatmap-toggle:hover { background: #4a90d9; color: #fff; }
+        body.dark-mode .heatmap-toggle { border-color: #58a6ff; color: #58a6ff; }
+        body.dark-mode .heatmap-toggle:hover { background: #58a6ff; color: #0b0f1a; }
+        body.dark-mode .rotation-heatmap-body::-webkit-scrollbar-thumb { background: #3a4a5a; }
     </style>
 </head>
 <body>
@@ -3029,15 +3226,19 @@
                 <!-- 市场指数 -->
                 <div class="index-section">
                     <h3 class="index-section-title">📊 A股市场指数</h3>
-                    <div id="market-indices-grid" class="market-indices-grid">
+                    <div id="market-indices-grid" class="market-indices-grid collapsed">
                         <div class="index-loading">加载中...</div>
+                    </div>
+                    <div id="market-indices-toggle" class="market-indices-toggle" onclick="toggleMarketIndices()" style="display:none;">
+                        <span class="toggle-text">展开全部</span>
+                        <span class="toggle-arrow">▼</span>
                     </div>
                 </div>
 
-                <!-- 行业指数 -->
+                <!-- 行业指数（含轮动趋势合并列） -->
                 <div class="index-section">
                     <div class="index-section-header">
-                        <h3 class="index-section-title">🏭 申万行业指数</h3>
+                        <h3 class="index-section-title">🏭 申万行业指数 <span class="rotation-merge-hint" title="已合并轮动趋势：动量得分、排名变化">🔗 含轮动趋势</span></h3>
                         <div class="index-search-box">
                             <span class="index-search-icon">🔍</span>
                             <input type="text" id="index-search-input" class="index-search-input" placeholder="搜索代码或名称..." oninput="filterIndustryIndices()">
@@ -3057,14 +3258,51 @@
                                     <th class="sortable" onclick="sortIndustryTable('change_pct')">今日涨跌幅 <span class="sort-arrow"></span></th>
                                     <th class="sortable" onclick="sortIndustryTable('change_pct_3d')">3日涨跌幅 <span class="sort-arrow"></span></th>
                                     <th class="sortable" onclick="sortIndustryTable('change_pct_7d')">7日涨跌幅 <span class="sort-arrow"></span></th>
+                                    <th class="sortable rotation-col" onclick="sortIndustryTable('momentum')" title="动量得分">动量 <span class="sort-arrow"></span></th>
+                                    <th class="sortable rotation-col" onclick="sortIndustryTable('rank_today')" title="今日排名">今日排名 <span class="sort-arrow"></span></th>
+                                    <th class="sortable rotation-col" onclick="sortIndustryTable('rank_3d')" title="3日排名">3日排名 <span class="sort-arrow"></span></th>
+                                    <th class="sortable rotation-col" onclick="sortIndustryTable('rank_7d')" title="7日排名">7日排名 <span class="sort-arrow"></span></th>
+                                    <th class="sortable rotation-col" onclick="sortIndustryTable('rank_change')" title="排名变化（7日→今日）">排名变化 <span class="sort-arrow"></span></th>
                                     <th>操作</th>
                                 </tr>
                             </thead>
                             <tbody id="industry-indices-body">
-                                <tr><td colspan="8" class="index-loading">加载中...</td></tr>
+                                <tr><td colspan="13" class="index-loading">加载中...</td></tr>
                             </tbody>
                         </table>
                     </div>
+                </div>
+
+                <!-- 行业轮动分析 -->
+                <div class="index-section" id="index-rotation-section">
+                    <div class="index-section-header">
+                        <h3 class="index-section-title">🔄 行业轮动分析</h3>
+                        <button class="rotation-refresh-btn" onclick="loadRotationData()">🔄 刷新</button>
+                    </div>
+                    <div class="rotation-layout">
+                        <!-- 左侧：强势/弱势排名 -->
+                        <div class="rotation-ranking">
+                            <div class="rotation-strong">
+                                <h4>🔥 强势行业 TOP 10</h4>
+                                <div id="rotation-strong-list"></div>
+                            </div>
+                            <div class="rotation-weak">
+                                <h4>❄️ 弱势行业 TOP 10</h4>
+                                <div id="rotation-weak-list"></div>
+                            </div>
+                        </div>
+                        <!-- 右侧：热力图 -->
+                        <div class="rotation-heatmap">
+                            <div class="rotation-heatmap-header">
+                                <h4 style="margin:0;">📊 行业热力图</h4>
+                                <button class="heatmap-toggle" id="heatmap-toggle-btn" onclick="toggleHeatmap()">
+                                    <span class="toggle-text">展开</span>
+                                </button>
+                            </div>
+                            <div id="rotation-heatmap-container" class="rotation-heatmap-body"></div>
+                        </div>
+                    </div>
+                    <!-- 轮动趋势表已合并至上方「申万行业指数」表（动量/排名/排名变化列） -->
                 </div>
 
                 <!-- K线图区域 -->
@@ -3086,6 +3324,23 @@
                     <div class="kline-chart-container">
                         <canvas id="kline-canvas"></canvas>
                     </div>
+                    <!-- 成交量副图 -->
+                    <div class="kline-volume-container">
+                        <canvas id="kline-volume-canvas"></canvas>
+                    </div>
+                    <!-- 技术指标 Tab -->
+                    <div class="kline-indicator-tabs">
+                        <button class="indicator-tab active" data-indicator="macd" onclick="switchIndicator('macd')">MACD</button>
+                        <button class="indicator-tab" data-indicator="rsi" onclick="switchIndicator('rsi')">RSI</button>
+                        <button class="indicator-tab" data-indicator="kdj" onclick="switchIndicator('kdj')">KDJ</button>
+                        <button class="indicator-tab" data-indicator="boll" onclick="switchIndicator('boll')">布林带</button>
+                    </div>
+                    <div class="kline-indicator-desc" id="indicator-desc"></div>
+                    <div class="kline-indicator-container">
+                        <canvas id="kline-indicator-canvas"></canvas>
+                    </div>
+                    <!-- 风险指标卡片 -->
+                    <div class="risk-metrics-card" id="risk-metrics-card"></div>
                 </div>
             </div>
         </div>
@@ -5223,6 +5478,10 @@
         let currentKlineCode = '';
         let currentKlineName = '';
         let klineChart = null;
+        let currentIndicator = 'macd';
+        let indicatorChart = null;
+        let volumeChart = null;
+        let currentKlineData = null;
 
         // 关注列表管理（localStorage 持久化）
         const FOLLOWED_STORAGE_KEY = 'trending_followed_indices';
@@ -5288,27 +5547,200 @@
             } catch (err) {
                 console.error('加载指数数据失败:', err);
                 document.getElementById('market-indices-grid').innerHTML = '<div class="index-loading">加载失败</div>';
-                document.getElementById('industry-indices-body').innerHTML = '<tr><td colspan="8" class="index-loading">加载失败</td></tr>';
+                document.getElementById('industry-indices-body').innerHTML = '<tr><td colspan="13" class="index-loading">加载失败</td></tr>';
+            }
+
+            // 加载行业轮动数据
+            loadRotationData();
+        }
+
+        // 行业轮动数据
+        let rotationData = null;
+        // 轮动数据按 code 建立索引，供行业指数表合并展示
+        let rotationByCode = {};
+
+        async function loadRotationData() {
+            const strongList = document.getElementById('rotation-strong-list');
+            const weakList = document.getElementById('rotation-weak-list');
+
+            if (strongList) strongList.innerHTML = '<div class="index-loading">加载中...</div>';
+            if (weakList) weakList.innerHTML = '<div class="index-loading">加载中...</div>';
+
+            try {
+                const resp = await fetch('/api/index/rotation');
+                const json = await resp.json();
+                if (!json.success) throw new Error(json.error || '加载失败');
+
+                rotationData = json.data;
+                // 构建 code -> 轮动信息 索引
+                rotationByCode = {};
+                if (rotationData && rotationData.indices) {
+                    rotationData.indices.forEach(item => {
+                        rotationByCode[item.code] = item;
+                    });
+                }
+                renderRotationRanking();
+                renderRotationHeatmap();
+                // 轮动数据已合并到行业指数表，刷新表格以显示动量/排名列
+                renderIndustryIndices();
+            } catch (err) {
+                console.error('加载行业轮动数据失败:', err);
+                if (strongList) strongList.innerHTML = `<div class="index-loading">加载失败</div>`;
+                if (weakList) weakList.innerHTML = `<div class="index-loading">加载失败</div>`;
             }
         }
 
-        // 渲染市场指数卡片
-        function renderMarketIndices(indices) {
-            const container = document.getElementById('market-indices-grid');
+        function renderRotationRanking() {
+            if (!rotationData) return;
+
+            // 强势 TOP 10
+            const strongList = document.getElementById('rotation-strong-list');
+            if (strongList) {
+                strongList.innerHTML = rotationData.top_strong.map((item, i) => {
+                    const rank = i + 1;
+                    const rankClass = rank <= 3 ? `rank-${rank}` : '';
+                    const valClass = item.change_pct >= 0 ? 'index-up' : 'index-down';
+                    return `
+                        <div class="rotation-item ${rankClass}">
+                            <span><span class="rotation-item-rank">${rank}</span><span class="rotation-item-name">${item.name}</span></span>
+                            <span class="rotation-item-value ${valClass}">${item.change_pct >= 0 ? '+' : ''}${item.change_pct}%</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // 弱势 TOP 10
+            const weakList = document.getElementById('rotation-weak-list');
+            if (weakList) {
+                weakList.innerHTML = rotationData.top_weak.map((item, i) => {
+                    const rank = i + 1;
+                    const rankClass = rank <= 3 ? `rank-${rank}` : '';
+                    const valClass = item.change_pct >= 0 ? 'index-up' : 'index-down';
+                    return `
+                        <div class="rotation-item ${rankClass}">
+                            <span><span class="rotation-item-rank">${rank}</span><span class="rotation-item-name">${item.name}</span></span>
+                            <span class="rotation-item-value ${valClass}">${item.change_pct >= 0 ? '+' : ''}${item.change_pct}%</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        function renderRotationHeatmap() {
+            if (!rotationData) return;
+            const container = document.getElementById('rotation-heatmap-container');
+            if (!container) return;
+
+            const indices = rotationData.indices;
             if (!indices || indices.length === 0) {
                 container.innerHTML = '<div class="index-loading">暂无数据</div>';
                 return;
             }
+
+            // 按今日涨跌幅着色
+            container.innerHTML = `<div class="heatmap-grid">` + indices.map(item => {
+                const pct = item.change_pct || 0;
+                // 颜色：红涨绿跌，深浅表示幅度
+                let bg, color;
+                if (pct >= 0) {
+                    const intensity = Math.min(Math.abs(pct) / 5, 1);  // 5% 为最大强度
+                    const alpha = 0.15 + intensity * 0.75;
+                    bg = `rgba(231, 76, 60, ${alpha})`;
+                    color = intensity > 0.5 ? '#fff' : '#333';
+                } else {
+                    const intensity = Math.min(Math.abs(pct) / 5, 1);
+                    const alpha = 0.15 + intensity * 0.75;
+                    bg = `rgba(39, 174, 96, ${alpha})`;
+                    color = intensity > 0.5 ? '#fff' : '#333';
+                }
+                return `
+                    <div class="heatmap-cell" style="background:${bg};color:${color}" 
+                         title="${item.name}: ${pct >= 0 ? '+' : ''}${pct}%  成交额:${item.amount}亿"
+                         onclick="showKline('${item.code}', '${item.name}')">
+                        <div class="heatmap-cell-name">${item.name}</div>
+                        <div class="heatmap-cell-value">${pct >= 0 ? '+' : ''}${pct}%</div>
+                    </div>
+                `;
+            }).join('') + `</div>`;
+        }
+
+        // 涨跌幅色深：参照热力图，幅度越大颜色越深（红涨绿跌）
+        function getChangeDepthBg(pct, maxPct, baseAlpha, peakAlpha) {
+            maxPct = (maxPct == null) ? 5 : maxPct;
+            baseAlpha = (baseAlpha == null) ? 0.10 : baseAlpha;
+            peakAlpha = (peakAlpha == null) ? 0.50 : peakAlpha;
+            if (pct == null || isNaN(pct)) return 'transparent';
+            if (pct === 0) return 'rgba(149,165,166,0.12)';
+            const intensity = Math.min(Math.abs(pct) / maxPct, 1);
+            const alpha = baseAlpha + intensity * (peakAlpha - baseAlpha);
+            const color = pct >= 0 ? '231, 76, 60' : '39, 174, 96';
+            return `rgba(${color}, ${alpha})`;
+        }
+
+        // 渲染市场指数卡片
+        let marketIndicesCache = [];
+        function renderMarketIndices(indices) {
+            const container = document.getElementById('market-indices-grid');
+            const toggleBtn = document.getElementById('market-indices-toggle');
+            marketIndicesCache = indices || [];
+            if (!indices || indices.length === 0) {
+                container.innerHTML = '<div class="index-loading">暂无数据</div>';
+                if (toggleBtn) toggleBtn.style.display = 'none';
+                return;
+            }
             container.innerHTML = indices.map(idx => {
                 const changeClass = formatChangeClass(idx.change_pct);
+                const depthBg = getChangeDepthBg(idx.change_pct, 5, 0.08, 0.42);
                 return `
-                    <div class="market-index-card" onclick="showKline('${idx.code}', '${idx.name}')">
+                    <div class="market-index-card" style="background:${depthBg}" onclick="showKline('${idx.code}', '${idx.name}')">
                         <div class="market-index-name">${idx.name}<span class="market-index-code">${idx.code}</span></div>
                         <div class="market-index-price ${changeClass}">${idx.price.toFixed(2)}</div>
                         <div class="market-index-change ${changeClass}">${formatChangeText(idx.change, idx.change_pct)}</div>
                     </div>
                 `;
             }).join('');
+            // 6 个及以下不显示切换按钮；超过 6 个显示并默认收起
+            if (toggleBtn) {
+                if (indices.length > 6) {
+                    toggleBtn.style.display = 'flex';
+                    container.classList.add('collapsed');
+                    updateMarketIndicesToggleText(indices.length);
+                } else {
+                    toggleBtn.style.display = 'none';
+                    container.classList.remove('collapsed');
+                }
+            }
+        }
+
+        function updateMarketIndicesToggleText(total) {
+            const toggleBtn = document.getElementById('market-indices-toggle');
+            if (!toggleBtn) return;
+            const textEl = toggleBtn.querySelector('.toggle-text');
+            const container = document.getElementById('market-indices-grid');
+            if (!textEl || !container) return;
+            if (container.classList.contains('collapsed')) {
+                const hidden = total - 6;
+                textEl.textContent = `展开全部 (共 ${total} 个，余 ${hidden} 个)`;
+            } else {
+                textEl.textContent = '收起';
+            }
+        }
+
+        function toggleMarketIndices() {
+            const container = document.getElementById('market-indices-grid');
+            if (!container) return;
+            container.classList.toggle('collapsed');
+            updateMarketIndicesToggleText(marketIndicesCache.length);
+        }
+
+        // 行业热力图：展开/收起
+        function toggleHeatmap() {
+            const body = document.getElementById('rotation-heatmap-container');
+            const btn = document.getElementById('heatmap-toggle-btn');
+            if (!body || !btn) return;
+            body.classList.toggle('expanded');
+            const textEl = btn.querySelector('.toggle-text');
+            if (textEl) textEl.textContent = body.classList.contains('expanded') ? '收起' : '展开';
         }
 
         // 渲染行业指数表格
@@ -5318,7 +5750,7 @@
             const followedBadge = document.getElementById('followed-count-display');
             const followedNumEl = document.getElementById('followed-count-num');
             if (!industryIndicesData || industryIndicesData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="index-loading">暂无数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="13" class="index-loading">暂无数据</td></tr>';
                 if (countDisplay) countDisplay.textContent = '';
                 if (followedBadge) followedBadge.style.display = 'none';
                 return;
@@ -5354,6 +5786,23 @@
                 }
                 let valA = a[industrySortField];
                 let valB = b[industrySortField];
+                // 合并的轮动字段从 rotationByCode 解析
+                if (industrySortField === 'momentum' ||
+                    industrySortField === 'rank_today' ||
+                    industrySortField === 'rank_3d' ||
+                    industrySortField === 'rank_7d' ||
+                    industrySortField === 'rank_change') {
+                    const rotA = rotationByCode[a.code] || {};
+                    const rotB = rotationByCode[b.code] || {};
+                    if (industrySortField === 'momentum') { valA = rotA.momentum; valB = rotB.momentum; }
+                    else if (industrySortField === 'rank_today') { valA = rotA.rank_change_pct; valB = rotB.rank_change_pct; }
+                    else if (industrySortField === 'rank_3d') { valA = rotA.rank_change_pct_3d; valB = rotB.rank_change_pct_3d; }
+                    else if (industrySortField === 'rank_7d') { valA = rotA.rank_change_pct_7d; valB = rotB.rank_change_pct_7d; }
+                    else if (industrySortField === 'rank_change') {
+                        valA = (rotA.rank_change_pct != null && rotA.rank_change_pct_7d != null) ? (rotA.rank_change_pct_7d - rotA.rank_change_pct) : null;
+                        valB = (rotB.rank_change_pct != null && rotB.rank_change_pct_7d != null) ? (rotB.rank_change_pct_7d - rotB.rank_change_pct) : null;
+                    }
+                }
                 // null 值排到最后
                 if (valA == null) valA = industrySortOrder === 'asc' ? Infinity : -Infinity;
                 if (valB == null) valB = industrySortOrder === 'asc' ? Infinity : -Infinity;
@@ -5388,16 +5837,17 @@
                 }
             }
 
-            // 格式化多日涨跌幅
+            // 格式化多日涨跌幅（带色深背景）
             const formatMultiDayChange = (val) => {
                 if (val == null) return '<span class="index-flat">—</span>';
                 const cls = formatChangeClass(val);
                 const sign = val >= 0 ? '+' : '';
-                return `<span class="${cls}">${sign}${val.toFixed(2)}%</span>`;
+                const bg = getChangeDepthBg(val, 5, 0.08, 0.38);
+                return `<span class="${cls}" style="padding:2px 6px;border-radius:3px;background:${bg};">${sign}${val.toFixed(2)}%</span>`;
             };
 
             if (sorted.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="index-loading">未找到匹配的数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="13" class="index-loading">未找到匹配的数据</td></tr>';
             } else {
                 tbody.innerHTML = sorted.map(idx => {
                     const changeClass = formatChangeClass(idx.change_pct);
@@ -5405,15 +5855,40 @@
                     const followedClass = isFollowed ? 'followed-row' : '';
                     const starClass = isFollowed ? 'follow-btn active' : 'follow-btn';
                     const starIcon = isFollowed ? '★' : '☆';
+                    // 今日涨跌幅：带色深背景
+                    const todayBg = getChangeDepthBg(idx.change_pct, 5, 0.10, 0.45);
+                    const todayChangeHtml = `<span style="padding:2px 6px;border-radius:3px;background:${todayBg};">${formatChangeText(idx.change, idx.change_pct)}</span>`;
+                    // 合并轮动数据
+                    const rot = rotationByCode[idx.code] || {};
+                    const momentum = rot.momentum;
+                    const rankToday = rot.rank_change_pct;
+                    const rank3d = rot.rank_change_pct_3d;
+                    const rank7d = rot.rank_change_pct_7d;
+                    // 排名变化：7日排名 → 今日排名（数值变小=上升）
+                    let rankChangeHtml = '<span class="rank-change-flat">—</span>';
+                    if (rankToday != null && rank7d != null) {
+                        const rankChange = rank7d - rankToday; // 正=上升
+                        if (rankChange > 0) rankChangeHtml = `<span class="rank-change-up">↑${rankChange}</span>`;
+                        else if (rankChange < 0) rankChangeHtml = `<span class="rank-change-down">↓${Math.abs(rankChange)}</span>`;
+                    }
+                    const momentumHtml = (momentum == null)
+                        ? '<span class="index-flat">—</span>'
+                        : `<span class="${momentum >= 0 ? 'index-up' : 'index-down'}">${momentum >= 0 ? '+' : ''}${momentum}</span>`;
+                    const fmtRank = (v) => (v == null) ? '<span class="index-flat">—</span>' : v;
                     return `
                         <tr class="${followedClass}">
                             <td><button class="${starClass}" onclick="toggleFollowIndex('${idx.code}')" title="${isFollowed ? '取消关注' : '关注'}">${starIcon}</button></td>
                             <td>${idx.code}</td>
                             <td>${idx.name}</td>
                             <td>${idx.price.toFixed(2)}</td>
-                            <td class="${changeClass}">${formatChangeText(idx.change, idx.change_pct)}</td>
+                            <td>${todayChangeHtml}</td>
                             <td>${formatMultiDayChange(idx.change_pct_3d)}</td>
                             <td>${formatMultiDayChange(idx.change_pct_7d)}</td>
+                            <td class="rotation-col">${momentumHtml}</td>
+                            <td class="rotation-col">${fmtRank(rankToday)}</td>
+                            <td class="rotation-col">${fmtRank(rank3d)}</td>
+                            <td class="rotation-col">${fmtRank(rank7d)}</td>
+                            <td class="rotation-col">${rankChangeHtml}</td>
                             <td><button class="kline-btn" onclick="showKline('${idx.code}', '${idx.name}')">K线</button></td>
                         </tr>
                     `;
@@ -5478,7 +5953,16 @@
                 klineChart.destroy();
                 klineChart = null;
             }
+            if (indicatorChart) {
+                indicatorChart.destroy();
+                indicatorChart = null;
+            }
+            if (volumeChart) {
+                volumeChart.destroy();
+                volumeChart = null;
+            }
             currentKlineCode = '';
+            currentKlineData = null;
         }
 
         // 加载K线数据
@@ -5489,7 +5973,18 @@
                 const res = await fetch(`/api/index/kline?code=${currentKlineCode}&days=${days}`);
                 const data = await res.json();
                 if (data.success) {
-                    renderKlineChart(data.data.kline || []);
+                    const klines = data.data.kline || [];
+                    renderKlineChart(klines);
+                    renderVolumeChart(klines);
+                    renderRiskMetrics(klines);
+                    // 初始化指标描述和默认指标图
+                    document.getElementById('indicator-desc').textContent = INDICATOR_DESCRIPTIONS[currentIndicator];
+                    // 根据当前指标决定副图容器显示状态
+                    const indContainer = document.querySelector('.kline-indicator-container');
+                    if (indContainer) {
+                        indContainer.style.display = (currentIndicator === 'boll') ? 'none' : 'block';
+                    }
+                    renderIndicatorChart(klines);
                 }
             } catch (err) {
                 console.error('加载K线数据失败:', err);
@@ -5533,105 +6028,138 @@
                 klineChart.destroy();
             }
 
+            // 保存当前 K 线数据供其他函数访问
+            window.currentKlineData = klines;
+            currentKlineData = klines;
+
             const labels = klines.map(k => k.date);
             const opens = klines.map(k => k.open);
             const closes = klines.map(k => k.close);
             const highs = klines.map(k => k.high);
             const lows = klines.map(k => k.low);
-            const volumes = klines.map(k => k.volume || 0);
 
             // 计算移动平均线
             const ma5 = calculateMA(closes, 5);
             const ma10 = calculateMA(closes, 10);
             const ma20 = calculateMA(closes, 20);
 
+            // 构建数据集（不含成交量，成交量独立副图）
+            const datasets = [
+                {
+                    label: '收盘价',
+                    data: closes,
+                    borderColor: '#4a90d9',
+                    backgroundColor: 'rgba(74, 144, 217, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.1,
+                    yAxisID: 'y'
+                },
+                {
+                    label: '开盘价',
+                    data: opens,
+                    borderColor: '#f39c12',
+                    borderWidth: 1,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y',
+                    hidden: true
+                },
+                {
+                    label: '最高价',
+                    data: highs,
+                    borderColor: '#e74c3c',
+                    borderWidth: 1,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y',
+                    hidden: true
+                },
+                {
+                    label: '最低价',
+                    data: lows,
+                    borderColor: '#27ae60',
+                    borderWidth: 1,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y',
+                    hidden: true
+                },
+                {
+                    label: 'MA5',
+                    data: ma5,
+                    borderColor: '#9b59b6',
+                    borderWidth: 1.5,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y',
+                    pointRadius: 0
+                },
+                {
+                    label: 'MA10',
+                    data: ma10,
+                    borderColor: '#e67e22',
+                    borderWidth: 1.5,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y',
+                    pointRadius: 0
+                },
+                {
+                    label: 'MA20',
+                    data: ma20,
+                    borderColor: '#1abc9c',
+                    borderWidth: 1.5,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y',
+                    pointRadius: 0
+                }
+            ];
+
+            // 布林带指标：叠加在主图上
+            if (currentIndicator === 'boll') {
+                const boll = calculateBOLL(closes, 20, 2);
+                datasets.push({
+                    label: 'BOLL上轨',
+                    data: boll.upper,
+                    borderColor: '#e74c3c',
+                    borderWidth: 1,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y',
+                    pointRadius: 0,
+                    borderDash: [4, 4]
+                });
+                datasets.push({
+                    label: 'BOLL中轨',
+                    data: boll.mid,
+                    borderColor: '#f39c12',
+                    borderWidth: 1,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y',
+                    pointRadius: 0
+                });
+                datasets.push({
+                    label: 'BOLL下轨',
+                    data: boll.lower,
+                    borderColor: '#27ae60',
+                    borderWidth: 1,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y',
+                    pointRadius: 0,
+                    borderDash: [4, 4]
+                });
+            }
+
             const ctx = canvas.getContext('2d');
             klineChart = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
-                    datasets: [
-                        {
-                            label: '收盘价',
-                            data: closes,
-                            borderColor: '#4a90d9',
-                            backgroundColor: 'rgba(74, 144, 217, 0.1)',
-                            borderWidth: 2,
-                            fill: true,
-                            tension: 0.1,
-                            yAxisID: 'y'
-                        },
-                        {
-                            label: '开盘价',
-                            data: opens,
-                            borderColor: '#f39c12',
-                            borderWidth: 1,
-                            fill: false,
-                            tension: 0.1,
-                            yAxisID: 'y',
-                            hidden: true
-                        },
-                        {
-                            label: '最高价',
-                            data: highs,
-                            borderColor: '#e74c3c',
-                            borderWidth: 1,
-                            fill: false,
-                            tension: 0.1,
-                            yAxisID: 'y',
-                            hidden: true
-                        },
-                        {
-                            label: '最低价',
-                            data: lows,
-                            borderColor: '#27ae60',
-                            borderWidth: 1,
-                            fill: false,
-                            tension: 0.1,
-                            yAxisID: 'y',
-                            hidden: true
-                        },
-                        {
-                            label: 'MA5',
-                            data: ma5,
-                            borderColor: '#9b59b6',
-                            borderWidth: 1.5,
-                            fill: false,
-                            tension: 0.1,
-                            yAxisID: 'y',
-                            pointRadius: 0
-                        },
-                        {
-                            label: 'MA10',
-                            data: ma10,
-                            borderColor: '#e67e22',
-                            borderWidth: 1.5,
-                            fill: false,
-                            tension: 0.1,
-                            yAxisID: 'y',
-                            pointRadius: 0
-                        },
-                        {
-                            label: 'MA20',
-                            data: ma20,
-                            borderColor: '#1abc9c',
-                            borderWidth: 1.5,
-                            fill: false,
-                            tension: 0.1,
-                            yAxisID: 'y',
-                            pointRadius: 0
-                        },
-                        {
-                            label: '成交量',
-                            data: volumes,
-                            type: 'bar',
-                            backgroundColor: 'rgba(74, 144, 217, 0.3)',
-                            borderColor: 'rgba(74, 144, 217, 0.5)',
-                            borderWidth: 1,
-                            yAxisID: 'y1',
-                            order: 99
-                        }
-                    ]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
@@ -5688,9 +6216,7 @@
                                     const k = klines[idx];
                                     const label = context.dataset.label;
                                     const val = context.parsed.y;
-                                    if (label === '成交量') {
-                                        return `${label}: ${val.toLocaleString()}`;
-                                    }
+                                    if (val === null || val === undefined) return null;
                                     let extra = '';
                                     if (label === '收盘价') {
                                         extra = `  涨跌幅: ${k.change_pct}%`;
@@ -5718,14 +6244,347 @@
                             display: true,
                             position: 'left',
                             title: { display: true, text: '价格' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // ========== 技术指标相关 ==========
+
+        // 指标概念描述
+        const INDICATOR_DESCRIPTIONS = {
+            macd: 'MACD（移动平均收敛发散指标）：反映价格趋势的强弱和方向。DIF 上穿 DEA 为金叉（买入信号），下穿为死叉（卖出信号）。',
+            rsi: 'RSI（相对强弱指标）：衡量价格超买超卖程度，0-100。RSI>70 超买，<30 超卖。',
+            kdj: 'KDJ（随机指标）：反映价格位置相对高低。K>D 金叉买入，K<D 死叉卖出。J>100 超买，J<0 超卖。',
+            boll: '布林带（Bollinger Bands）：反映价格波动范围。价格触及上轨可能回调，触及下轨可能反弹。'
+        };
+
+        // EMA 计算
+        function calculateEMA(data, period) {
+            const result = [];
+            const k = 2 / (period + 1);
+            let ema = data[0];
+            for (let i = 0; i < data.length; i++) {
+                if (i === 0) {
+                    ema = data[0];
+                } else {
+                    ema = data[i] * k + ema * (1 - k);
+                }
+                result.push(ema);
+            }
+            return result;
+        }
+
+        // MACD 计算
+        function calculateMACD(closes) {
+            const ema12 = calculateEMA(closes, 12);
+            const ema26 = calculateEMA(closes, 26);
+            const dif = closes.map((c, i) => ema12[i] - ema26[i]);
+            const dea = calculateEMA(dif, 9);
+            const macd = dif.map((d, i) => (d - dea[i]) * 2);
+            return { dif, dea, macd };
+        }
+
+        // RSI 计算
+        function calculateRSI(closes, period = 14) {
+            const result = [];
+            for (let i = 0; i < closes.length; i++) {
+                if (i < period) {
+                    result.push(null);
+                    continue;
+                }
+                let gains = 0, losses = 0;
+                for (let j = i - period + 1; j <= i; j++) {
+                    const diff = closes[j] - closes[j - 1];
+                    if (diff >= 0) gains += diff;
+                    else losses -= diff;
+                }
+                const avgGain = gains / period;
+                const avgLoss = losses / period;
+                if (avgLoss === 0) result.push(100);
+                else {
+                    const rs = avgGain / avgLoss;
+                    result.push(100 - 100 / (1 + rs));
+                }
+            }
+            return result;
+        }
+
+        // KDJ 计算
+        function calculateKDJ(highs, lows, closes, n = 9) {
+            let k = 50, d = 50;
+            const kArr = [], dArr = [], jArr = [];
+            for (let i = 0; i < closes.length; i++) {
+                if (i < n - 1) {
+                    kArr.push(null); dArr.push(null); jArr.push(null);
+                    continue;
+                }
+                const start = Math.max(0, i - n + 1);
+                const highN = Math.max(...highs.slice(start, i + 1));
+                const lowN = Math.min(...lows.slice(start, i + 1));
+                const rsv = highN === lowN ? 0 : (closes[i] - lowN) / (highN - lowN) * 100;
+                k = 2 / 3 * k + 1 / 3 * rsv;
+                d = 2 / 3 * d + 1 / 3 * k;
+                const j = 3 * k - 2 * d;
+                kArr.push(k); dArr.push(d); jArr.push(j);
+            }
+            return { k: kArr, d: dArr, j: jArr };
+        }
+
+        // 布林带计算
+        function calculateBOLL(closes, period = 20, multiplier = 2) {
+            const mid = [], upper = [], lower = [];
+            for (let i = 0; i < closes.length; i++) {
+                if (i < period - 1) {
+                    mid.push(null); upper.push(null); lower.push(null);
+                    continue;
+                }
+                const start = i - period + 1;
+                const slice = closes.slice(start, i + 1);
+                const mean = slice.reduce((a, b) => a + b, 0) / period;
+                const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / period;
+                const std = Math.sqrt(variance);
+                mid.push(mean);
+                upper.push(mean + multiplier * std);
+                lower.push(mean - multiplier * std);
+            }
+            return { mid, upper, lower };
+        }
+
+        // 切换技术指标
+        function switchIndicator(ind) {
+            currentIndicator = ind;
+            document.querySelectorAll('.indicator-tab').forEach(t => {
+                t.classList.toggle('active', t.dataset.indicator === ind);
+            });
+            document.getElementById('indicator-desc').textContent = INDICATOR_DESCRIPTIONS[ind];
+            // 布林带叠加在主图上，需要重新渲染主图
+            if (ind === 'boll' && currentKlineData) {
+                renderKlineChart(currentKlineData);
+            }
+            // 隐藏/显示指标副图容器
+            const indContainer = document.querySelector('.kline-indicator-container');
+            if (indContainer) {
+                indContainer.style.display = (ind === 'boll') ? 'none' : 'block';
+            }
+            // 重新渲染指标图
+            if (currentKlineData) {
+                renderIndicatorChart(currentKlineData);
+            }
+        }
+
+        // 渲染技术指标副图
+        function renderIndicatorChart(klines) {
+            const canvas = document.getElementById('kline-indicator-canvas');
+            if (!canvas || !klines || klines.length === 0) return;
+            if (indicatorChart) {
+                indicatorChart.destroy();
+                indicatorChart = null;
+            }
+            // 布林带不需要副图
+            if (currentIndicator === 'boll') {
+                return;
+            }
+
+            const labels = klines.map(k => k.date);
+            const closes = klines.map(k => k.close);
+            const ctx = canvas.getContext('2d');
+            let datasets = [];
+            let yMin = null, yMax = null;
+
+            if (currentIndicator === 'macd') {
+                const { dif, dea, macd } = calculateMACD(closes);
+                // MACD 柱状图红绿
+                const barColors = macd.map(v => v >= 0 ? 'rgba(231, 76, 60, 0.6)' : 'rgba(39, 174, 96, 0.6)');
+                datasets = [
+                    {
+                        label: 'MACD',
+                        data: macd,
+                        type: 'bar',
+                        backgroundColor: barColors,
+                        borderColor: barColors.map(c => c.replace('0.6', '1')),
+                        borderWidth: 1,
+                        order: 3
+                    },
+                    {
+                        label: 'DIF',
+                        data: dif,
+                        borderColor: '#4a90d9',
+                        borderWidth: 1.5,
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 0,
+                        order: 1
+                    },
+                    {
+                        label: 'DEA',
+                        data: dea,
+                        borderColor: '#f39c12',
+                        borderWidth: 1.5,
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 0,
+                        order: 2
+                    }
+                ];
+            } else if (currentIndicator === 'rsi') {
+                const rsi = calculateRSI(closes, 14);
+                datasets = [
+                    {
+                        label: 'RSI(14)',
+                        data: rsi,
+                        borderColor: '#9b59b6',
+                        borderWidth: 1.5,
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 0
+                    }
+                ];
+                yMin = 0;
+                yMax = 100;
+            } else if (currentIndicator === 'kdj') {
+                const highs = klines.map(k => k.high);
+                const lows = klines.map(k => k.low);
+                const { k, d, j } = calculateKDJ(highs, lows, closes, 9);
+                datasets = [
+                    {
+                        label: 'K',
+                        data: k,
+                        borderColor: '#4a90d9',
+                        borderWidth: 1.5,
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'D',
+                        data: d,
+                        borderColor: '#f39c12',
+                        borderWidth: 1.5,
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'J',
+                        data: j,
+                        borderColor: '#e74c3c',
+                        borderWidth: 1.5,
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 0
+                    }
+                ];
+                yMin = 0;
+                yMax = 100;
+            }
+
+            // 参考线（RSI 30/70，KDJ 20/80）
+            if (currentIndicator === 'rsi' || currentIndicator === 'kdj') {
+                const lines = currentIndicator === 'rsi' ? [30, 70] : [20, 80];
+                lines.forEach(v => {
+                    datasets.push({
+                        label: `参考线${v}`,
+                        data: closes.map(() => v),
+                        borderColor: 'rgba(128, 128, 128, 0.4)',
+                        borderWidth: 1,
+                        borderDash: [4, 4],
+                        fill: false,
+                        pointRadius: 0
+                    });
+                });
+            }
+
+            indicatorChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: { display: true },
+                        tooltip: {
+                            callbacks: {
+                                title: function(items) {
+                                    if (!items || !items.length) return '';
+                                    return `${items[0].label} (${dateToWeekday(items[0].label)})`;
+                                },
+                                label: function(context) {
+                                    const val = context.parsed.y;
+                                    if (val === null || val === undefined) return null;
+                                    const label = context.dataset.label || '';
+                                    if (label.startsWith('参考线')) return null;
+                                    return `${label}: ${val.toFixed(3)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: false
                         },
-                        y1: {
-                            display: true,
-                            position: 'right',
-                            title: { display: true, text: '成交量' },
-                            grid: {
-                                drawOnChartArea: false
-                            },
+                        y: {
+                            ...(yMin !== null ? { min: yMin } : {}),
+                            ...(yMax !== null ? { max: yMax } : {})
+                        }
+                    }
+                }
+            });
+        }
+
+        // 渲染成交量副图
+        function renderVolumeChart(klines) {
+            const canvas = document.getElementById('kline-volume-canvas');
+            if (!canvas || !klines || klines.length === 0) return;
+            if (volumeChart) volumeChart.destroy();
+
+            const labels = klines.map(k => k.date);
+            const volumes = klines.map(k => k.volume || 0);
+            // 红绿色：收盘 >= 开盘为红，否则为绿
+            const colors = klines.map(k => k.close >= k.open ? 'rgba(231, 76, 60, 0.6)' : 'rgba(39, 174, 96, 0.6)');
+
+            volumeChart = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '成交量',
+                        data: volumes,
+                        backgroundColor: colors,
+                        borderColor: colors.map(c => c.replace('0.6', '1')),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: function(items) {
+                                    if (!items || !items.length) return '';
+                                    return `${items[0].label} (${dateToWeekday(items[0].label)})`;
+                                },
+                                label: function(context) {
+                                    return `成交量: ${context.parsed.y.toLocaleString()}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: false  // X 轴标签由主图显示
+                        },
+                        y: {
                             ticks: {
                                 callback: function(value) {
                                     if (value >= 100000000) return (value / 100000000).toFixed(1) + '亿';
@@ -5737,6 +6596,61 @@
                     }
                 }
             });
+        }
+
+        // 渲染风险指标卡片
+        function renderRiskMetrics(klines) {
+            const card = document.getElementById('risk-metrics-card');
+            if (!card || !klines || klines.length < 2) return;
+
+            const closes = klines.map(k => k.close);
+            // 日收益率
+            const returns = [];
+            for (let i = 1; i < closes.length; i++) {
+                returns.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+            }
+
+            // 波动率（年化）
+            const meanReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
+            const variance = returns.reduce((a, b) => a + Math.pow(b - meanReturn, 2), 0) / returns.length;
+            const volatility = Math.sqrt(variance) * Math.sqrt(252) * 100;
+
+            // 最大回撤
+            let peak = closes[0], maxDrawdown = 0;
+            for (const c of closes) {
+                if (c > peak) peak = c;
+                const dd = (peak - c) / peak;
+                if (dd > maxDrawdown) maxDrawdown = dd;
+            }
+            maxDrawdown *= 100;
+
+            // 夏普比率（无风险利率 2%）
+            const annualReturn = meanReturn * 252 * 100;
+            const sharpe = volatility > 0 ? (annualReturn - 2) / volatility : 0;
+
+            // 日均收益率
+            const avgDailyReturn = meanReturn * 100;
+
+            // 涨跌比
+            const upDays = returns.filter(r => r > 0).length;
+            const downDays = returns.filter(r => r < 0).length;
+            const upDownRatio = downDays > 0 ? (upDays / downDays).toFixed(2) : '∞';
+
+            const metrics = [
+                { label: '年化波动率', value: volatility.toFixed(2) + '%', desc: '价格波动剧烈程度', color: volatility > 30 ? '#e74c3c' : '#333' },
+                { label: '最大回撤', value: '-' + maxDrawdown.toFixed(2) + '%', desc: '从最高点到最低点的最大跌幅', color: '#e74c3c' },
+                { label: '夏普比率', value: sharpe.toFixed(2), desc: '单位风险的超额回报，>1 为好', color: sharpe > 1 ? '#27ae60' : sharpe < 0 ? '#e74c3c' : '#333' },
+                { label: '日均收益率', value: avgDailyReturn.toFixed(3) + '%', desc: '平均每日收益率', color: avgDailyReturn >= 0 ? '#27ae60' : '#e74c3c' },
+                { label: '涨跌比', value: upDownRatio, desc: '上涨天数/下跌天数', color: upDays >= downDays ? '#27ae60' : '#e74c3c' }
+            ];
+
+            card.innerHTML = metrics.map(m => `
+                <div class="risk-metric-item">
+                    <div class="risk-metric-label">${m.label}</div>
+                    <div class="risk-metric-value" style="color:${m.color}">${m.value}</div>
+                    <div class="risk-metric-desc">${m.desc}</div>
+                </div>
+            `).join('');
         }
 
         // 页面加载完成后初始化

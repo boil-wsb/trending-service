@@ -6,8 +6,11 @@ HTTP服务器模块
 import sys
 import threading
 import time
+import json
+import hashlib
 from datetime import datetime
 from pathlib import Path
+from functools import wraps
 
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent.parent
@@ -17,6 +20,79 @@ if str(project_root) not in sys.path:
 from flask import Flask, jsonify, send_from_directory, redirect, Response, request
 from src.config import SERVER, REPORTS_DIR, ROUTES, DATABASE, ConfigHotReloader
 from src.utils import get_logger
+
+
+class TTLCache:
+    """简单的 TTL 内存缓存（线程安全）"""
+
+    def __init__(self):
+        self._store = {}
+        self._lock = threading.Lock()
+
+    def get(self, key):
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            if time.time() > entry['expire_at']:
+                del self._store[key]
+                return None
+            return entry['value']
+
+    def set(self, key, value, ttl):
+        with self._lock:
+            self._store[key] = {
+                'value': value,
+                'expire_at': time.time() + ttl
+            }
+
+    def clear(self):
+        with self._lock:
+            self._store.clear()
+
+    def clear_prefix(self, prefix):
+        """清除指定前缀的缓存"""
+        with self._lock:
+            keys_to_delete = [k for k in self._store if k.startswith(prefix)]
+            for k in keys_to_delete:
+                del self._store[k]
+
+
+# 全局缓存实例
+_api_cache = TTLCache()
+
+
+def cached(ttl_seconds=30, key_prefix=''):
+    """
+    API 响应缓存装饰器
+
+    Args:
+        ttl_seconds: 缓存存活时间（秒）
+        key_prefix: 缓存 key 前缀，用于按前缀清除
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # 生成缓存 key：前缀 + 函数名 + 参数哈希
+            arg_str = json.dumps({
+                'args': [str(a) for a in args],
+                'kwargs': {k: str(v) for k, v in kwargs.items()},
+                'query': dict(request.args) if request else {}
+            }, sort_keys=True)
+            key_hash = hashlib.md5(arg_str.encode()).hexdigest()[:12]
+            cache_key = f"{key_prefix}:{func.__name__}:{key_hash}"
+
+            # 尝试读缓存
+            cached_val = _api_cache.get(cache_key)
+            if cached_val is not None:
+                return cached_val
+
+            # 执行函数并缓存结果
+            result = func(*args, **kwargs)
+            _api_cache.set(cache_key, result, ttl_seconds)
+            return result
+        return wrapper
+    return decorator
 
 
 class TrendingServer:
@@ -76,7 +152,7 @@ class TrendingServer:
 
         @app.route('/api/index/industry')
         def api_index_industry():
-            """申万行业指数列表（含 3日/7日 涨跌幅）"""
+            """申万行业指数列表（含 3日/7日 涨跌幅，30s 缓存）"""
             try:
                 from src.db.index_dao import IndexDAO
                 from flask import request
@@ -86,11 +162,17 @@ class TrendingServer:
                 except (ValueError, TypeError):
                     limit = 50
 
+                # 缓存检查（30s TTL）
+                cache_key = f"industry:{limit}"
+                cached = _api_cache.get(cache_key)
+                if cached is not None:
+                    return cached
+
                 dao = IndexDAO(DATABASE['path'])
-                # 使用带多日涨跌幅的方法
+                # 使用带多日涨跌幅的方法（先排序后 limit）
                 indices = dao.get_industry_indices_with_changes(limit=limit)
 
-                return jsonify({
+                result = jsonify({
                     'success': True,
                     'data': {
                         'indices': [idx.to_dict() for idx in indices],
@@ -98,6 +180,8 @@ class TrendingServer:
                         'fetched_at': indices[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if indices else None
                     }
                 })
+                _api_cache.set(cache_key, result, ttl=30)
+                return result
             except Exception as e:
                 self.logger.error(f"获取行业指数失败: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
@@ -190,6 +274,12 @@ class TrendingServer:
                 except (ValueError, TypeError):
                     days = 30
 
+                # API 内存缓存检查（5min TTL）
+                cache_key = f"kline:{code}:{days}"
+                cached = _api_cache.get(cache_key)
+                if cached is not None:
+                    return cached
+
                 # 根据指数代码类型确定数据源
                 if code.startswith('80') and len(code) == 6 and code.isdigit():
                     source = 'sw'      # 申万行业指数
@@ -243,7 +333,7 @@ class TrendingServer:
                     except Exception as e:
                         self.logger.warning(f"K线数据缓存失败: {e}")
 
-                return jsonify({
+                result = jsonify({
                     'success': True,
                     'data': {
                         'code': code,
@@ -252,8 +342,77 @@ class TrendingServer:
                         'source': source
                     }
                 })
+                _api_cache.set(cache_key, result, ttl=300)  # 5min 缓存
+                return result
             except Exception as e:
                 self.logger.error(f"获取指数K线失败: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+        @app.route('/api/index/rotation')
+        def api_index_rotation():
+            """行业轮动分析数据（60s 缓存）
+
+            返回行业指数的多周期涨跌幅排名、动量得分、成交额，
+            用于前端展示强势/弱势排名表、热力图、轮动趋势。
+            """
+            try:
+                from src.db.index_dao import IndexDAO
+
+                # 缓存检查（60s TTL）
+                cache_key = "rotation:all"
+                cached = _api_cache.get(cache_key)
+                if cached is not None:
+                    return cached
+
+                dao = IndexDAO(DATABASE['path'])
+                # 获取全部行业指数（含 3日/7日涨跌幅）
+                indices = dao.get_industry_indices_with_changes(limit=500)
+                if not indices:
+                    result = jsonify({'success': True, 'data': {'indices': [], 'count': 0}})
+                    _api_cache.set(cache_key, result, ttl=60)
+                    return result
+
+                # 计算排名和动量得分
+                items = []
+                for idx in indices:
+                    change_3d = idx.change_pct_3d if idx.change_pct_3d is not None else 0
+                    change_7d = idx.change_pct_7d if idx.change_pct_7d is not None else 0
+                    # 动量得分 = 今日(40%) + 3日(30%) + 7日(30%)
+                    momentum = round(idx.change_pct * 0.4 + change_3d * 0.3 + change_7d * 0.3, 2)
+                    items.append({
+                        'code': idx.code,
+                        'name': idx.name,
+                        'price': round(idx.price, 2),
+                        'change_pct': round(idx.change_pct, 2),
+                        'change_pct_3d': idx.change_pct_3d,
+                        'change_pct_7d': idx.change_pct_7d,
+                        'amount': round(idx.amount / 100000000, 2) if idx.amount else 0,
+                        'momentum': momentum,
+                        'source': idx.source
+                    })
+
+                # 按各周期排名
+                for field in ['change_pct', 'change_pct_3d', 'change_pct_7d', 'momentum']:
+                    sorted_items = sorted(items, key=lambda x: x.get(field, 0) or 0, reverse=True)
+                    for rank, item in enumerate(sorted_items, 1):
+                        item[f'rank_{field}'] = rank
+
+                # 按动量得分排序返回
+                items.sort(key=lambda x: x['momentum'], reverse=True)
+
+                result = jsonify({
+                    'success': True,
+                    'data': {
+                        'indices': items,
+                        'count': len(items),
+                        'top_strong': items[:10],
+                        'top_weak': items[-10:][::-1]
+                    }
+                })
+                _api_cache.set(cache_key, result, ttl=60)
+                return result
+            except Exception as e:
+                self.logger.error(f"获取行业轮动数据失败: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
 
         @app.route('/api/index/trigger-fetch', methods=['POST'])
