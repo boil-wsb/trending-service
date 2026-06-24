@@ -1,0 +1,373 @@
+        /* ========== 综合分析 Tab 样式 ========== */
+        
+        /* 筛选栏 */
+        .analysis-filter-bar {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .filter-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .filter-label {
+            font-weight: 500;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .sort-wrapper {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #dashboard-sort {
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            font-size: 0.85em;
+            background: white;
+        }
+
+        /* 筛选按钮样式 */
+        .dashboard-filter {
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s ease;
+        }
+
+        .dashboard-filter:hover {
+            border-color: #3b82f6;
+            color: #3b82f6;
+        }
+
+        .dashboard-filter.active {
+            background: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+
+        /* 关键指标卡片 */
+        .analysis-metrics {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 1400px) {
+            .analysis-metrics {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .analysis-metrics {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .analysis-metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .metric-card {
+            background: white;
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid #e5e7eb;
+            transition: all 0.2s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+        }
+
+        .metric-card.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .metric-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .metric-icon {
+            font-size: 1.6em;
+        }
+
+        .metric-badge {
+            font-size: 0.7em;
+            background: rgba(255,255,255,0.2);
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        .metric-card:not(.primary) .metric-badge {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
+        .metric-card:not(.primary) .metric-badge.info {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .metric-card:not(.primary) .metric-badge.success {
+            background: #d1fae5;
+            color: #059669;
+        }
+
+        .metric-card:not(.primary) .metric-badge.warning {
+            background: #ffedd5;
+            color: #ea580c;
+        }
+
+        .metric-value {
+            font-size: 1.6em;
+            font-weight: bold;
+            margin: 0;
+            color: #1f2937;
+        }
+
+        .metric-card.primary .metric-value {
+            color: white;
+        }
+
+        .metric-value.small {
+            font-size: 1.2em;
+        }
+
+        .metric-label {
+            font-size: 0.8em;
+            color: #6b7280;
+            margin: 5px 0 0 0;
+        }
+
+        .metric-card.primary .metric-label {
+            color: rgba(255,255,255,0.9);
+        }
+
+        /* 实时概览三列卡片 */
+        .analysis-overview {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 1024px) {
+            .analysis-overview {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .overview-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid #e5e7eb;
+            border-left: 4px solid #667eea;
+            display: flex;
+            flex-direction: column;
+            min-height: 200px;
+            transition: all 0.2s ease;
+        }
+
+        .overview-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+            transform: translateY(-2px);
+        }
+
+        .overview-title {
+            margin-bottom: 15px;
+            color: #1f2937;
+            font-size: 1em;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .trend-mini-chart {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 120px;
+            position: relative;
+        }
+
+        .trend-data-point {
+            cursor: pointer;
+        }
+
+        .trend-tooltip {
+            position: absolute;
+            background: rgba(30, 30, 50, 0.92);
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 0.82em;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .trend-tooltip.visible {
+            opacity: 1;
+        }
+
+        .trend-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 12px;
+            border: 5px solid transparent;
+            border-top-color: rgba(30, 30, 50, 0.92);
+        }
+
+        .daily-counts-grid {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 120px;
+        }
+
+        /* ========== 综合分析深色模式 ========== */
+        body.dark-mode .analysis-filter-bar {
+            background: var(--dm-bg-1);
+            border-color: var(--dm-border);
+        }
+
+        body.dark-mode .filter-label {
+            color: var(--dm-text-1);
+        }
+
+        body.dark-mode #dashboard-sort {
+            background: var(--dm-bg-1);
+            border-color: var(--dm-border-strong);
+            color: var(--dm-text-0);
+        }
+
+        body.dark-mode .metric-card {
+            background: var(--dm-bg-1);
+            border-color: var(--dm-border);
+        }
+
+        body.dark-mode .metric-card:not(.primary) .metric-value {
+            color: var(--dm-text-0);
+        }
+
+        body.dark-mode .metric-card:not(.primary) .metric-label {
+            color: var(--dm-text-2);
+        }
+
+        body.dark-mode .metric-card:not(.primary) .metric-badge {
+            background: var(--dm-bg-2);
+            color: var(--dm-text-1);
+        }
+
+        body.dark-mode .overview-card {
+            background: var(--dm-bg-1);
+            border-color: var(--dm-border);
+            border-left-color: var(--dm-accent);
+            display: flex;
+            flex-direction: column;
+            min-height: 200px;
+            transition: all 0.2s ease;
+        }
+
+        body.dark-mode .overview-card:hover {
+            box-shadow: var(--dm-shadow-soft);
+            transform: translateY(-2px);
+        }
+
+        body.dark-mode .overview-title {
+            color: var(--dm-text-0);
+            flex-shrink: 0;
+        }
+
+        body.dark-mode .trend-tooltip {
+            background: rgba(50, 50, 80, 0.95);
+        }
+
+        body.dark-mode .trend-tooltip::after {
+            border-top-color: rgba(50, 50, 80, 0.95);
+        }
+
+        body.dark-mode #platform-bars > div {
+            color: var(--dm-text-0);
+        }
+
+        body.dark-mode #platform-bars [style*="background: #ecf0f1"] {
+            background: var(--dm-border) !important;
+        }
+
+        body.dark-mode #platform-bars span {
+            color: var(--dm-text-1);
+        }
+
+        body.dark-mode .daily-counts-grid {
+            color: var(--dm-text-0);
+        }
+
+        body.dark-mode .daily-counts-grid span {
+            color: var(--dm-text-1);
+        }
+
+        body.dark-mode .daily-counts-grid [style*="background: #e8e8e8"] {
+            background: var(--dm-border) !important;
+        }
+
+        body.dark-mode .daily-counts-grid [style*="#667eea"],
+        body.dark-mode .daily-counts-grid [style*="#764ba2"] {
+            background: linear-gradient(90deg, var(--dm-accent), var(--dm-bg-3)) !important;
+        }
+
+        body.dark-mode .daily-counts-grid [style*="#ff6b6b"],
+        body.dark-mode .daily-counts-grid [style*="#feca57"] {
+            background: linear-gradient(90deg, var(--dm-rose), var(--dm-amber)) !important;
+        }
+
+        body.dark-mode .dashboard-filter {
+            background: var(--dm-bg-1);
+            border-color: var(--dm-border-strong);
+            color: var(--dm-text-0);
+        }
+
+        body.dark-mode .dashboard-filter:hover {
+            border-color: var(--dm-accent);
+            color: var(--dm-accent);
+        }
+
+        body.dark-mode .dashboard-filter.active {
+            background: var(--dm-accent);
+            color: white;
+            border-color: var(--dm-accent);
+        }
+

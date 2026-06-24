@@ -4,6 +4,7 @@
 """
 
 import json
+import re
 import sys
 import yaml
 from pathlib import Path
@@ -316,13 +317,23 @@ class ReportGenerator:
             return {'default_theme': 'light'}
 
     def _get_template(self) -> str:
-        """获取HTML模板"""
+        """获取HTML模板
+
+        主模板 enhanced_report_template.html 已拆分为骨架 + 片段文件：
+        - 骨架用 <!-- INCLUDE: enhanced_report/... --> 注释占位
+        - 片段位于 templates/enhanced_report/ 下的 styles/ layout/ scripts/
+
+        本方法读取主模板后递归展开 INCLUDE 标记，拼装出完整模板字符串。
+        拼装结果与拆分前的单文件模板等价，后续 REPORT_DATA / UI_CONFIG
+        占位符替换逻辑不受影响。
+        """
         # 使用增强版模板
         template_path = Path(__file__).parent.parent / "templates" / "enhanced_report_template.html"
-        
+
         try:
             with open(template_path, 'r', encoding='utf-8') as f:
-                return f.read()
+                template = f.read()
+            return self._expand_includes(template, template_path.parent)
         except Exception as e:
             print(f"读取增强版模板失败: {e}，尝试使用默认模板")
             # 如果增强版模板不存在，使用旧模板
@@ -333,6 +344,25 @@ class ReportGenerator:
             except Exception as e2:
                 print(f"读取默认模板也失败: {e2}")
                 return self._get_default_template()
+
+    @staticmethod
+    def _expand_includes(text: str, base_dir: Path, depth: int = 0) -> str:
+        """递归展开 <!-- INCLUDE: relative/path --> 标记。
+
+        路径相对 base_dir 解析；嵌套 include 最多 10 层以防循环。
+        标记行（含其换行符）被片段文件内容原样替换。
+        """
+        if depth > 10:
+            raise RuntimeError("模板 INCLUDE 嵌套过深，疑似循环引用")
+
+        def _repl(match: re.Match) -> str:
+            rel = match.group(1).strip()
+            part_path = (base_dir / rel).resolve()
+            with open(part_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return ReportGenerator._expand_includes(content, base_dir, depth + 1)
+
+        return re.sub(r"<!-- INCLUDE: (.*?) -->\n?", _repl, text)
 
     def _get_default_template(self) -> str:
         """获取默认模板（当模板文件不存在时）"""

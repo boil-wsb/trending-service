@@ -1,0 +1,520 @@
+    <div class="container">
+        <div class="header">
+            <h1>🔥 每日热门数据报告</h1>
+            <p>生成时间: <span id="generated-time">--</span></p>
+            <div class="stats-bar">
+                <div class="stat-item">
+                    <div class="stat-value" id="total-items">--</div>
+                    <div class="stat-label">总数据量</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="total-sources">--</div>
+                    <div class="stat-label">数据源</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 数据源状态栏 - 只在有需要刷新的数据源时显示 -->
+        <div class="source-status-bar" id="source-status-bar" style="display: none;">
+            <div class="source-status-title">
+                📡 数据源状态
+                <button class="refresh-btn" onclick="refreshAllSources()" id="refresh-all-btn">刷新全部</button>
+            </div>
+            <div class="source-status-grid" id="source-status-grid">
+                <!-- 动态生成 -->
+            </div>
+        </div>
+
+        <!-- 分组式导航 -->
+        <div class="nav-container">
+            <!-- 第一行：分析视图导航 -->
+            <div class="nav-primary">
+                <button class="nav-tab active" data-view="overview">📊 总览</button>
+                <button class="nav-tab" data-view="index">📈 指数</button>
+                <button class="nav-tab" data-view="keywords">🏷️ 关键词</button>
+                <button class="nav-tab" data-view="analysis">🔍 综合分析</button>
+            </div>
+            
+            <!-- 第二行：数据源筛选器 -->
+            <div class="nav-secondary">
+                <select class="source-category" id="source-category">
+                    <option value="all">全部数据源</option>
+                    <option value="social">社交媒体</option>
+                    <option value="tech">技术社区</option>
+                    <option value="video">视频平台</option>
+                    <option value="academic">学术资源</option>
+                </select>
+
+                <div class="source-divider"></div>
+
+                <div class="source-tags">
+                    <button class="source-tag active" data-source="all">全部</button>
+                    <button class="source-tag" data-source="github">🐙 GitHub</button>
+                    <button class="source-tag" data-source="github_ai">🤖 AI</button>
+                    <button class="source-tag" data-source="hackernews">📰 HN</button>
+                    <button class="source-tag" data-source="bilibili">📺 B站</button>
+                    <button class="source-tag" data-source="arxiv">📚 ArXiv</button>
+                    <button class="source-tag" data-source="zhihu">❓ 知乎</button>
+                    <button class="source-tag" data-source="weibo">📱 微博</button>
+                    <button class="source-tag" data-source="douyin">🎵 抖音</button>
+                    <button class="source-tag" data-source="aihot">🔥 AIHOT</button>
+                </div>
+
+                <div class="source-divider"></div>
+
+                <!-- 日期范围选择器 -->
+                <div class="date-picker-container">
+                    <span class="date-picker-label">📅</span>
+                    <div class="date-range-inputs">
+                        <input type="date" id="date-start" class="date-picker" max="" title="开始日期">
+                        <span class="date-range-separator">至</span>
+                        <input type="date" id="date-end" class="date-picker" max="" title="结束日期">
+                    </div>
+                    <button id="date-apply-btn" class="date-apply-btn" title="应用日期范围">应用</button>
+                    <div id="date-loading" class="date-loading hidden">加载中...</div>
+                </div>
+
+                <div class="source-divider"></div>
+
+                <div class="search-container">
+                    <div class="search-input-wrapper">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="search-input" class="search-input" placeholder="搜索数据库记录..." title="搜索标题和描述">
+                    </div>
+                    <button id="search-btn" class="search-btn" title="搜索">搜索</button>
+                    <button id="search-clear-btn" class="search-clear-btn" title="清除搜索">清除</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 总览 -->
+        <div id="overview" class="tab-content active">
+            <div id="search-results-panel" class="search-results-panel">
+                <div class="search-results-header">
+                    <span class="search-results-title">🔍 搜索结果</span>
+                    <span id="search-results-count" class="search-results-count"></span>
+                </div>
+                <div id="search-results-list" class="search-results-list"></div>
+            </div>
+            <div id="overview-content" class="source-grid"></div>
+        </div>
+
+        <!-- 指数行情 -->
+        <div id="index" class="tab-content">
+            <!-- 指数子导航 -->
+            <div class="index-sub-nav">
+                <button class="index-sub-tab active" data-subview="market" onclick="switchIndexSubView('market')">📈 行情</button>
+                <button class="index-sub-tab" data-subview="style-north" onclick="switchIndexSubView('style-north')">📊 风格+北向</button>
+                <button class="index-sub-tab" data-subview="fund-flow" onclick="switchIndexSubView('fund-flow')">💰 主力资金</button>
+            </div>
+
+            <!-- 行情子视图：A股指数 + 行业指数 + 轮动分析 + K线 -->
+            <div id="index-market" class="index-sub-content active">
+            <div class="index-container">
+                <!-- 市场指数 -->
+                <div class="index-section">
+                    <div class="index-section-header">
+                        <h3 class="index-section-title">📊 A股市场指数</h3>
+                        <button id="refresh-index-btn" class="rotation-refresh-btn" onclick="refreshIndexData()" title="从数据源重新拉取最新指数行情">
+                            🔄 拉取最新数据
+                        </button>
+                    </div>
+                    <div id="market-indices-grid" class="market-indices-grid collapsed">
+                        <div class="index-loading">加载中...</div>
+                    </div>
+                    <div id="market-indices-toggle" class="market-indices-toggle" onclick="toggleMarketIndices()" style="display:none;">
+                        <span class="toggle-text">展开全部</span>
+                        <span class="toggle-arrow">▼</span>
+                    </div>
+                </div>
+
+                <!-- 行业指数（含轮动趋势合并列） -->
+                <div class="index-section">
+                    <div class="index-section-header">
+                        <h3 class="index-section-title">🏭 申万行业指数 <span class="rotation-merge-hint" title="已合并轮动趋势：动量得分、排名变化">🔗 含轮动趋势</span></h3>
+                        <div class="index-search-box">
+                            <span class="index-search-icon">🔍</span>
+                            <input type="text" id="index-search-input" class="index-search-input" placeholder="搜索代码或名称..." oninput="filterIndustryIndices()">
+                            <button id="index-search-clear" class="index-search-clear" onclick="clearIndexSearch()" style="display:none;">✕</button>
+                        </div>
+                        <span id="industry-count-display" class="industry-count-display"></span>
+                        <span id="followed-count-display" class="followed-count-badge" style="display:none;">⭐ 关注 <span id="followed-count-num">0</span></span>
+                        <button class="industry-table-toggle" id="industry-table-toggle" onclick="toggleIndustryTable()">
+                            <span class="toggle-text">展开全部</span>
+                            <span class="toggle-arrow">▼</span>
+                        </button>
+                    </div>
+                    <div class="index-table-wrapper collapsed" id="industry-table-wrapper">
+                        <table class="index-table" id="industry-indices-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortIndustryTable('followed')" title="按关注状态排序">⭐ <span class="sort-arrow"></span></th>
+                                    <th class="sortable" onclick="sortIndustryTable('code')">代码 <span class="sort-arrow"></span></th>
+                                    <th class="sortable" onclick="sortIndustryTable('name')">名称 <span class="sort-arrow"></span></th>
+                                    <th class="sortable" onclick="sortIndustryTable('price')">最新价 <span class="sort-arrow"></span></th>
+                                    <th class="sortable" onclick="sortIndustryTable('change_pct')">今日涨跌幅 <span class="sort-arrow"></span></th>
+                                    <th class="sortable" onclick="sortIndustryTable('change_pct_3d')">3日涨跌幅 <span class="sort-arrow"></span></th>
+                                    <th class="sortable" onclick="sortIndustryTable('change_pct_7d')">7日涨跌幅 <span class="sort-arrow"></span></th>
+                                    <th class="sortable rotation-col" onclick="sortIndustryTable('momentum')" title="动量得分">动量 <span class="sort-arrow"></span></th>
+                                    <th class="sortable rotation-col" onclick="sortIndustryTable('rank_today')" title="今日排名">今日排名 <span class="sort-arrow"></span></th>
+                                    <th class="sortable rotation-col" onclick="sortIndustryTable('rank_3d')" title="3日排名">3日排名 <span class="sort-arrow"></span></th>
+                                    <th class="sortable rotation-col" onclick="sortIndustryTable('rank_7d')" title="7日排名">7日排名 <span class="sort-arrow"></span></th>
+                                    <th class="sortable rotation-col" onclick="sortIndustryTable('rank_change')" title="排名变化（7日→今日）">排名变化 <span class="sort-arrow"></span></th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="industry-indices-body">
+                                <tr><td colspan="13" class="index-loading">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 行业轮动分析 -->
+                <div class="index-section" id="index-rotation-section">
+                    <div class="index-section-header">
+                        <h3 class="index-section-title">🔄 行业轮动分析</h3>
+                        <button class="rotation-refresh-btn" onclick="loadRotationData()">🔄 刷新</button>
+                    </div>
+                    <div class="rotation-layout">
+                        <!-- 左侧：强势/弱势排名 -->
+                        <div class="rotation-ranking">
+                            <div class="rotation-strong">
+                                <h4>🔥 强势行业 TOP 10</h4>
+                                <div id="rotation-strong-list"></div>
+                            </div>
+                            <div class="rotation-weak">
+                                <h4>❄️ 弱势行业 TOP 10</h4>
+                                <div id="rotation-weak-list"></div>
+                            </div>
+                        </div>
+                        <!-- 右侧：热力图 -->
+                        <div class="rotation-heatmap">
+                            <div class="rotation-heatmap-header">
+                                <h4 style="margin:0;">📊 行业热力图</h4>
+                                <button class="heatmap-toggle" id="heatmap-toggle-btn" onclick="toggleHeatmap()">
+                                    <span class="toggle-text">展开</span>
+                                </button>
+                            </div>
+                            <div id="rotation-heatmap-container" class="rotation-heatmap-body"></div>
+                        </div>
+                    </div>
+                    <!-- 轮动趋势表已合并至上方「申万行业指数」表（动量/排名/排名变化列） -->
+                </div>
+
+                <!-- K线图区域 -->
+                <div id="index-kline-section" class="index-section" style="display:none;">
+                    <div class="kline-header">
+                        <h3 class="index-section-title">📈 <span id="kline-title">K线图</span></h3>
+                        <button class="kline-close-btn" onclick="closeKline()">✕ 关闭</button>
+                    </div>
+                    <div class="kline-controls">
+                        <label>周期：</label>
+                        <select id="kline-days" onchange="loadKlineData()">
+                            <option value="7">7天</option>
+                            <option value="30" selected>30天</option>
+                            <option value="90">90天</option>
+                            <option value="180">180天</option>
+                        </select>
+                        <span class="kline-legend-tip" style="margin-left:16px;font-size:12px;color:#888;">💡 点击图例可隔离显示该线条</span>
+                    </div>
+                    <div class="kline-chart-container">
+                        <canvas id="kline-canvas"></canvas>
+                    </div>
+                    <!-- 成交量副图 -->
+                    <div class="kline-volume-container">
+                        <canvas id="kline-volume-canvas"></canvas>
+                    </div>
+                    <!-- 技术指标 Tab -->
+                    <div class="kline-indicator-tabs">
+                        <button class="indicator-tab active" data-indicator="macd" onclick="switchIndicator('macd')">MACD</button>
+                        <button class="indicator-tab" data-indicator="rsi" onclick="switchIndicator('rsi')">RSI</button>
+                        <button class="indicator-tab" data-indicator="kdj" onclick="switchIndicator('kdj')">KDJ</button>
+                        <button class="indicator-tab" data-indicator="boll" onclick="switchIndicator('boll')">布林带</button>
+                    </div>
+                    <div class="kline-indicator-desc" id="indicator-desc"></div>
+                    <div class="kline-indicator-container">
+                        <canvas id="kline-indicator-canvas"></canvas>
+                    </div>
+                    <!-- 风险指标卡片 -->
+                    <div class="risk-metrics-card" id="risk-metrics-card"></div>
+                </div>
+            </div>
+            </div><!-- /index-market -->
+
+            <!-- 风格轮动 + 北向资金（指数子视图） -->
+            <div id="index-style-north" class="index-sub-content">
+                <div class="index-container">
+                <!-- 风格轮动强弱 -->
+                <div class="index-section">
+                    <h3 class="index-section-title">📊 风格轮动强弱</h3>
+                    <div class="style-rotation-layout">
+                        <div class="style-chart-wrap">
+                            <canvas id="style-radar-canvas"></canvas>
+                        </div>
+                        <div class="style-bar-wrap">
+                            <canvas id="style-bar-canvas"></canvas>
+                        </div>
+                    </div>
+                    <div class="style-legend" id="style-legend"></div>
+                    <!-- 累计涨跌幅对比表 -->
+                    <div class="style-cum-table-wrap" style="margin-top:16px;">
+                        <h4 style="font-size:14px;margin-bottom:8px;color:var(--text-secondary,#666);">📈 近期累计涨跌幅对比</h4>
+                        <table class="fund-flow-table" id="style-cum-table">
+                            <thead>
+                                <tr>
+                                    <th>风格</th>
+                                    <th>今日</th>
+                                    <th>近5日</th>
+                                    <th>近10日</th>
+                                    <th>近20日</th>
+                                </tr>
+                            </thead>
+                            <tbody id="style-cum-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- 北向资金动向 -->
+                <div class="index-section">
+                    <h3 class="index-section-title">🌐 北向资金动向</h3>
+                    <div class="northbound-summary" id="northbound-summary">
+                        <div class="north-card">
+                            <div class="north-label">今日北向净流入</div>
+                            <div class="north-value" id="north-today-value">--</div>
+                        </div>
+                        <div class="north-card">
+                            <div class="north-label">沪股通净流入</div>
+                            <div class="north-value" id="north-sh-value">--</div>
+                        </div>
+                        <div class="north-card">
+                            <div class="north-label">深股通净流入</div>
+                            <div class="north-value" id="north-sz-value">--</div>
+                        </div>
+                        <div class="north-card">
+                            <div class="north-label">累计净流入</div>
+                            <div class="north-value" id="north-cumulative">--</div>
+                        </div>
+                        <div class="north-card">
+                            <div class="north-label">近期趋势</div>
+                            <div class="north-value" id="north-streak" style="font-size:16px;">--</div>
+                        </div>
+                    </div>
+                    <div class="northbound-chart-wrap">
+                        <canvas id="northbound-trend-canvas"></canvas>
+                    </div>
+                </div>
+                </div>
+            </div>
+
+            <!-- 主力资金行业净流入（指数子视图） -->
+            <div id="index-fund-flow" class="index-sub-content">
+                <div class="index-container">
+                <div class="index-section">
+                    <h3 class="index-section-title">💰 主力资金行业净流入排行</h3>
+                    <div class="fund-flow-controls">
+                        <button class="fund-flow-btn active" data-indicator="今日" onclick="switchFundFlow('今日')">今日</button>
+                    </div>
+                    <div class="fund-flow-chart-wrap" id="fund-flow-chart-wrap">
+                        <!-- HTML 条形图渲染区 -->
+                    </div>
+                    <div class="fund-flow-chart-canvas-wrap" style="display:none;">
+                        <canvas id="fund-flow-canvas"></canvas>
+                    </div>
+                    <div class="fund-flow-table-wrap">
+                        <table class="fund-flow-table" id="fund-flow-table">
+                            <thead>
+                                <tr>
+                                    <th>排名</th>
+                                    <th>行业</th>
+                                    <th>主力净流入(亿)</th>
+                                    <th>涨跌幅</th>
+                                    <th>流入比</th>
+                                    <th>信号</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fund-flow-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 热门关键词 -->
+        <div id="keywords" class="tab-content">
+            <div class="keywords-cloud">
+                <div id="word-cloud-container" class="word-cloud-html"></div>
+                <div class="word-cloud-stats">
+                    <div class="word-cloud-stat">
+                        <span>🏷️</span>
+                        <span>关键词总数: <span class="word-cloud-stat-value" id="keyword-total-count">0</span></span>
+                    </div>
+                    <div class="word-cloud-stat">
+                        <span>🔥</span>
+                        <span>最高频次: <span class="word-cloud-stat-value" id="keyword-max-count">0</span></span>
+                    </div>
+                    <div class="word-cloud-stat">
+                        <span>📊</span>
+                        <span>平均频次: <span class="word-cloud-stat-value" id="keyword-avg-count">0</span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 数据源详情 -->
+            <h2 class="section-title" id="source-detail-title">📡 数据源详情</h2>
+            <div id="source-detail-content"></div>
+        </div>
+
+        <!-- GitHub本周增长 -->
+        <div id="github-weekly" class="tab-content">
+            <div class="github-weekly-intro">
+                <p>📈 基于 GitHub Trending 数据，展示本周增长最快的开源项目</p>
+            </div>
+            <div id="github-weekly-content">
+                <!-- GitHub本周增长项目列表 -->
+            </div>
+        </div>
+
+        <!-- 综合分析 - 合并仪表盘和趋势 -->
+        <div id="analysis" class="tab-content">
+            <!-- 快速筛选栏 -->
+            <div class="analysis-filter-bar">
+                <div class="filter-row">
+                    <span class="filter-label">平台:</span>
+                    <button class="dashboard-filter active" data-filter="all">全部</button>
+                    <button class="dashboard-filter" data-filter="weibo">📱 微博</button>
+                    <button class="dashboard-filter" data-filter="douyin">🎵 抖音</button>
+                    <button class="dashboard-filter" data-filter="zhihu">❓ 知乎</button>
+                    <button class="dashboard-filter" data-filter="bilibili">📺 B站</button>
+                    <button class="dashboard-filter" data-filter="github">🐙 GitHub</button>
+                    <span class="sort-wrapper">
+                        <span class="filter-label">排序:</span>
+                        <select id="dashboard-sort">
+                            <option value="hot">按热度</option>
+                            <option value="time">按时间</option>
+                        </select>
+                    </span>
+                </div>
+            </div>
+
+            <!-- 关键指标卡片 - 合并 trends 和 dashboard -->
+            <div class="analysis-metrics">
+                <div class="metric-card primary">
+                    <div class="metric-header">
+                        <span class="metric-icon">📊</span>
+                        <span class="metric-badge">+12%</span>
+                    </div>
+                    <p class="metric-value" id="metric-total">0</p>
+                    <p class="metric-label">总数据量</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">📈</span>
+                        <span class="metric-badge info">趋势</span>
+                    </div>
+                    <p class="metric-value" id="trend-growth-rate">--</p>
+                    <p class="metric-label">增长率</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">🔥</span>
+                        <span class="metric-badge warning">峰值</span>
+                    </div>
+                    <p class="metric-value" id="trend-peak-day">--</p>
+                    <p class="metric-label">峰值日期</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">📅</span>
+                        <span class="metric-badge success">平均</span>
+                    </div>
+                    <p class="metric-value" id="trend-avg-daily">--</p>
+                    <p class="metric-label">日均数据</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">📡</span>
+                        <span class="metric-badge info">实时</span>
+                    </div>
+                    <p class="metric-value" id="metric-platforms">0</p>
+                    <p class="metric-label">活跃平台</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">⚡</span>
+                        <span class="metric-badge warning">最高</span>
+                    </div>
+                    <p class="metric-value" id="metric-peak">0</p>
+                    <p class="metric-label">最高热度</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">🕐</span>
+                        <span class="metric-badge success">更新</span>
+                    </div>
+                    <p class="metric-value small" id="metric-update">--:--</p>
+                    <p class="metric-label">最后更新</p>
+                </div>
+            </div>
+
+            <!-- 实时概览三列卡片 -->
+            <div class="analysis-overview">
+                <!-- 平台分布 -->
+                <div class="overview-card">
+                    <h3 class="overview-title">📊 平台分布</h3>
+                    <div id="platform-bars"></div>
+                </div>
+
+                <!-- 每日趋势 -->
+                <div class="overview-card">
+                    <h3 class="overview-title">📈 每日趋势</h3>
+                    <div id="daily-trend-chart" class="trend-mini-chart"></div>
+                </div>
+
+                <!-- 每日数据量 -->
+                <div class="overview-card">
+                    <h3 class="overview-title">📅 每日数据量</h3>
+                    <div id="daily-counts-chart" class="daily-counts-grid"></div>
+                </div>
+            </div>
+
+            <!-- 趋势分析图表区域 -->
+            <div class="chart-section">
+                <h3>📈 总数据量趋势（含预测）</h3>
+                <div class="chart-container">
+                    <canvas id="total-trend-canvas"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-section">
+                <h3>📊 各数据源趋势对比</h3>
+                <div class="chart-container">
+                    <canvas id="source-trend-canvas"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-section">
+                <h3>🔥 热门关键词趋势</h3>
+                <div id="keyword-trend-container" class="chart-container"></div>
+            </div>
+
+            <!-- 趋势分析说明 -->
+            <div class="trend-analysis-note">
+                <h4>📋 趋势分析说明</h4>
+                <ul>
+                    <li><strong>移动平均线：</strong>使用7日移动平均平滑数据波动，显示长期趋势</li>
+                    <li><strong>趋势预测：</strong>基于历史数据使用线性回归预测未来3天趋势</li>
+                    <li><strong>增长率计算：</strong>对比最近7天与前7天的数据变化百分比</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>© 2026 Trending Service | 数据每天8：00、16：00更新</p>
+        </div>
+    </div>
+
+    <button class="dark-mode-toggle" onclick="toggleDarkMode()">☀️</button>
+

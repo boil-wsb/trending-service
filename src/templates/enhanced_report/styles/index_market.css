@@ -1,0 +1,903 @@
+        /* ========== 指数行情样式 ========== */
+        .index-container {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .index-section {
+            background: var(--bg-card, #fff);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+
+        body.dark-mode .index-section {
+            background: #1e2a3a;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .index-section-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .index-section-header .index-section-title {
+            margin: 0;
+            white-space: nowrap;
+        }
+
+        .index-search-box {
+            position: relative;
+            display: flex;
+            align-items: center;
+            flex: 1;
+            max-width: 300px;
+        }
+
+        .index-search-icon {
+            position: absolute;
+            left: 10px;
+            font-size: 14px;
+            opacity: 0.6;
+        }
+
+        .index-search-input {
+            width: 100%;
+            padding: 6px 30px 6px 32px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 13px;
+            background: var(--bg-card, #fff);
+            color: var(--text-primary, #333);
+            transition: border-color 0.2s;
+        }
+
+        .index-search-input:focus {
+            outline: none;
+            border-color: #4a90d9;
+            box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15);
+        }
+
+        body.dark-mode .index-search-input {
+            background: #2a3a4a;
+            color: #e0e0e0;
+            border-color: #3a4a5a;
+        }
+
+        .index-search-clear {
+            position: absolute;
+            right: 8px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 14px;
+            color: #999;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .index-search-clear:hover {
+            background: #e9ecef;
+            color: #333;
+        }
+
+        body.dark-mode .index-search-clear:hover {
+            background: #3a4a5a;
+            color: #e0e0e0;
+        }
+
+        .industry-count-display {
+            font-size: 13px;
+            color: #999;
+            white-space: nowrap;
+        }
+
+        .index-section-title {
+            margin: 0 0 16px 0;
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary, #333);
+        }
+
+        body.dark-mode .index-section-title {
+            color: #e0e0e0;
+        }
+
+        .index-loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-size: 14px;
+        }
+
+        /* 市场指数卡片网格 */
+        .market-indices-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .market-index-card {
+            background: var(--bg-card, #f8f9fa);
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 10px 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+            flex: 1 1 150px;
+            max-width: 240px;
+        }
+
+        .market-index-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            border-color: #c8d6e5;
+        }
+
+        body.dark-mode .market-index-card {
+            background: #2a3a4a;
+            border-color: #3a4a5a;
+        }
+
+        .market-index-name {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary, #333);
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        body.dark-mode .market-index-name {
+            color: #e0e0e0;
+        }
+
+        .market-index-code {
+            font-size: 10px;
+            color: #999;
+            margin-left: 4px;
+            font-weight: 400;
+        }
+
+        .market-index-price {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 2px;
+            line-height: 1.2;
+        }
+
+        .market-index-change {
+            font-size: 11px;
+            font-weight: 500;
+            line-height: 1.2;
+        }
+
+        /* A股惯例：红涨绿跌 */
+        .index-up {
+            color: #e74c3c;
+        }
+
+        .index-down {
+            color: #27ae60;
+        }
+
+        .index-flat {
+            color: #95a5a6;
+        }
+
+        body.dark-mode .index-up {
+            color: #ff6b6b;
+        }
+
+        body.dark-mode .index-down {
+            color: #51cf66;
+        }
+
+        /* 行业指数表格 */
+        .index-table-wrapper {
+            overflow-x: auto;
+            max-height: 400px;
+            overflow-y: auto;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            transition: max-height 0.3s ease;
+        }
+
+        .index-table-wrapper.collapsed {
+            max-height: 400px;
+        }
+
+        .index-table-wrapper:not(.collapsed) {
+            max-height: none;
+        }
+
+        body.dark-mode .index-table-wrapper {
+            border-color: #3a4a5a;
+        }
+
+        /* 行业指数表展开/收起按钮 */
+        .industry-table-toggle {
+            display: flex; align-items: center; gap: 4px;
+            margin-left: auto;
+            padding: 6px 14px;
+            border: 1px dashed #c8d6e5; border-radius: 8px;
+            background: var(--bg-card, #f8f9fa);
+            color: #4a90d9; font-size: 12px; font-weight: 500;
+            cursor: pointer; transition: all 0.2s ease; user-select: none;
+            white-space: nowrap;
+        }
+        .industry-table-toggle:hover { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+        .industry-table-toggle .toggle-arrow { display: inline-block; transition: transform 0.25s ease; }
+        .index-table-wrapper:not(.collapsed) ~ .industry-table-toggle .toggle-arrow,
+        .index-section-header .industry-table-toggle.expanded .toggle-arrow { transform: rotate(180deg); }
+        body.dark-mode .industry-table-toggle { background: #2a3a4a; border-color: #3a4a5a; color: #58a6ff; }
+        body.dark-mode .industry-table-toggle:hover { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+
+        .index-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .index-table thead {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: #f1f3f5;
+        }
+
+        body.dark-mode .index-table thead {
+            background: #2a3a4a;
+        }
+
+        .index-table th {
+            padding: 10px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-primary, #333);
+            border-bottom: 2px solid #dee2e6;
+            white-space: nowrap;
+        }
+
+        body.dark-mode .index-table th {
+            color: #e0e0e0;
+            border-color: #3a4a5a;
+        }
+
+        .index-table th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .index-table th.sortable:hover {
+            background: #e9ecef;
+        }
+
+        body.dark-mode .index-table th.sortable:hover {
+            background: #3a4a5a;
+        }
+
+        .sort-arrow {
+            font-size: 10px;
+            opacity: 0.5;
+        }
+
+        .sort-arrow.asc::after {
+            content: ' ↑';
+            opacity: 1;
+        }
+
+        .sort-arrow.desc::after {
+            content: ' ↓';
+            opacity: 1;
+        }
+
+        .index-table td {
+            padding: 8px 16px;
+            border-bottom: 1px solid #e9ecef;
+            color: var(--text-primary, #333);
+        }
+
+        body.dark-mode .index-table td {
+            color: #e0e0e0;
+            border-color: #3a4a5a;
+        }
+
+        .index-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        body.dark-mode .index-table tbody tr:hover {
+            background: #2a3a4a;
+        }
+
+        .index-table .kline-btn {
+            padding: 4px 10px;
+            font-size: 12px;
+            border: 1px solid #4a90d9;
+            border-radius: 4px;
+            background: transparent;
+            color: #4a90d9;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .index-table .kline-btn:hover {
+            background: #4a90d9;
+            color: #fff;
+        }
+
+        /* 关注按钮 */
+        .follow-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+            color: #adb5bd;
+            transition: all 0.2s;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .follow-btn:hover {
+            color: #f39c12;
+            transform: scale(1.2);
+        }
+
+        .follow-btn.active {
+            color: #f39c12;
+        }
+
+        body.dark-mode .follow-btn {
+            color: #6c757d;
+        }
+
+        body.dark-mode .follow-btn.active,
+        body.dark-mode .follow-btn:hover {
+            color: #f39c12;
+        }
+
+        /* 关注的行高亮 */
+        .index-table tbody tr.followed-row {
+            background: rgba(243, 156, 18, 0.08);
+        }
+
+        .index-table tbody tr.followed-row:hover {
+            background: rgba(243, 156, 18, 0.15);
+        }
+
+        body.dark-mode .index-table tbody tr.followed-row {
+            background: rgba(243, 156, 18, 0.12);
+        }
+
+        body.dark-mode .index-table tbody tr.followed-row:hover {
+            background: rgba(243, 156, 18, 0.2);
+        }
+
+        /* 关注计数徽章 */
+        .followed-count-badge {
+            display: inline-block;
+            margin-left: 8px;
+            padding: 2px 8px;
+            font-size: 11px;
+            color: #f39c12;
+            background: rgba(243, 156, 18, 0.15);
+            border-radius: 10px;
+            border: 1px solid rgba(243, 156, 18, 0.3);
+        }
+
+        /* K线图区域 */
+        .kline-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .kline-header .index-section-title {
+            margin: 0;
+        }
+
+        .kline-close-btn {
+            padding: 6px 14px;
+            border: 1px solid #e74c3c;
+            border-radius: 6px;
+            background: transparent;
+            color: #e74c3c;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .kline-close-btn:hover {
+            background: #e74c3c;
+            color: #fff;
+        }
+
+        .kline-controls {
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .kline-controls label {
+            font-size: 14px;
+            color: var(--text-primary, #333);
+        }
+
+        body.dark-mode .kline-controls label {
+            color: #e0e0e0;
+        }
+
+        .kline-controls select {
+            padding: 4px 10px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 13px;
+            background: var(--bg-card, #fff);
+            color: var(--text-primary, #333);
+        }
+
+        body.dark-mode .kline-controls select {
+            background: #2a3a4a;
+            color: #e0e0e0;
+            border-color: #3a4a5a;
+        }
+
+        .kline-chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+        }
+
+        #kline-canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        .kline-volume-container {
+            height: 156px;
+            margin-top: 8px;
+        }
+
+        .kline-indicator-tabs {
+            display: flex;
+            gap: 4px;
+            margin-top: 12px;
+        }
+
+        .indicator-tab {
+            padding: 4px 12px;
+            border: 1px solid #ddd;
+            background: transparent;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .indicator-tab.active {
+            background: #4a90d9;
+            color: #fff;
+            border-color: #4a90d9;
+        }
+
+        .kline-indicator-desc {
+            font-size: 11px;
+            color: #888;
+            margin-top: 4px;
+            padding: 4px 8px;
+            background: rgba(0,0,0,0.03);
+            border-radius: 4px;
+        }
+
+        .kline-indicator-container {
+            height: 150px;
+            margin-top: 4px;
+        }
+
+        .risk-metrics-card {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 12px;
+            padding: 12px;
+            background: rgba(0,0,0,0.03);
+            border-radius: 8px;
+        }
+
+        .risk-metric-item {
+            flex: 1;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .risk-metric-label {
+            font-size: 11px;
+            color: #888;
+        }
+
+        .risk-metric-value {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 4px 0;
+        }
+
+        .risk-metric-desc {
+            font-size: 10px;
+            color: #aaa;
+        }
+
+        body.dark-mode .indicator-tab {
+            border-color: #444;
+            color: #ccc;
+        }
+
+        body.dark-mode .kline-indicator-desc {
+            background: rgba(255,255,255,0.05);
+            color: #888;
+        }
+
+        body.dark-mode .risk-metrics-card {
+            background: rgba(255,255,255,0.05);
+        }
+
+        /* 行业轮动分析 */
+        .rotation-refresh-btn {
+            padding: 4px 12px; font-size: 12px; border: 1px solid #4a90d9;
+            border-radius: 4px; background: transparent; color: #4a90d9; cursor: pointer;
+        }
+        .rotation-refresh-btn:hover { background: #4a90d9; color: #fff; }
+        .rotation-layout { display: flex; gap: 16px; margin-bottom: 16px; }
+        .rotation-ranking { flex: 0 0 45%; display: flex; flex-direction: column; gap: 12px; }
+        .rotation-heatmap { flex: 1; }
+        .rotation-strong h4, .rotation-weak h4, .rotation-heatmap h4, .rotation-trend h4 {
+            font-size: 13px; margin-bottom: 8px; color: #555;
+        }
+        .rotation-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 6px 10px; margin-bottom: 4px; border-radius: 4px; font-size: 13px;
+        }
+        .rotation-item.rank-1 { background: rgba(231, 76, 60, 0.15); }
+        .rotation-item.rank-2 { background: rgba(231, 76, 60, 0.10); }
+        .rotation-item.rank-3 { background: rgba(231, 76, 60, 0.05); }
+        .rotation-weak .rotation-item.rank-1 { background: rgba(39, 174, 96, 0.15); }
+        .rotation-weak .rotation-item.rank-2 { background: rgba(39, 174, 96, 0.10); }
+        .rotation-weak .rotation-item.rank-3 { background: rgba(39, 174, 96, 0.05); }
+        .rotation-item-name { font-weight: 500; }
+        .rotation-item-value { font-weight: bold; }
+        .rotation-item-rank {
+            display: inline-block; width: 20px; height: 20px; line-height: 20px;
+            text-align: center; border-radius: 50%; font-size: 11px; margin-right: 8px;
+            background: #ddd; color: #fff;
+        }
+        .rotation-item.rank-1 .rotation-item-rank { background: #e74c3c; }
+        .rotation-item.rank-2 .rotation-item-rank { background: #e67e22; }
+        .rotation-item.rank-3 .rotation-item-rank { background: #f39c12; }
+        .rotation-weak .rotation-item.rank-1 .rotation-item-rank { background: #27ae60; }
+        .rotation-weak .rotation-item.rank-2 .rotation-item-rank { background: #2ecc71; }
+        .rotation-weak .rotation-item.rank-3 .rotation-item-rank { background: #1abc9c; }
+
+        /* 热力图 */
+        .heatmap-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 3px; padding: 8px; border-radius: 8px; background: rgba(0,0,0,0.03);
+        }
+        .heatmap-cell {
+            padding: 8px 4px; text-align: center; border-radius: 4px; font-size: 11px;
+            cursor: pointer; transition: transform 0.2s; position: relative;
+        }
+        .heatmap-cell:hover { transform: scale(1.1); z-index: 10; }
+        .heatmap-cell-name { font-weight: 500; margin-bottom: 2px; }
+        .heatmap-cell-value { font-size: 10px; opacity: 0.9; }
+
+        /* 轮动趋势表 */
+        .rotation-trend-table-wrapper { overflow-x: auto; max-height: 400px; overflow-y: auto; }
+        .rank-change-up { color: #27ae60; font-weight: bold; }
+        .rank-change-down { color: #e74c3c; font-weight: bold; }
+        .rank-change-flat { color: #888; }
+
+        body.dark-mode .heatmap-grid { background: rgba(255,255,255,0.05); }
+        body.dark-mode .rotation-strong h4,
+        body.dark-mode .rotation-weak h4 { color: #e0e0e0; }
+
+        /* ========== 风格轮动 + 北向资金 ========== */
+        .style-rotation-layout {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .style-chart-wrap, .style-bar-wrap {
+            flex: 1 1 380px;
+            min-height: 340px;
+            background: var(--bg-card, #fff);
+            border-radius: 10px;
+            padding: 12px;
+        }
+        .style-legend {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+            padding: 8px 12px;
+            background: rgba(0,0,0,0.02);
+            border-radius: 8px;
+            font-size: 13px;
+        }
+        body.dark-mode .style-legend { background: rgba(255,255,255,0.04); }
+        .style-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .style-legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        /* 北向资金 */
+        .northbound-summary {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        .north-card {
+            flex: 1 1 180px;
+            padding: 16px;
+            border-radius: 10px;
+            background: rgba(0,0,0,0.02);
+            text-align: center;
+        }
+        body.dark-mode .north-card { background: rgba(255,255,255,0.04); }
+        .north-label {
+            font-size: 13px;
+            color: var(--text-secondary, #666);
+            margin-bottom: 6px;
+        }
+        .north-value {
+            font-size: 22px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+        .northbound-chart-wrap {
+            height: 340px;
+            width: 100%;
+        }
+
+        /* ========== 主力资金净流入 ========== */
+        .fund-flow-controls {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+        .fund-flow-btn {
+            padding: 5px 14px;
+            border: 1px solid #d0d0d0;
+            border-radius: 6px;
+            background: transparent;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-primary, #333);
+            transition: all 0.2s;
+        }
+        body.dark-mode .fund-flow-btn { border-color: #3a4a5a; color: #e0e0e0; }
+        .fund-flow-btn.active,
+        .fund-flow-btn:hover {
+            background: var(--accent-color, #4a90d9);
+            color: #fff;
+            border-color: var(--accent-color, #4a90d9);
+        }
+        .fund-flow-chart-wrap {
+            height: 480px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        .fund-flow-table-wrap {
+            overflow-x: auto;
+        }
+        .fund-flow-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .fund-flow-table th {
+            padding: 8px 12px;
+            background: rgba(0,0,0,0.03);
+            font-weight: 600;
+            text-align: right;
+            white-space: nowrap;
+        }
+        .fund-flow-table th:first-child,
+        .fund-flow-table th:nth-child(2) {
+            text-align: left;
+        }
+        body.dark-mode .fund-flow-table th { background: rgba(255,255,255,0.05); }
+        .fund-flow-table td {
+            padding: 7px 12px;
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        .fund-flow-table td:first-child,
+        .fund-flow-table td:nth-child(2) {
+            text-align: left;
+        }
+        body.dark-mode .fund-flow-table td { border-bottom-color: rgba(255,255,255,0.08); }
+        .fund-flow-table tr:hover td { background: rgba(74,144,217,0.06); }
+        body.dark-mode .fund-flow-table tr:hover td { background: rgba(74,144,217,0.12); }
+
+        /* 主力资金 HTML 条形图（参照 dashboard.html 样式） */
+        .fund-flow-chart-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 20px;
+        }
+        .fund-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+        .fund-bar-label {
+            width: 70px;
+            text-align: right;
+            color: var(--text-secondary, #666);
+            flex-shrink: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            font-size: 12px;
+        }
+        .fund-bar-track {
+            flex: 1;
+            height: 22px;
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .fund-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: rgba(255,255,255,0.9);
+            transition: width 0.6s ease;
+            min-width: 2px;
+        }
+        .bar-in { background: rgba(231,76,60,0.7); }
+        .bar-out { background: rgba(39,174,96,0.5); }
+        .fund-bar-val {
+            width: 60px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        /* 涨跌颜色 */
+        .val-up { color: #e74c3c; font-weight: 600; }
+        .val-down { color: #27ae60; font-weight: 600; }
+        .val-flat { color: #888; }
+        body.dark-mode .rotation-weak h4,
+        body.dark-mode .rotation-heatmap h4,
+        body.dark-mode .rotation-trend h4 { color: #aaa; }
+
+        /* 合并的轮动列样式 */
+        .rotation-col { font-variant-numeric: tabular-nums; }
+        .rotation-merge-hint {
+            font-size: 11px; font-weight: 400; color: #4a90d9;
+            background: rgba(74,144,217,0.10); padding: 2px 8px; border-radius: 10px;
+            margin-left: 8px; vertical-align: middle; cursor: help;
+        }
+        body.dark-mode .rotation-merge-hint { background: rgba(88,166,255,0.15); color: #58a6ff; }
+
+        /* === A股市场指数：展开/收起 === */
+        .market-indices-grid.collapsed .market-index-card:nth-child(n+9) { display: none; }
+        .market-indices-toggle {
+            display: flex; justify-content: center; align-items: center;
+            margin-top: 12px; padding: 8px 16px;
+            border: 1px dashed #c8d6e5; border-radius: 8px;
+            background: var(--bg-card, #f8f9fa);
+            color: #4a90d9; font-size: 13px; font-weight: 500;
+            cursor: pointer; transition: all 0.2s ease; user-select: none;
+        }
+        .market-indices-toggle:hover { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+        .market-indices-toggle .toggle-arrow { display: inline-block; margin-left: 6px; transition: transform 0.25s ease; }
+        .market-indices-grid:not(.collapsed) ~ .market-indices-toggle .toggle-arrow { transform: rotate(180deg); }
+        body.dark-mode .market-indices-toggle { background: #2a3a4a; border-color: #3a4a5a; color: #58a6ff; }
+        body.dark-mode .market-indices-toggle:hover { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+
+        /* === 行业热力图：容器包裹，与行业 top 一致 === */
+        .rotation-heatmap { display: flex; flex-direction: column; }
+        .rotation-heatmap-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px;
+        }
+        .rotation-heatmap-body {
+            flex: 1; overflow-y: auto; max-height: 560px;
+            border-radius: 8px; padding-right: 4px;
+            scrollbar-width: thin; scrollbar-color: #c8d6e5 transparent;
+        }
+        .rotation-heatmap-body::-webkit-scrollbar { width: 6px; }
+        .rotation-heatmap-body::-webkit-scrollbar-thumb { background: #c8d6e5; border-radius: 3px; }
+        .rotation-heatmap-body::-webkit-scrollbar-track { background: transparent; }
+        .rotation-heatmap-body.expanded { max-height: none; }
+        .heatmap-toggle {
+            padding: 2px 10px; font-size: 11px; border: 1px solid #4a90d9;
+            border-radius: 4px; background: transparent; color: #4a90d9; cursor: pointer;
+            white-space: nowrap;
+        }
+        .heatmap-toggle:hover { background: #4a90d9; color: #fff; }
+        body.dark-mode .heatmap-toggle { border-color: #58a6ff; color: #58a6ff; }
+        body.dark-mode .heatmap-toggle:hover { background: #58a6ff; color: #0b0f1a; }
+        body.dark-mode .rotation-heatmap-body::-webkit-scrollbar-thumb { background: #3a4a5a; }
+
+        /* ========== 指数子导航 ========== */
+        .index-sub-nav {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 20px;
+            padding: 4px;
+            background: var(--bg-card, #f8f9fa);
+            border-radius: 10px;
+            border: 1px solid #e9ecef;
+        }
+        body.dark-mode .index-sub-nav {
+            background: #1e2a3a;
+            border-color: #3a4a5a;
+        }
+        .index-sub-tab {
+            padding: 8px 18px;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            color: var(--text-secondary, #666);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        .index-sub-tab:hover {
+            background: rgba(74, 144, 217, 0.08);
+            color: var(--accent-color, #4a90d9);
+        }
+        body.dark-mode .index-sub-tab {
+            color: #a0aec0;
+        }
+        body.dark-mode .index-sub-tab:hover {
+            background: rgba(88, 166, 255, 0.12);
+            color: #58a6ff;
+        }
+        .index-sub-tab.active {
+            background: var(--accent-color, #4a90d9);
+            color: #fff;
+            box-shadow: 0 2px 6px rgba(74, 144, 217, 0.25);
+        }
+        body.dark-mode .index-sub-tab.active {
+            background: #4a90d9;
+            color: #fff;
+        }
+        .index-sub-content {
+            display: none;
+        }
+        .index-sub-content.active {
+            display: block;
+        }

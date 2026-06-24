@@ -42,7 +42,10 @@ class IndexFetcher:
 
     def fetch(self) -> List[IndexData]:
         """
-        获取所有指数数据（市场指数 + 行业指数 + 概念板块）
+        获取所有指数数据（市场指数 + 行业指数 + 概念板块白名单）
+
+        概念板块按 config.yaml 的 data_sources.index.concept_watchlist 白名单
+        抓取（东财源 494 个中筛选），留空则不抓取。
 
         Returns:
             List[IndexData]: 指数数据列表
@@ -65,13 +68,17 @@ class IndexFetcher:
         except Exception as e:
             self.logger.error(f"获取行业指数失败: {e}")
 
-        # 获取概念板块（合并到行业指数中展示）
-        try:
-            concept_indices = self.fetch_concept_indices()
-            all_indices.extend(concept_indices)
-            self.logger.info(f"获取概念板块完成: {len(concept_indices)} 条")
-        except Exception as e:
-            self.logger.error(f"获取概念板块失败: {e}")
+        # 获取概念板块（按 config.yaml 白名单筛选）
+        watchlist = self.config.get('concept_watchlist', []) if self.config else []
+        if watchlist:
+            try:
+                concept_indices = self.fetch_concept_indices(watchlist)
+                all_indices.extend(concept_indices)
+                self.logger.info(f"获取概念板块完成: {len(concept_indices)} 条 (白名单 {len(watchlist)} 项)")
+            except Exception as e:
+                self.logger.error(f"获取概念板块失败: {e}")
+        else:
+            self.logger.debug("概念板块白名单为空，跳过概念板块抓取")
 
         self.logger.info(f"指数数据获取完成: 共 {len(all_indices)} 条")
         return all_indices
@@ -209,64 +216,157 @@ class IndexFetcher:
             self.logger.error(f"AKShare 获取申万行业指数失败: {e}")
             return []
 
-    def fetch_concept_indices(self) -> List[IndexData]:
+    def fetch_concept_indices(self, watchlist: List[str] = None) -> List[IndexData]:
         """
-        获取 A 股概念板块实时行情（AKShare 同花顺数据源）
+        获取 A 股概念板块实时行情
 
-        使用 ak.stock_fund_flow_concept(symbol='即时') 获取概念板块实时行情。
-        包含 CPO、PCB、CRO概念等 385+ 个概念板块。
-        数据源是同花顺（q.10jqka.com.cn），不依赖东方财富 push2。
+        主数据源：ak.stock_board_concept_name_em()（东方财富，稳定，494+ 板块）。
+        备用数据源：ak.stock_fund_flow_concept(symbol='即时')（同花顺，含资金净额）。
 
-        概念板块合并到行业指数中展示（category='industry'），source='ths'。
+        同花顺源在某些时段会因反爬返回 None 导致
+        "'NoneType' object has no attribute 'text'" 错误，故改为东方财富优先、
+        同花顺兜底，并对主源做 2 次重试。
+
+        概念板块合并到行业指数中展示（category='industry'），source='em'/'ths'。
+
+        Args:
+            watchlist: 概念板块名称白名单（关键词包含匹配，大小写不敏感）。
+                       为空或 None 则返回全部概念板块。
 
         Returns:
             List[IndexData]: 概念板块数据列表
         """
-        self.logger.info("开始获取概念板块行情...")
+        self.logger.info(f"开始获取概念板块行情... (白名单: {len(watchlist) if watchlist else 0} 项)")
         try:
             import akshare as ak
         except ImportError:
             self.logger.error("AKShare 未安装，无法获取概念板块。请运行: pip install akshare")
             return []
 
+        # 1) 主源：东方财富 stock_board_concept_name_em（含重试）
+        results = self._fetch_concept_via_em(ak)
+        if results:
+            results = self._filter_concept_by_watchlist(results, watchlist)
+            self.logger.info(f"概念板块（东方财富源）获取成功: {len(results)} 条")
+            return results
+
+        # 2) 备用源：同花顺 stock_fund_flow_concept
+        self.logger.warning("东方财富源未返回数据，回退到同花顺源...")
+        results = self._fetch_concept_via_ths(ak)
+        if results:
+            results = self._filter_concept_by_watchlist(results, watchlist)
+            self.logger.info(f"概念板块（同花顺源）获取成功: {len(results)} 条")
+        else:
+            self.logger.warning("所有概念板块数据源均未返回数据")
+        return results
+
+    def _filter_concept_by_watchlist(self, indices: List[IndexData], watchlist: List[str]) -> List[IndexData]:
+        """按白名单关键词过滤概念板块（名称包含匹配，大小写不敏感）。
+
+        watchlist 为空或 None 时返回全部。
+        """
+        if not watchlist:
+            return indices
+        watch_lower = [w.lower() for w in watchlist]
+        matched = []
+        for idx in indices:
+            name_lower = idx.name.lower()
+            if any(w in name_lower for w in watch_lower):
+                matched.append(idx)
+        if len(matched) < len(indices):
+            self.logger.debug(f"概念板块白名单过滤: {len(indices)} -> {len(matched)}")
+        return matched
+
+    def _fetch_concept_via_em(self, ak_module) -> List[IndexData]:
+        """通过东方财富 stock_board_concept_name_em 获取概念板块（带重试）。"""
+        import time
+        max_retries = 2
+        now = datetime.now()
+        for attempt in range(1, max_retries + 1):
+            try:
+                df = ak_module.stock_board_concept_name_em()
+                if df is None or df.empty:
+                    self.logger.warning(f"东方财富概念板块返回空数据 (尝试 {attempt}/{max_retries})")
+                    continue
+
+                results: List[IndexData] = []
+                # 字段：排名、板块名称、板块代码、最新价、涨跌额、涨跌幅、
+                #       总市值、换手率、上涨家数、下跌家数、领涨股票、领涨股票-涨跌幅
+                for _, row in df.iterrows():
+                    try:
+                        name = str(row.get('板块名称', '')).strip()
+                        if not name:
+                            continue
+                        price = float(row.get('最新价', 0) or 0)
+                        change_pct = float(row.get('涨跌幅', 0) or 0)
+                        change = float(row.get('涨跌额', 0) or 0)
+                        turnover_rate = float(row.get('换手率', 0) or 0)
+
+                        # 代码使用概念名称（概念板块无统一数字代码）
+                        code = name
+
+                        index = IndexData(
+                            code=code,
+                            name=name,
+                            category='industry',  # 合并到行业指数展示
+                            price=price,
+                            change=change,
+                            change_pct=change_pct,
+                            high=0.0,  # 概念板块无最高价
+                            low=0.0,   # 概念板块无最低价
+                            open=0.0,  # 概念板块无开盘价
+                            pre_close=round(price - change, 2) if price else 0.0,
+                            volume=0,
+                            amount=0.0,
+                            turnover_rate=turnover_rate,
+                            source='em',
+                            fetched_at=now,
+                        )
+                        results.append(index)
+                    except (ValueError, KeyError, TypeError) as e:
+                        self.logger.warning(f"解析概念板块数据失败: {e}, row: {row.to_dict()}")
+                        continue
+                return results
+            except Exception as e:
+                self.logger.warning(f"东方财富源获取概念板块失败 (尝试 {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    time.sleep(1)
+        return []
+
+    def _fetch_concept_via_ths(self, ak_module) -> List[IndexData]:
+        """通过同花顺 stock_fund_flow_concept 获取概念板块（备用源）。"""
         try:
-            df = ak.stock_fund_flow_concept(symbol='即时')
+            df = ak_module.stock_fund_flow_concept(symbol='即时')
             if df is None or df.empty:
-                self.logger.warning("AKShare 概念板块返回空数据")
+                self.logger.warning("同花顺概念板块返回空数据")
                 return []
 
             results: List[IndexData] = []
             now = datetime.now()
-
-            # AKShare stock_fund_flow_concept 返回字段：
-            # 序号、行业、行业指数、行业-涨跌幅、流入资金、流出资金、净额、公司家数、领涨股、领涨股-涨跌幅、当前价
+            # 字段：序号、行业、行业指数、行业-涨跌幅、流入资金、流出资金、
+            #       净额、公司家数、领涨股、领涨股-涨跌幅、当前价
             for _, row in df.iterrows():
                 try:
                     name = str(row.get('行业', '')).strip()
                     if not name:
                         continue
-
                     price = float(row.get('行业指数', 0) or 0)
                     change_pct = float(row.get('行业-涨跌幅', 0) or 0)
                     current_price = float(row.get('当前价', 0) or 0)
-
-                    # 使用当前价作为 price 的备选（部分概念板块行业指数为 0）
                     if price == 0 and current_price > 0:
                         price = current_price
 
-                    # 代码使用概念名称（概念板块无标准代码）
-                    code = name
-
+                    code = name  # 概念板块无标准代码
                     index = IndexData(
                         code=code,
                         name=name,
-                        category='industry',  # 合并到行业指数展示
+                        category='industry',
                         price=price,
                         change=round(price * change_pct / 100, 2) if price else 0.0,
                         change_pct=change_pct,
-                        high=0.0,  # 概念板块无最高价
-                        low=0.0,   # 概念板块无最低价
-                        open=0.0,  # 概念板块无开盘价
+                        high=0.0,
+                        low=0.0,
+                        open=0.0,
                         pre_close=round(price * (1 - change_pct / 100), 2) if price and change_pct else 0.0,
                         volume=0,
                         amount=float(row.get('净额', 0) or 0),  # 净额作为成交额参考
@@ -278,11 +378,9 @@ class IndexFetcher:
                 except (ValueError, KeyError, TypeError) as e:
                     self.logger.warning(f"解析概念板块数据失败: {e}, row: {row.to_dict()}")
                     continue
-
             return results
-
         except Exception as e:
-            self.logger.error(f"AKShare 获取概念板块失败: {e}")
+            self.logger.error(f"同花顺源获取概念板块失败: {e}")
             return []
 
     def fetch_kline(self, code: str, days: int = 30) -> List[Dict]:
@@ -313,7 +411,7 @@ class IndexFetcher:
             return self._fetch_kline_concept(code, days)
 
     def _fetch_kline_sina(self, code: str, days: int = 30) -> List[Dict]:
-        """获取市场指数 K 线（新浪源，含成交量）"""
+        """获取市场指数 K 线（新浪源优先，东方财富兜底，含成交量）"""
         try:
             import akshare as ak
         except ImportError:
@@ -325,16 +423,25 @@ class IndexFetcher:
             self.logger.error(f"无法识别指数代码: {code}")
             return []
 
+        # 1) 先尝试新浪源
+        results = self._fetch_kline_via_sina(ak, sina_symbol, code, days)
+        if results:
+            return results
+
+        # 2) 新浪源失败或为空，回退到东方财富源
+        self.logger.info(f"新浪源 K 线为空，尝试东方财富源: {code}")
+        results = self._fetch_kline_via_em(ak, code, days)
+        return results
+
+    def _fetch_kline_via_sina(self, ak_module, sina_symbol: str, code: str, days: int) -> List[Dict]:
+        """新浪源获取 K 线"""
         try:
-            df = ak.stock_zh_index_daily(symbol=sina_symbol)
+            df = ak_module.stock_zh_index_daily(symbol=sina_symbol)
             if df is None or df.empty:
-                self.logger.warning(f"K 线数据为空: {code}")
                 return []
 
-            # 新浪源返回字段：date, open, high, low, close, volume
             results: List[Dict] = []
             prev_close = None
-
             for _, row in df.iterrows():
                 try:
                     close = float(row.get('close', 0) or 0)
@@ -345,14 +452,20 @@ class IndexFetcher:
                         change_pct = 0.0
                         change = 0.0
 
+                    date_val = row.get('date', '')
+                    if hasattr(date_val, 'strftime'):
+                        date_str = date_val.strftime('%Y-%m-%d')
+                    else:
+                        date_str = str(date_val)
+
                     results.append({
-                        'date': str(row.get('date', '')),
+                        'date': date_str,
                         'open': float(row.get('open', 0) or 0),
                         'close': close,
                         'high': float(row.get('high', 0) or 0),
                         'low': float(row.get('low', 0) or 0),
                         'volume': int(float(row.get('volume', 0) or 0)),
-                        'amount': 0.0,  # 新浪源不提供成交额
+                        'amount': 0.0,
                         'change_pct': change_pct,
                         'change': change,
                     })
@@ -362,9 +475,58 @@ class IndexFetcher:
                     continue
 
             return results[-days:] if len(results) > days else results
-
         except Exception as e:
-            self.logger.error(f"新浪源获取 K 线数据失败: {e}")
+            self.logger.warning(f"新浪源获取 K 线失败: {e}")
+            return []
+
+    def _fetch_kline_via_em(self, ak_module, code: str, days: int) -> List[Dict]:
+        """东方财富源获取 K 线（stock_zh_index_daily_em）
+        symbol 格式：sh000001 / sz399001
+        """
+        try:
+            em_symbol = self._code_to_sina_symbol(code)  # 复用 sh/sz 前缀逻辑
+            df = ak_module.stock_zh_index_daily_em(symbol=em_symbol)
+            if df is None or df.empty:
+                return []
+
+            # 东方财富源返回字段：date, open, high, low, close, volume, amount
+            results: List[Dict] = []
+            prev_close = None
+            for _, row in df.iterrows():
+                try:
+                    close = float(row.get('close', 0) or 0)
+                    if prev_close and prev_close != 0:
+                        change_pct = round((close - prev_close) / prev_close * 100, 4)
+                        change = round(close - prev_close, 4)
+                    else:
+                        change_pct = 0.0
+                        change = 0.0
+
+                    date_val = row.get('date', '')
+                    if hasattr(date_val, 'strftime'):
+                        date_str = date_val.strftime('%Y-%m-%d')
+                    else:
+                        date_str = str(date_val)
+
+                    results.append({
+                        'date': date_str,
+                        'open': float(row.get('open', 0) or 0),
+                        'close': close,
+                        'high': float(row.get('high', 0) or 0),
+                        'low': float(row.get('low', 0) or 0),
+                        'volume': int(float(row.get('volume', 0) or 0)),
+                        'amount': float(row.get('amount', 0) or 0),
+                        'change_pct': change_pct,
+                        'change': change,
+                    })
+                    prev_close = close
+                except (ValueError, KeyError, TypeError) as e:
+                    self.logger.warning(f"解析东方财富 K 线失败: {e}")
+                    continue
+
+            return results[-days:] if len(results) > days else results
+        except Exception as e:
+            self.logger.warning(f"东方财富源获取 K 线失败: {e}")
             return []
 
     def _fetch_kline_sw(self, code: str, days: int = 30) -> List[Dict]:
