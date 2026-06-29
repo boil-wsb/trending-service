@@ -118,6 +118,8 @@ data_sources:
       - 动力电池回收
       - 无线充电
       - 熔盐储能
+      # === 其他 ===
+      - 培育钻石
 
 schedule:
   fetch_trending:

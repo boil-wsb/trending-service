@@ -299,20 +299,42 @@ class TrendingServer:
                     cached = dao.get_klines(code, days=days, source=source)
                     latest_date = dao.get_kline_latest_date(code, source=source)
 
-                    # 2. 判断缓存是否需要刷新（最新日期不是今天且不是周末）
-                    today = datetime.now().date()
+                    # 2. 计算预期应该有数据的最近交易日
+                    now = datetime.now()
+                    today = now.date()
+                    weekday = today.weekday()  # 0=Mon, 1=Tue, ..., 5=Sat, 6=Sun
+
+                    def _get_expected_latest_date():
+                        """根据当前时间计算应该已有K线数据的最近交易日"""
+                        if weekday >= 5:  # 周六或周日
+                            # 周末：应该有周五的数据
+                            return today - timedelta(days=weekday - 4)
+                        elif now.hour < 15:  # 交易日收盘前(15:00前)
+                            # 盘中：今天的K线未收盘，应该有前一个交易日的数据
+                            if weekday == 0:  # 周一盘中，应该有上周五数据
+                                return today - timedelta(days=3)
+                            else:  # 周二~周五盘中，应该有昨天数据
+                                return today - timedelta(days=1)
+                        else:  # 交易日收盘后(15:00后)
+                            # 收盘后：应该有今天的数据
+                            return today
+
+                    expected_latest = _get_expected_latest_date()
                     need_refresh = True
                     if latest_date:
                         try:
                             latest_dt = datetime.strptime(latest_date, '%Y-%m-%d').date()
-                            # 如果缓存最新日期是今天，或今天是周末（市场休市），则不需要刷新
-                            if latest_dt >= today or today.weekday() >= 5:
-                                need_refresh = False
-                            # 如果缓存最新日期是昨天且今天还没到收盘时间（15:00），也不刷新
-                            elif latest_dt == today - timedelta(days=1) and datetime.now().hour < 15:
+                            # 如果缓存最新日期 >= 预期日期，说明缓存是最新的，不需要刷新
+                            if latest_dt >= expected_latest:
                                 need_refresh = False
                         except ValueError:
                             pass
+
+                    if need_refresh and latest_date:
+                        self.logger.debug(
+                            f"K线缓存需要刷新: {code}, latest={latest_date}, "
+                            f"expected={expected_latest}, today={today}, hour={now.hour}"
+                        )
 
                     # 3. 如果缓存有效，直接返回
                     if cached and not need_refresh:
@@ -466,84 +488,6 @@ class TrendingServer:
                 })
             except Exception as e:
                 self.logger.error(f"获取主力资金排行失败: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
-
-        @app.route('/api/index/style-rotation')
-        def api_index_style_rotation():
-            """风格轮动强弱（大盘价值↔小盘成长等）"""
-            try:
-                from src.fetchers.fund_flow import (
-                    fetch_style_index_realtime, fetch_style_index_kline
-                )
-                from flask import request
-                import threading, queue, pathlib
-
-                days = min(int(request.args.get('days', 30)), 90)
-
-                # 用线程 + 超时避免 akshare 卡住
-                def _worker(q):
-                    try:
-                        realtime = fetch_style_index_realtime()
-                        kline = fetch_style_index_kline(days=days)
-                        q.put({'realtime': realtime, 'kline': kline})
-                    except Exception as e:
-                        q.put({'error': str(e)})
-
-                q = queue.Queue()
-                t = threading.Thread(target=_worker, args=(q,))
-                t.daemon = True
-                t.start()
-                t.join(timeout=15)  # 最多等 15 秒
-
-                if t.is_alive():
-                    self.logger.warning("style-rotation: akshare timeout, returning empty")
-                    return jsonify({
-                        'success': True,
-                        'data': {'realtime': [], 'kline': {}, 'days': days}
-                    })
-
-                result = q.get_nowait() if not q.empty() else {}
-                if 'error' in result:
-                    self.logger.error(f"style-rotation error: {result['error']}")
-                    return jsonify({'success': False, 'error': result['error']}), 500
-
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'realtime': result.get('realtime', []),
-                        'kline': result.get('kline', {}),
-                        'days': days,
-                    }
-                })
-            except Exception as e:
-                self.logger.error(f"获取风格轮动数据失败: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
-
-        @app.route('/api/index/northbound')
-        def api_index_northbound():
-            """北向资金动向与趋势（含连续流入天数）"""
-            try:
-                from src.fetchers.fund_flow import (
-                    fetch_northbound_summary, fetch_northbound_history,
-                    fetch_northbound_streak
-                )
-                from flask import request
-
-                days = min(int(request.args.get('days', 30)), 90)
-                summary = fetch_northbound_summary()
-                history = fetch_northbound_history(days=days)
-                streak = fetch_northbound_streak(days=days)
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'summary': summary,
-                        'history': history,
-                        'streak': streak,
-                        'days': days,
-                    }
-                })
-            except Exception as e:
-                self.logger.error(f"获取北向资金数据失败: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
 
         # ========== 通用API路由 ==========

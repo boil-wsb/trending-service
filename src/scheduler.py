@@ -261,7 +261,14 @@ class TrendingTaskScheduler(TaskScheduler):
 
         self.add_task(
             name='fetch_index_kline',
-            schedule='30 15 * * 1-5',
+            schedule='30 16 * * 1-5',
+            task_func=self._fetch_index_kline_data,
+            enabled=True
+        )
+
+        self.add_task(
+            name='fetch_index_kline_backup',
+            schedule='0 18 * * 1-5',
             task_func=self._fetch_index_kline_data,
             enabled=True
         )
@@ -630,8 +637,10 @@ class TrendingTaskScheduler(TaskScheduler):
     def _fetch_index_kline_data(self):
         """每日缓存所有市场指数的 K 线数据到数据库
 
-        调度：每个交易日 15:30 执行（收盘后 30 分钟）
-        作用：避免前端每次请求 K 线都从腾讯源实时拉取，提升响应速度
+        调度：每个交易日 16:30 和 18:00 各执行一次（双保险）
+        - 16:30：收盘后1.5小时，主数据源应已更新
+        - 18:00：兜底执行，确保部分延迟更新的指数也能获取到当天数据
+        作用：避免前端每次请求 K 线都从数据源实时拉取，提升响应速度
         """
         try:
             self.logger.info("📊 开始每日缓存指数 K 线数据...")

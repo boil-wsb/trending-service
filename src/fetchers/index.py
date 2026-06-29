@@ -260,30 +260,80 @@ class IndexFetcher:
             self.logger.warning("所有概念板块数据源均未返回数据")
         return results
 
+    # 概念板块白名单别名映射
+    # key=白名单项, value=数据源中可能的别名列表
+    CONCEPT_ALIASES = {
+        "新能源车": ["新能源汽车"],
+        "储能概念": ["储能"],
+        "燃料电池概念": ["燃料电池"],
+        "半导体概念": ["半导体"],
+        "AI芯片": ["AI芯片概念"],
+        "算力概念": ["算力", "数据中心", "云计算"],
+        "CPO概念": ["CPO", "共封装光学"],
+        "国产芯片": ["国产替代", "芯片"],
+        "AIGC概念": ["AIGC", "生成式AI"],
+        "AIPC": ["AI PC", "AI电脑"],
+    }
+
     def _filter_concept_by_watchlist(self, indices: List[IndexData], watchlist: List[str]) -> List[IndexData]:
         """按白名单关键词过滤概念板块（名称包含匹配，大小写不敏感）。
+
+        匹配规则：
+        1. 白名单项是数据源名称的子串 → 匹配
+        2. 数据源名称是白名单项的子串 → 匹配
+        3. 去掉"概念"后缀后再做子串匹配 → 匹配
+        4. 别名映射表中的别名匹配 → 匹配
 
         watchlist 为空或 None 时返回全部。
         """
         if not watchlist:
             return indices
-        watch_lower = [w.lower() for w in watchlist]
         matched = []
         for idx in indices:
             name_lower = idx.name.lower()
-            if any(w in name_lower for w in watch_lower):
-                matched.append(idx)
+            name_no_suffix = name_lower.replace("概念", "").strip()
+            for w in watchlist:
+                w_lower = w.lower()
+                w_no_suffix = w_lower.replace("概念", "").strip()
+                # 规则1: 白名单项是名称的子串
+                if w_lower in name_lower:
+                    matched.append(idx)
+                    break
+                # 规则2: 去掉"概念"后缀后匹配
+                if w_no_suffix and w_no_suffix in name_no_suffix:
+                    matched.append(idx)
+                    break
+                # 规则3: 别名映射
+                aliases = self.CONCEPT_ALIASES.get(w, [])
+                if any(a.lower() in name_lower for a in aliases):
+                    matched.append(idx)
+                    break
         if len(matched) < len(indices):
             self.logger.debug(f"概念板块白名单过滤: {len(indices)} -> {len(matched)}")
         return matched
 
     def _fetch_concept_via_em(self, ak_module) -> List[IndexData]:
-        """通过东方财富 stock_board_concept_name_em 获取概念板块（带重试）。"""
+        """通过东方财富 stock_board_concept_name_em 获取概念板块（带重试）。
+
+        优化措施：
+        - 3 次重试，间隔递增（2s/4s）
+        - 每次重试前设置随机 User-Agent，降低被反爬概率
+        """
         import time
-        max_retries = 2
+        import random
+        max_retries = 3
         now = datetime.now()
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        ]
         for attempt in range(1, max_retries + 1):
             try:
+                # 设置随机请求头，降低被反爬概率
+                import requests
+                requests.utils.default_headers()['User-Agent'] = random.choice(user_agents)
+
                 df = ak_module.stock_board_concept_name_em()
                 if df is None or df.empty:
                     self.logger.warning(f"东方财富概念板块返回空数据 (尝试 {attempt}/{max_retries})")
@@ -330,7 +380,7 @@ class IndexFetcher:
             except Exception as e:
                 self.logger.warning(f"东方财富源获取概念板块失败 (尝试 {attempt}/{max_retries}): {e}")
                 if attempt < max_retries:
-                    time.sleep(1)
+                    time.sleep(2 * attempt)  # 递增间隔: 2s, 4s
         return []
 
     def _fetch_concept_via_ths(self, ak_module) -> List[IndexData]:

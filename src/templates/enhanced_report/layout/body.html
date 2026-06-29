@@ -104,7 +104,6 @@
             <!-- 指数子导航 -->
             <div class="index-sub-nav">
                 <button class="index-sub-tab active" data-subview="market" onclick="switchIndexSubView('market')">📈 行情</button>
-                <button class="index-sub-tab" data-subview="style-north" onclick="switchIndexSubView('style-north')">📊 风格+北向</button>
                 <button class="index-sub-tab" data-subview="fund-flow" onclick="switchIndexSubView('fund-flow')">💰 主力资金</button>
             </div>
 
@@ -241,70 +240,6 @@
                 </div>
             </div>
             </div><!-- /index-market -->
-
-            <!-- 风格轮动 + 北向资金（指数子视图） -->
-            <div id="index-style-north" class="index-sub-content">
-                <div class="index-container">
-                <!-- 风格轮动强弱 -->
-                <div class="index-section">
-                    <h3 class="index-section-title">📊 风格轮动强弱</h3>
-                    <div class="style-rotation-layout">
-                        <div class="style-chart-wrap">
-                            <canvas id="style-radar-canvas"></canvas>
-                        </div>
-                        <div class="style-bar-wrap">
-                            <canvas id="style-bar-canvas"></canvas>
-                        </div>
-                    </div>
-                    <div class="style-legend" id="style-legend"></div>
-                    <!-- 累计涨跌幅对比表 -->
-                    <div class="style-cum-table-wrap" style="margin-top:16px;">
-                        <h4 style="font-size:14px;margin-bottom:8px;color:var(--text-secondary,#666);">📈 近期累计涨跌幅对比</h4>
-                        <table class="fund-flow-table" id="style-cum-table">
-                            <thead>
-                                <tr>
-                                    <th>风格</th>
-                                    <th>今日</th>
-                                    <th>近5日</th>
-                                    <th>近10日</th>
-                                    <th>近20日</th>
-                                </tr>
-                            </thead>
-                            <tbody id="style-cum-tbody"></tbody>
-                        </table>
-                    </div>
-                </div>
-                <!-- 北向资金动向 -->
-                <div class="index-section">
-                    <h3 class="index-section-title">🌐 北向资金动向</h3>
-                    <div class="northbound-summary" id="northbound-summary">
-                        <div class="north-card">
-                            <div class="north-label">今日北向净流入</div>
-                            <div class="north-value" id="north-today-value">--</div>
-                        </div>
-                        <div class="north-card">
-                            <div class="north-label">沪股通净流入</div>
-                            <div class="north-value" id="north-sh-value">--</div>
-                        </div>
-                        <div class="north-card">
-                            <div class="north-label">深股通净流入</div>
-                            <div class="north-value" id="north-sz-value">--</div>
-                        </div>
-                        <div class="north-card">
-                            <div class="north-label">累计净流入</div>
-                            <div class="north-value" id="north-cumulative">--</div>
-                        </div>
-                        <div class="north-card">
-                            <div class="north-label">近期趋势</div>
-                            <div class="north-value" id="north-streak" style="font-size:16px;">--</div>
-                        </div>
-                    </div>
-                    <div class="northbound-chart-wrap">
-                        <canvas id="northbound-trend-canvas"></canvas>
-                    </div>
-                </div>
-                </div>
-            </div>
 
             <!-- 主力资金行业净流入（指数子视图） -->
             <div id="index-fund-flow" class="index-sub-content">
