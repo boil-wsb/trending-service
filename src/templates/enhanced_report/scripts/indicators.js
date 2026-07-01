@@ -51,7 +51,11 @@
             macd: "MACD（移动平均收敛发散指标）：反映价格趋势的强弱和方向。DIF 上穿 DEA 为金叉（买入信号），下穿为死叉（卖出信号）。DIF'/DEA'（虚线）为对应一阶导数（中心差分），反映变化率：导数由负转正=趋势向上加速，由正转负=趋势向下加速。",
             rsi: 'RSI（相对强弱指标）：衡量价格超买超卖程度，0-100。RSI>70 超买，<30 超卖。',
             kdj: 'KDJ（随机指标）：反映价格位置相对高低。K>D 金叉买入，K<D 死叉卖出。J>100 超买，J<0 超卖。',
-            boll: '布林带（Bollinger Bands）：反映价格波动范围。价格触及上轨可能回调，触及下轨可能反弹。'
+            boll: '布林带（Bollinger Bands）：反映价格波动范围。价格触及上轨可能回调，触及下轨可能反弹。',
+            ma: '均线系统（MA5/10/20/60）：多周期简单移动平均。多头排列（MA5>MA10>MA20>MA60）为强势趋势，空头排列为弱势。MA60 为中长期支撑/压力线。',
+            obv: 'OBV（能量潮指标）：量价关系。价涨量加、价跌量减。OBV 上升=资金净流入，下降=资金净流出。价涨 OBV 跌=顶背离（卖出），价跌 OBV 涨=底背离（买入）。',
+            atr: 'ATR（平均真实波幅）：波动率指标。ATR 上升=波动加剧，下降=波动收敛。常用于动态止损（止损=入场价−2×ATR）和仓位管理。',
+            cci: 'CCI（顺势指标）：捕捉极端拐点。CCI>+100 超买，<−100 超卖。CCI 从极端区域回到 ±100 内常预示反转。'
         };
 
         // EMA 计算
@@ -167,6 +171,71 @@
             return { mid, upper, lower };
         }
 
+        // 简单移动平均（SMA）—— 复用 index_market.js 中的 calculateMA
+        // OBV（能量潮）：价涨量加，价跌量减，价平不变
+        function calculateOBV(closes, volumes) {
+            if (closes.length === 0) return [];
+            const obv = [volumes[0] || 0];
+            for (let i = 1; i < closes.length; i++) {
+                if (closes[i] > closes[i - 1]) {
+                    obv.push(obv[i - 1] + (volumes[i] || 0));
+                } else if (closes[i] < closes[i - 1]) {
+                    obv.push(obv[i - 1] - (volumes[i] || 0));
+                } else {
+                    obv.push(obv[i - 1]);
+                }
+            }
+            return obv;
+        }
+
+        // ATR（平均真实波幅）
+        function calculateATR(highs, lows, closes, period = 14) {
+            const n = highs.length;
+            if (n === 0) return [];
+            const tr = new Array(n).fill(null);
+            tr[0] = highs[0] - lows[0];
+            for (let i = 1; i < n; i++) {
+                const h_l = highs[i] - lows[i];
+                const h_pc = Math.abs(highs[i] - closes[i - 1]);
+                const l_pc = Math.abs(lows[i] - closes[i - 1]);
+                tr[i] = Math.max(h_l, h_pc, l_pc);
+            }
+            // Wilder 平滑：首点为前 period 个 TR 的简单平均，后续用指数平滑
+            const atr = new Array(n).fill(null);
+            if (n < period) return atr;
+            let sum = 0;
+            for (let i = 0; i < period; i++) sum += tr[i];
+            atr[period - 1] = sum / period;
+            for (let i = period; i < n; i++) {
+                atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period;
+            }
+            return atr;
+        }
+
+        // CCI（顺势指标）
+        function calculateCCI(highs, lows, closes, period = 14) {
+            const n = highs.length;
+            const cci = new Array(n).fill(null);
+            if (n < period) return cci;
+            for (let i = period - 1; i < n; i++) {
+                // 典型价 TP = (高+低+收)/3
+                const tpSlice = [];
+                for (let j = 0; j < period; j++) {
+                    const idx = i - j;
+                    tpSlice.push((highs[idx] + lows[idx] + closes[idx]) / 3);
+                }
+                const tp = (highs[i] + lows[i] + closes[i]) / 3;
+                const maTp = tpSlice.reduce((a, b) => a + b, 0) / period;
+                const meanDev = tpSlice.reduce((a, b) => a + Math.abs(b - maTp), 0) / period;
+                if (meanDev === 0) {
+                    cci[i] = 0;
+                } else {
+                    cci[i] = (tp - maTp) / (0.015 * meanDev);
+                }
+            }
+            return cci;
+        }
+
         // 切换技术指标
         function switchIndicator(ind) {
             currentIndicator = ind;
@@ -176,22 +245,24 @@
             const descEl = document.getElementById('indicator-desc');
             if (descEl) {
                 descEl.textContent = INDICATOR_DESCRIPTIONS[ind] || '';
-                // 布林带时添加醒目提示
+                // 布林带/均线：主图叠加型指标，添加醒目提示
                 if (ind === 'boll') {
                     descEl.innerHTML += ' <span style="color:#9b59b6;font-weight:600;margin-left:8px;">↑ 布林带已叠加在上方K线主图中 ↑</span>';
+                } else if (ind === 'ma') {
+                    descEl.innerHTML += ' <span style="color:#34495e;font-weight:600;margin-left:8px;">↑ 均线系统已叠加在上方K线主图中（含 MA60 中长期线） ↑</span>';
                 }
             }
-            // 布林带叠加在主图上，需要重新渲染主图
-            if (ind === 'boll' && currentKlineData) {
+            // 布林带/均线叠加在主图上，需要重新渲染主图
+            if ((ind === 'boll' || ind === 'ma') && currentKlineData) {
                 renderKlineChart(currentKlineData);
             }
-            // 隐藏/显示指标副图容器
+            // 隐藏/显示指标副图容器（主图叠加型指标隐藏副图）
             const indContainer = document.querySelector('.kline-indicator-container');
             if (indContainer) {
-                indContainer.style.display = (ind === 'boll') ? 'none' : 'block';
+                indContainer.style.display = (ind === 'boll' || ind === 'ma') ? 'none' : 'block';
             }
-            // 重新渲染指标图
-            if (currentKlineData) {
+            // 重新渲染指标图（副图指标才需要）
+            if (currentKlineData && ind !== 'boll' && ind !== 'ma') {
                 renderIndicatorChart(currentKlineData);
             }
         }
@@ -333,6 +404,73 @@
                     const dataMax = Math.max(...kdjAll);
                     yMin = Math.min(0, dataMin);
                     yMax = Math.max(100, dataMax);
+                }
+            } else if (currentIndicator === 'obv') {
+                // OBV（能量潮）：量价关系指标
+                const volumes = klines.map(k => k.volume || 0);
+                const obv = calculateOBV(closes, volumes);
+                datasets = [
+                    {
+                        label: 'OBV',
+                        data: obv,
+                        borderColor: '#9b59b6',
+                        backgroundColor: 'rgba(155, 89, 182, 0.08)',
+                        borderWidth: 1.5,
+                        fill: true,
+                        tension: 0.1,
+                        pointRadius: 0
+                    }
+                ];
+            } else if (currentIndicator === 'atr') {
+                // ATR（平均真实波幅）：波动率指标
+                const highs = klines.map(k => k.high);
+                const lows = klines.map(k => k.low);
+                const atr = calculateATR(highs, lows, closes, 14);
+                datasets = [
+                    {
+                        label: 'ATR(14)',
+                        data: atr,
+                        borderColor: '#e67e22',
+                        backgroundColor: 'rgba(230, 126, 34, 0.1)',
+                        borderWidth: 1.5,
+                        fill: true,
+                        tension: 0.1,
+                        pointRadius: 0
+                    }
+                ];
+            } else if (currentIndicator === 'cci') {
+                // CCI（顺势指标）：拐点识别
+                const highs = klines.map(k => k.high);
+                const lows = klines.map(k => k.low);
+                const cci = calculateCCI(highs, lows, closes, 14);
+                datasets = [
+                    {
+                        label: 'CCI(14)',
+                        data: cci,
+                        borderColor: '#16a085',
+                        borderWidth: 1.5,
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 0
+                    }
+                ];
+                // CCI 参考线在 +100 / -100
+                [100, -100].forEach(v => {
+                    datasets.push({
+                        label: `参考线${v}`,
+                        data: closes.map(() => v),
+                        borderColor: 'rgba(128, 128, 128, 0.4)',
+                        borderWidth: 1,
+                        borderDash: [4, 4],
+                        fill: false,
+                        pointRadius: 0
+                    });
+                });
+                // CCI Y 轴范围固定 ±200，数据超出时自动扩展
+                const cciValid = cci.filter(v => v !== null && v !== undefined && !isNaN(v));
+                if (cciValid.length > 0) {
+                    yMin = Math.min(-200, Math.min(...cciValid));
+                    yMax = Math.max(200, Math.max(...cciValid));
                 }
             }
 

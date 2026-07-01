@@ -785,11 +785,24 @@
         .crossover-text.ma-golden { color: #3498db; }
         .crossover-text.ma-near { color: #85c1e9; }
         .crossover-none { color: #aaa; font-size: 11px; }
+        /* 趋势状态样式（五分法） */
+        .crossover-text.trend-strong-bull { color: #c0392b; font-weight: 700; }
+        .crossover-text.trend-weak-bull   { color: #e74c3c; font-weight: 600; }
+        .crossover-text.trend-sideways    { color: #7f8c8d; font-weight: 500; }
+        .crossover-text.trend-weak-bear   { color: #27ae60; font-weight: 600; }
+        .crossover-text.trend-strong-bear { color: #16a085; font-weight: 700; }
+        /* ADX >= 25 强趋势标记：加边框突出 */
+        .crossover-text.trend-adx-strong { border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; }
         body.dark-mode .crossover-text.macd-golden { color: #ff6b6b; }
         body.dark-mode .crossover-text.macd-near { color: #ffa502; }
         body.dark-mode .crossover-text.ma-golden { color: #54a0ff; }
         body.dark-mode .crossover-text.ma-near { color: #74b9ff; }
         body.dark-mode .crossover-none { color: #555; }
+        body.dark-mode .crossover-text.trend-strong-bull { color: #ff4757; }
+        body.dark-mode .crossover-text.trend-weak-bull   { color: #ff6b6b; }
+        body.dark-mode .crossover-text.trend-sideways    { color: #95a5a6; }
+        body.dark-mode .crossover-text.trend-weak-bear   { color: #2ed573; }
+        body.dark-mode .crossover-text.trend-strong-bear { color: #1abc9c; }
         body.dark-mode .rotation-merge-hint { background: rgba(88,166,255,0.15); color: #58a6ff; }
 
         /* === A股市场指数：展开/收起 === */

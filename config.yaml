@@ -136,7 +136,7 @@ schedule:
     # A股开盘时间窗口（北京时间）
     trading_hours:
       - { start: "09:10", end: "11:30" }
-      - { start: "13:00", end: "14:40" }
+      - { start: "13:00", end: "15:20" }
     # 交易日期：1=周一 ... 7=周日
     trading_days: [1, 2, 3, 4, 5]
 

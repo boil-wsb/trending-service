@@ -71,10 +71,35 @@
             return badges.length ? `<div class="crossover-badges">${badges.join('')}</div>` : '';
         }
 
-        // 格式化金叉文本（用于行业指数表格）
+        // 格式化金叉文本（用于行业指数表格）—— 合并金叉信号 + 趋势状态
         function formatCrossoverText(crossover) {
             if (!crossover) return '<span class="crossover-none">-</span>';
             const texts = [];
+            // 趋势状态（优先显示，从强到弱）
+            if (crossover.trend) {
+                const t = crossover.trend.trend;
+                const adx = crossover.trend.adx;
+                const trendMap = {
+                    'strong_bull': { text: '强多头', cls: 'trend-strong-bull', title: 'MA5>MA10>MA20>MA60 完整多头排列' },
+                    'weak_bull':   { text: '弱多头', cls: 'trend-weak-bull',   title: '价格>MA20，均线部分多头' },
+                    'sideways':    { text: '震荡',   cls: 'trend-sideways',    title: '均线交织，无明确方向' },
+                    'weak_bear':   { text: '弱空头', cls: 'trend-weak-bear',   title: '价格<MA20，均线部分空头' },
+                    'strong_bear': { text: '强空头', cls: 'trend-strong-bear', title: 'MA5<MA10<MA20<MA60 完整空头排列' }
+                };
+                const info = trendMap[t];
+                if (info) {
+                    // 构建 title，包含均线排列 + ADX 强度
+                    let title = info.title;
+                    let extraCls = '';
+                    if (adx !== null && adx !== undefined) {
+                        const adxDesc = adx >= 50 ? '极强趋势' : adx >= 25 ? '强趋势' : adx >= 20 ? '趋势形成中' : '无趋势';
+                        title += `\nADX: ${adx}（${adxDesc}）\n+DI: ${crossover.trend.plus_di}  -DI: ${crossover.trend.minus_di}`;
+                        if (adx >= 25) extraCls = ' trend-adx-strong';
+                    }
+                    texts.push(`<span class="crossover-text ${info.cls}${extraCls}" title="${title}">${info.text}</span>`);
+                }
+            }
+            // 金叉信号
             if (crossover.macd === 'golden') {
                 texts.push('<span class="crossover-text macd-golden" title="DIF上穿DEA">MACD金叉</span>');
             } else if (crossover.macd === 'near_golden') {
@@ -372,10 +397,21 @@
             // 获取关注列表
             const followedSet = new Set(getFollowedIndices());
 
-            // 排序（三级优先级：关注状态 > 金叉信号 > 用户排序字段）
+            // 排序（三级优先级：关注状态 > 趋势强度+金叉信号 > 用户排序字段）
+            // 趋势强度排序映射
+            const TREND_RANK = {
+                'strong_bull': 5, 'weak_bull': 4, 'sideways': 3,
+                'weak_bear': 2, 'strong_bear': 1
+            };
+            // 综合排序分：趋势强度×10 + 金叉信号分（趋势优先，金叉作为同趋势内的微调）
             const crossoverRank = (co) => {
                 if (!co) return 0;
                 let rank = 0;
+                // 趋势分（权重高）
+                if (co.trend && co.trend.trend) {
+                    rank += (TREND_RANK[co.trend.trend] || 3) * 10;
+                }
+                // 金叉信号分（权重低，作为同趋势内的微调）
                 if (co.macd === 'golden') rank += 3;
                 if (co.ma === 'golden') rank += 3;
                 if (co.macd === 'near_golden') rank += 1;
@@ -389,13 +425,13 @@
                 if (aFollowed !== bFollowed) {
                     return bFollowed - aFollowed;  // 关注的在前
                 }
-                // 2) 金叉信号次优先（同关注状态内，金叉信号强的在前）
+                // 2) 趋势强度+金叉信号次优先（综合分高的在前）
                 const aCross = crossoverRank(a.crossover);
                 const bCross = crossoverRank(b.crossover);
                 if (aCross !== bCross) {
-                    return bCross - aCross;  // 金叉信号强的在前
+                    return bCross - aCross;
                 }
-                // 3) 用户选中的排序字段（同关注状态+同金叉信号强度时）
+                // 3) 用户选中的排序字段（同关注状态+同综合分时）
                 if (industrySortField === 'followed') {
                     // 默认排序：前两级已确定，按 code 升序兜底保持稳定
                     return a.code.localeCompare(b.code);
@@ -600,7 +636,7 @@
                     // 根据当前指标决定副图容器显示状态
                     const indContainer = document.querySelector('.kline-indicator-container');
                     if (indContainer) {
-                        indContainer.style.display = (currentIndicator === 'boll') ? 'none' : 'block';
+                        indContainer.style.display = (currentIndicator === 'boll' || currentIndicator === 'ma') ? 'none' : 'block';
                     }
                     renderIndicatorChart(klines);
                 }
@@ -660,6 +696,7 @@
             const ma5 = calculateMA(closes, 5);
             const ma10 = calculateMA(closes, 10);
             const ma20 = calculateMA(closes, 20);
+            const ma60 = calculateMA(closes, 60);
 
             // 金叉标记点：构建 pointStyle / pointRadius / pointBackgroundColor 数组
             const cpArr = crossoverPoints || [];
@@ -753,6 +790,18 @@
                     tension: 0.1,
                     yAxisID: 'y',
                     pointRadius: 0
+                },
+                {
+                    label: 'MA60',
+                    data: ma60,
+                    borderColor: '#34495e',
+                    borderWidth: 1.5,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y',
+                    pointRadius: 0,
+                    // MA60 数据较少时（< 60 日）全部为 null，不显示意义不大；保留以备长周期数据
+                    hidden: currentIndicator !== 'ma'  // 非 MA 模式下默认隐藏
                 }
             ];
 

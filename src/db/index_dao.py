@@ -156,6 +156,11 @@ class IndexDAO:
         """
         获取最新日期的指数数据
 
+        取每个 code 的最新一条记录（按 fetched_at 降序），避免：
+        1. 某个数据源当天抓取失败时该类指数整体消失
+           （如申万行业指数 akshare 源接口异常时仍可显示昨日数据）
+        2. 同一概念板块在 em/ths 两个源都有数据时重复显示
+
         Args:
             category: 分类筛选 (market/industry)，None 表示全部
             limit: 返回数量上限
@@ -163,19 +168,19 @@ class IndexDAO:
         Returns:
             指数数据列表
         """
-        latest_date = self._get_latest_date()
-        if not latest_date:
-            return []
-
-        params: list = [latest_date]
+        params: list = []
         sql = '''
-            SELECT * FROM index_data
-            WHERE fetched_date = ?
-        '''
+            SELECT * FROM (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY code ORDER BY fetched_at DESC
+                ) as rn
+                FROM index_data
+                WHERE 1=1
+            '''
         if category:
             sql += ' AND category = ?'
             params.append(category)
-        sql += ' ORDER BY change_pct DESC LIMIT ?'
+        sql += ') WHERE rn = 1 ORDER BY change_pct DESC LIMIT ?'
         params.append(limit)
 
         rows = self.db.fetch_all(sql, tuple(params))

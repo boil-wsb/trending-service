@@ -159,7 +159,7 @@
                                     <th class="sortable rotation-col" onclick="sortIndustryTable('rank_3d')" title="3日排名">3日排名 <span class="sort-arrow"></span></th>
                                     <th class="sortable rotation-col" onclick="sortIndustryTable('rank_7d')" title="7日排名">7日排名 <span class="sort-arrow"></span></th>
                                     <th class="sortable rotation-col" onclick="sortIndustryTable('rank_change')" title="排名变化（7日→今日）">排名变化 <span class="sort-arrow"></span></th>
-                                    <th title="MACD/MA金叉信号">金叉信号</th>
+                                    <th title="趋势状态（均线排列法）+ MACD/MA金叉信号">趋势/金叉</th>
                                     <th>操作</th>
                                 </tr>
                             </thead>
@@ -231,6 +231,10 @@
                         <button class="indicator-tab" data-indicator="rsi" onclick="switchIndicator('rsi')">RSI</button>
                         <button class="indicator-tab" data-indicator="kdj" onclick="switchIndicator('kdj')">KDJ</button>
                         <button class="indicator-tab" data-indicator="boll" onclick="switchIndicator('boll')">布林带</button>
+                        <button class="indicator-tab" data-indicator="ma" onclick="switchIndicator('ma')">均线</button>
+                        <button class="indicator-tab" data-indicator="obv" onclick="switchIndicator('obv')">OBV</button>
+                        <button class="indicator-tab" data-indicator="atr" onclick="switchIndicator('atr')">ATR</button>
+                        <button class="indicator-tab" data-indicator="cci" onclick="switchIndicator('cci')">CCI</button>
                     </div>
                     <div class="kline-indicator-desc" id="indicator-desc"></div>
                     <div class="kline-indicator-container">
