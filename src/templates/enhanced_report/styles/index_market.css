@@ -740,6 +740,56 @@
             background: rgba(74,144,217,0.10); padding: 2px 8px; border-radius: 10px;
             margin-left: 8px; vertical-align: middle; cursor: help;
         }
+
+        /* ========== 金叉信号样式 ========== */
+        .crossover-badges {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            z-index: 1;
+        }
+        .crossover-badge {
+            font-size: 9px;
+            font-weight: 600;
+            padding: 1px 5px;
+            border-radius: 8px;
+            white-space: nowrap;
+            line-height: 1.4;
+        }
+        .crossover-badge.macd-golden {
+            color: #fff;
+            background: rgba(231, 76, 60, 0.85);
+        }
+        .crossover-badge.macd-near {
+            color: #fff;
+            background: rgba(230, 126, 34, 0.85);
+        }
+        .crossover-badge.ma-golden {
+            color: #fff;
+            background: rgba(52, 152, 219, 0.85);
+        }
+        .crossover-badge.ma-near {
+            color: #fff;
+            background: rgba(133, 193, 233, 0.85);
+        }
+        .crossover-text {
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .crossover-text.macd-golden { color: #e74c3c; }
+        .crossover-text.macd-near { color: #e67e22; }
+        .crossover-text.ma-golden { color: #3498db; }
+        .crossover-text.ma-near { color: #85c1e9; }
+        .crossover-none { color: #aaa; font-size: 11px; }
+        body.dark-mode .crossover-text.macd-golden { color: #ff6b6b; }
+        body.dark-mode .crossover-text.macd-near { color: #ffa502; }
+        body.dark-mode .crossover-text.ma-golden { color: #54a0ff; }
+        body.dark-mode .crossover-text.ma-near { color: #74b9ff; }
+        body.dark-mode .crossover-none { color: #555; }
         body.dark-mode .rotation-merge-hint { background: rgba(88,166,255,0.15); color: #58a6ff; }
 
         /* === A股市场指数：展开/收起 === */

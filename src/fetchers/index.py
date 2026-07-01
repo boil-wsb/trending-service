@@ -273,6 +273,7 @@ class IndexFetcher:
         "国产芯片": ["国产替代", "芯片"],
         "AIGC概念": ["AIGC", "生成式AI"],
         "AIPC": ["AI PC", "AI电脑"],
+        "创新药": ["创新药产业链", "创新药研发", "生物医药"],
     }
 
     def _filter_concept_by_watchlist(self, indices: List[IndexData], watchlist: List[str]) -> List[IndexData]:

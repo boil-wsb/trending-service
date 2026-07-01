@@ -48,7 +48,7 @@
 
         // 指标概念描述
         const INDICATOR_DESCRIPTIONS = {
-            macd: 'MACD（移动平均收敛发散指标）：反映价格趋势的强弱和方向。DIF 上穿 DEA 为金叉（买入信号），下穿为死叉（卖出信号）。',
+            macd: "MACD（移动平均收敛发散指标）：反映价格趋势的强弱和方向。DIF 上穿 DEA 为金叉（买入信号），下穿为死叉（卖出信号）。DIF'/DEA'（虚线）为对应一阶导数（中心差分），反映变化率：导数由负转正=趋势向上加速，由正转负=趋势向下加速。",
             rsi: 'RSI（相对强弱指标）：衡量价格超买超卖程度，0-100。RSI>70 超买，<30 超卖。',
             kdj: 'KDJ（随机指标）：反映价格位置相对高低。K>D 金叉买入，K<D 死叉卖出。J>100 超买，J<0 超卖。',
             boll: '布林带（Bollinger Bands）：反映价格波动范围。价格触及上轨可能回调，触及下轨可能反弹。'
@@ -78,6 +78,27 @@
             const dea = calculateEMA(dif, 9);
             const macd = dif.map((d, i) => (d - dea[i]) * 2);
             return { dif, dea, macd };
+        }
+
+        // 一阶导数（中心差分）：f'(i) = (f(i+1) - f(i-1)) / 2
+        // 首点无前值置 null，末点无后值用简单差分兜底 f'(n-1) = f(n-1) - f(n-2)
+        function calculateDerivative(data) {
+            const n = data.length;
+            if (n === 0) return [];
+            if (n === 1) return [null];
+            const result = new Array(n).fill(null);
+            for (let i = 1; i < n - 1; i++) {
+                if (data[i - 1] == null || data[i + 1] == null) {
+                    result[i] = null;
+                } else {
+                    result[i] = (data[i + 1] - data[i - 1]) / 2;
+                }
+            }
+            // 末点兜底：简单差分
+            if (data[n - 1] != null && data[n - 2] != null) {
+                result[n - 1] = data[n - 1] - data[n - 2];
+            }
+            return result;
         }
 
         // RSI 计算
@@ -196,6 +217,9 @@
 
             if (currentIndicator === 'macd') {
                 const { dif, dea, macd } = calculateMACD(closes);
+                // DIF / DEA 一阶导数（中心差分），叠加在右侧 Y 轴
+                const difDiff = calculateDerivative(dif);
+                const deaDiff = calculateDerivative(dea);
                 // MACD 柱状图红绿
                 const barColors = macd.map(v => v >= 0 ? 'rgba(231, 76, 60, 0.6)' : 'rgba(39, 174, 96, 0.6)');
                 datasets = [
@@ -227,6 +251,30 @@
                         tension: 0.1,
                         pointRadius: 0,
                         order: 2
+                    },
+                    {
+                        label: "DIF'",
+                        data: difDiff,
+                        borderColor: 'rgba(74, 144, 217, 0.85)',
+                        borderWidth: 1.2,
+                        borderDash: [5, 3],
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 0,
+                        yAxisID: 'y1',
+                        order: 4
+                    },
+                    {
+                        label: "DEA'",
+                        data: deaDiff,
+                        borderColor: 'rgba(243, 156, 18, 0.85)',
+                        borderWidth: 1.2,
+                        borderDash: [5, 3],
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: 0,
+                        yAxisID: 'y1',
+                        order: 5
                     }
                 ];
             } else if (currentIndicator === 'rsi') {
@@ -277,8 +325,15 @@
                         pointRadius: 0
                     }
                 ];
-                yMin = 0;
-                yMax = 100;
+                // KDJ：J 值可能超出 [0,100]，手动计算实际数据范围并扩展 Y 轴
+                // 下限 = min(0, 实际最小值)，上限 = max(100, 实际最大值)
+                const kdjAll = [...k, ...d, ...j].filter(v => v !== null && v !== undefined && !isNaN(v));
+                if (kdjAll.length > 0) {
+                    const dataMin = Math.min(...kdjAll);
+                    const dataMax = Math.max(...kdjAll);
+                    yMin = Math.min(0, dataMin);
+                    yMax = Math.max(100, dataMax);
+                }
             }
 
             // 参考线（RSI 30/70，KDJ 20/80）
@@ -338,8 +393,27 @@
                             display: false
                         },
                         y: {
+                            position: 'left',
                             ...(yMin !== null ? { min: yMin } : {}),
                             ...(yMax !== null ? { max: yMax } : {})
+                        },
+                        // 右侧 Y 轴：用于 DIF/DEA 导数（仅 MACD 指标时显示）
+                        y1: {
+                            position: 'right',
+                            display: currentIndicator === 'macd',
+                            grid: {
+                                drawOnChartArea: false  // 不画水平网格线，避免干扰主轴
+                            },
+                            ticks: {
+                                color: 'rgba(127, 140, 141, 0.85)',
+                                font: { size: 10 }
+                            },
+                            title: {
+                                display: currentIndicator === 'macd',
+                                text: "DIF' / DEA' 导数",
+                                color: 'rgba(127, 140, 141, 0.85)',
+                                font: { size: 11 }
+                            }
                         }
                     }
                 }

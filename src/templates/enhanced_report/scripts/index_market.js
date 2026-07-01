@@ -54,6 +54,40 @@
             return `${sign}${change.toFixed(2)} (${sign}${changePct.toFixed(2)}%)`;
         }
 
+        // 格式化金叉徽章（用于市场指数卡片）
+        function formatCrossoverBadge(crossover) {
+            if (!crossover) return '';
+            const badges = [];
+            if (crossover.macd === 'golden') {
+                badges.push('<span class="crossover-badge macd-golden" title="MACD金叉：DIF上穿DEA">MACD金叉</span>');
+            } else if (crossover.macd === 'near_golden') {
+                badges.push('<span class="crossover-badge macd-near" title="MACD即将金叉：DIF接近DEA">MACD即将金叉</span>');
+            }
+            if (crossover.ma === 'golden') {
+                badges.push('<span class="crossover-badge ma-golden" title="MA金叉：MA5上穿MA10">MA金叉</span>');
+            } else if (crossover.ma === 'near_golden') {
+                badges.push('<span class="crossover-badge ma-near" title="MA即将金叉：MA5接近MA10">MA即将金叉</span>');
+            }
+            return badges.length ? `<div class="crossover-badges">${badges.join('')}</div>` : '';
+        }
+
+        // 格式化金叉文本（用于行业指数表格）
+        function formatCrossoverText(crossover) {
+            if (!crossover) return '<span class="crossover-none">-</span>';
+            const texts = [];
+            if (crossover.macd === 'golden') {
+                texts.push('<span class="crossover-text macd-golden" title="DIF上穿DEA">MACD金叉</span>');
+            } else if (crossover.macd === 'near_golden') {
+                texts.push('<span class="crossover-text macd-near" title="DIF接近DEA">MACD即将金叉</span>');
+            }
+            if (crossover.ma === 'golden') {
+                texts.push('<span class="crossover-text ma-golden" title="MA5上穿MA10">MA金叉</span>');
+            } else if (crossover.ma === 'near_golden') {
+                texts.push('<span class="crossover-text ma-near" title="MA5接近MA10">MA即将金叉</span>');
+            }
+            return texts.length ? texts.join('<br>') : '<span class="crossover-none">-</span>';
+        }
+
         // 手动触发重新拉取指数数据（调用 /api/index/trigger-fetch）
         async function refreshIndexData() {
             const btn = document.getElementById('refresh-index-btn');
@@ -101,7 +135,7 @@
             } catch (err) {
                 console.error('加载指数数据失败:', err);
                 document.getElementById('market-indices-grid').innerHTML = '<div class="index-loading">加载失败</div>';
-                document.getElementById('industry-indices-body').innerHTML = '<tr><td colspan="13" class="index-loading">加载失败</td></tr>';
+                document.getElementById('industry-indices-body').innerHTML = '<tr><td colspan="14" class="index-loading">加载失败</td></tr>';
             }
 
             // 加载行业轮动数据
@@ -245,8 +279,10 @@
             container.innerHTML = indices.map(idx => {
                 const changeClass = formatChangeClass(idx.change_pct);
                 const depthBg = getChangeDepthBg(idx.change_pct, 5, 0.08, 0.42);
+                const crossoverBadge = formatCrossoverBadge(idx.crossover);
                 return `
                     <div class="market-index-card" style="background:${depthBg}" onclick="showKline('${idx.code}', '${idx.name}')">
+                        ${crossoverBadge}
                         <div class="market-index-name">${idx.name}<span class="market-index-code">${idx.code}</span></div>
                         <div class="market-index-price ${changeClass}">${idx.price.toFixed(2)}</div>
                         <div class="market-index-change ${changeClass}">${formatChangeText(idx.change, idx.change_pct)}</div>
@@ -316,7 +352,7 @@
             const followedBadge = document.getElementById('followed-count-display');
             const followedNumEl = document.getElementById('followed-count-num');
             if (!industryIndicesData || industryIndicesData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="13" class="index-loading">暂无数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="14" class="index-loading">暂无数据</td></tr>';
                 if (countDisplay) countDisplay.textContent = '';
                 if (followedBadge) followedBadge.style.display = 'none';
                 return;
@@ -336,19 +372,33 @@
             // 获取关注列表
             const followedSet = new Set(getFollowedIndices());
 
-            // 排序
+            // 排序（三级优先级：关注状态 > 金叉信号 > 用户排序字段）
+            const crossoverRank = (co) => {
+                if (!co) return 0;
+                let rank = 0;
+                if (co.macd === 'golden') rank += 3;
+                if (co.ma === 'golden') rank += 3;
+                if (co.macd === 'near_golden') rank += 1;
+                if (co.ma === 'near_golden') rank += 1;
+                return rank;
+            };
             const sorted = [...filtered].sort((a, b) => {
-                // 如果排序字段是 'followed'，按关注状态排序（关注的在前）
-                if (industrySortField === 'followed') {
-                    const aFollowed = followedSet.has(a.code) ? 1 : 0;
-                    const bFollowed = followedSet.has(b.code) ? 1 : 0;
-                    return industrySortOrder === 'asc' ? aFollowed - bFollowed : bFollowed - aFollowed;
-                }
-                // 其他排序字段：关注的始终优先，组内按当前字段排序
+                // 1) 关注状态优先（始终最优先）
                 const aFollowed = followedSet.has(a.code) ? 1 : 0;
                 const bFollowed = followedSet.has(b.code) ? 1 : 0;
                 if (aFollowed !== bFollowed) {
                     return bFollowed - aFollowed;  // 关注的在前
+                }
+                // 2) 金叉信号次优先（同关注状态内，金叉信号强的在前）
+                const aCross = crossoverRank(a.crossover);
+                const bCross = crossoverRank(b.crossover);
+                if (aCross !== bCross) {
+                    return bCross - aCross;  // 金叉信号强的在前
+                }
+                // 3) 用户选中的排序字段（同关注状态+同金叉信号强度时）
+                if (industrySortField === 'followed') {
+                    // 默认排序：前两级已确定，按 code 升序兜底保持稳定
+                    return a.code.localeCompare(b.code);
                 }
                 let valA = a[industrySortField];
                 let valB = b[industrySortField];
@@ -413,7 +463,7 @@
             };
 
             if (sorted.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="13" class="index-loading">未找到匹配的数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="14" class="index-loading">未找到匹配的数据</td></tr>';
             } else {
                 tbody.innerHTML = sorted.map(idx => {
                     const changeClass = formatChangeClass(idx.change_pct);
@@ -455,6 +505,7 @@
                             <td class="rotation-col">${fmtRank(rank3d)}</td>
                             <td class="rotation-col">${fmtRank(rank7d)}</td>
                             <td class="rotation-col">${rankChangeHtml}</td>
+                            <td class="rotation-col">${formatCrossoverText(idx.crossover)}</td>
                             <td><button class="kline-btn" onclick="showKline('${idx.code}', '${idx.name}')">K线</button></td>
                         </tr>
                     `;
@@ -540,7 +591,8 @@
                 const data = await res.json();
                 if (data.success) {
                     const klines = data.data.kline || [];
-                    renderKlineChart(klines);
+                    const crossoverPoints = data.data.crossover_points || [];
+                    renderKlineChart(klines, crossoverPoints);
                     renderVolumeChart(klines);
                     renderRiskMetrics(klines);
                     // 初始化指标描述和默认指标图
@@ -586,7 +638,7 @@
         }
 
         // 渲染K线图（使用 Chart.js）
-        function renderKlineChart(klines) {
+        function renderKlineChart(klines, crossoverPoints) {
             const canvas = document.getElementById('kline-canvas');
             if (!canvas || !klines || klines.length === 0) return;
 
@@ -609,6 +661,22 @@
             const ma10 = calculateMA(closes, 10);
             const ma20 = calculateMA(closes, 20);
 
+            // 金叉标记点：构建 pointStyle / pointRadius / pointBackgroundColor 数组
+            const cpArr = crossoverPoints || [];
+            const pointStyles = closes.map((_, i) => {
+                const pt = cpArr.find(p => p.date === labels[i]);
+                return pt ? 'triangle' : false;
+            });
+            const pointRadii = closes.map((_, i) => {
+                const pt = cpArr.find(p => p.date === labels[i]);
+                return pt ? 10 : 0;
+            });
+            const pointColors = closes.map((_, i) => {
+                const pt = cpArr.find(p => p.date === labels[i]);
+                if (!pt) return 'transparent';
+                return pt.type === 'macd' ? 'rgba(231, 76, 60, 0.9)' : 'rgba(52, 152, 219, 0.9)';
+            });
+
             // 构建数据集（不含成交量，成交量独立副图）
             const datasets = [
                 {
@@ -619,7 +687,12 @@
                     borderWidth: 2,
                     fill: true,
                     tension: 0.1,
-                    yAxisID: 'y'
+                    yAxisID: 'y',
+                    pointStyle: pointStyles,
+                    pointRadius: pointRadii,
+                    pointBackgroundColor: pointColors,
+                    pointBorderColor: pointColors,
+                    pointHoverRadius: 12
                 },
                 {
                     label: '开盘价',
@@ -804,6 +877,11 @@
                                     let extra = '';
                                     if (label === '收盘价') {
                                         extra = `  涨跌幅: ${k.change_pct}%`;
+                                        // 金叉标记提示
+                                        const cp = cpArr.find(p => p.date === labels[idx]);
+                                        if (cp) {
+                                            extra += cp.type === 'macd' ? '  ⬆MACD金叉' : '  ⬆MA金叉';
+                                        }
                                     }
                                     return `${label}: ${val.toFixed(2)}${extra}`;
                                 }

@@ -107,6 +107,15 @@ class TrendingServer:
         self.running = False
         self.config_watcher = ConfigHotReloader(interval=2.0)
 
+        # 启动时预热金叉信号内存缓存（后台预计算，避免影响 API 响应时间）
+        try:
+            from src.utils.crossover import refresh_all_crossovers
+            from src.db.index_dao import IndexDAO
+            dao = IndexDAO(DATABASE['path'])
+            refresh_all_crossovers(dao, logger=self.logger)
+        except Exception as e:
+            self.logger.warning(f"启动时预热金叉缓存失败: {e}")
+
     def _create_app(self) -> Flask:
         """创建 Flask 应用"""
         app = Flask(__name__, 
@@ -131,18 +140,26 @@ class TrendingServer:
 
         @app.route('/api/index/market')
         def api_index_market():
-            """A股市场指数列表"""
+            """A股市场指数列表（含金叉信号，从内存缓存读取）"""
             try:
                 from src.db.index_dao import IndexDAO
+                from src.utils.crossover import get_cached_crossover
 
                 dao = IndexDAO(DATABASE['path'])
                 indices = dao.get_market_indices(limit=50)
 
+                result = []
+                for idx in indices:
+                    d = idx.to_dict()
+                    # 从内存缓存读取金叉信号（由定时任务后台预计算）
+                    d['crossover'] = get_cached_crossover(idx.code)
+                    result.append(d)
+
                 return jsonify({
                     'success': True,
                     'data': {
-                        'indices': [idx.to_dict() for idx in indices],
-                        'count': len(indices),
+                        'indices': result,
+                        'count': len(result),
                         'fetched_at': indices[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if indices else None
                     }
                 })
@@ -152,9 +169,10 @@ class TrendingServer:
 
         @app.route('/api/index/industry')
         def api_index_industry():
-            """申万行业指数列表（含 3日/7日 涨跌幅，30s 缓存）"""
+            """申万行业指数列表（含 3日/7日 涨跌幅、金叉信号，60s 缓存）"""
             try:
                 from src.db.index_dao import IndexDAO
+                from src.utils.crossover import get_cached_crossover
                 from flask import request
 
                 try:
@@ -162,7 +180,7 @@ class TrendingServer:
                 except (ValueError, TypeError):
                     limit = 500
 
-                # 缓存检查（30s TTL）
+                # 缓存检查（60s TTL）
                 cache_key = f"industry:{limit}"
                 cached = _api_cache.get(cache_key)
                 if cached is not None:
@@ -172,15 +190,22 @@ class TrendingServer:
                 # 使用带多日涨跌幅的方法（先排序后 limit）
                 indices = dao.get_industry_indices_with_changes(limit=limit)
 
+                result_list = []
+                for idx in indices:
+                    d = idx.to_dict()
+                    # 从内存缓存读取金叉信号（由定时任务后台预计算）
+                    d['crossover'] = get_cached_crossover(idx.code)
+                    result_list.append(d)
+
                 result = jsonify({
                     'success': True,
                     'data': {
-                        'indices': [idx.to_dict() for idx in indices],
-                        'count': len(indices),
+                        'indices': result_list,
+                        'count': len(result_list),
                         'fetched_at': indices[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if indices else None
                     }
                 })
-                _api_cache.set(cache_key, result, ttl=30)
+                _api_cache.set(cache_key, result, ttl=60)
                 return result
             except Exception as e:
                 self.logger.error(f"获取行业指数失败: {e}")
@@ -338,11 +363,17 @@ class TrendingServer:
 
                     # 3. 如果缓存有效，直接返回
                     if cached and not need_refresh:
+                        # 计算金叉标记点
+                        from src.utils.crossover import detect_crossover_history
+                        closes = [k['close'] for k in cached]
+                        dates = [k['date'] for k in cached]
+                        crossover_points = detect_crossover_history(closes, dates)
                         return jsonify({
                             'success': True,
                             'data': {
                                 'code': code,
                                 'kline': cached,
+                                'crossover_points': crossover_points,
                                 'count': len(cached),
                                 'source': 'cache'
                             }
@@ -360,11 +391,18 @@ class TrendingServer:
                     except Exception as e:
                         self.logger.warning(f"K线数据缓存失败: {e}")
 
+                # 计算金叉标记点
+                from src.utils.crossover import detect_crossover_history
+                closes = [k['close'] for k in kline]
+                dates = [k['date'] for k in kline]
+                crossover_points = detect_crossover_history(closes, dates)
+
                 result = jsonify({
                     'success': True,
                     'data': {
                         'code': code,
                         'kline': kline,
+                        'crossover_points': crossover_points,
                         'count': len(kline),
                         'source': source
                     }

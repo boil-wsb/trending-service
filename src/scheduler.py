@@ -631,6 +631,15 @@ class TrendingTaskScheduler(TaskScheduler):
             fetcher = IndexFetcher(logger=self.logger)
             count = fetcher.save_to_db(DATABASE['path'])
             self.logger.info(f"✅ 指数行情数据获取完成: {count} 条")
+
+            # 刷新金叉信号内存缓存（后台预计算，避免影响 API 响应时间）
+            try:
+                from src.utils.crossover import refresh_all_crossovers
+                from src.db.index_dao import IndexDAO
+                dao = IndexDAO(DATABASE['path'])
+                refresh_all_crossovers(dao, logger=self.logger)
+            except Exception as e:
+                self.logger.error(f"❌ 刷新金叉信号缓存失败: {e}")
         except Exception as e:
             self.logger.error(f"❌ 获取指数行情数据失败: {e}")
 
@@ -650,5 +659,14 @@ class TrendingTaskScheduler(TaskScheduler):
             fetcher = IndexFetcher(logger=self.logger)
             count = fetcher.fetch_and_cache_all_klines(DATABASE['path'], days=365)
             self.logger.info(f"✅ 指数 K 线数据缓存完成: {count} 条")
+
+            # K 线数据更新后刷新金叉信号内存缓存
+            try:
+                from src.utils.crossover import refresh_all_crossovers
+                from src.db.index_dao import IndexDAO
+                dao = IndexDAO(DATABASE['path'])
+                refresh_all_crossovers(dao, logger=self.logger)
+            except Exception as e:
+                self.logger.error(f"❌ 刷新金叉信号缓存失败: {e}")
         except Exception as e:
             self.logger.error(f"❌ 缓存指数 K 线数据失败: {e}")

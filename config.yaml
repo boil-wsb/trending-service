@@ -120,6 +120,7 @@ data_sources:
       - 熔盐储能
       # === 其他 ===
       - 培育钻石
+      - 创新药
 
 schedule:
   fetch_trending:
@@ -128,14 +129,14 @@ schedule:
     description: "获取所有热点信息"
     timezone: Asia/Shanghai
   fetch_index:
-    schedule: "*/30 * * * *"
+    schedule: "10,40 * * * 1-5"
     enabled: true
     description: "获取A股指数行情数据（仅在开盘时间内执行）"
     timezone: Asia/Shanghai
     # A股开盘时间窗口（北京时间）
     trading_hours:
-      - { start: "09:30", end: "11:30" }
-      - { start: "13:00", end: "15:00" }
+      - { start: "09:10", end: "11:30" }
+      - { start: "13:00", end: "14:40" }
     # 交易日期：1=周一 ... 7=周日
     trading_days: [1, 2, 3, 4, 5]
 
