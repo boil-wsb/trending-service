@@ -127,21 +127,43 @@
                     </div>
                 </div>
 
-                <!-- 行业指数（含轮动趋势合并列） -->
+                <!-- 行业指数 / 概念板块（双 Tab，含轮动趋势合并列） -->
                 <div class="index-section">
                     <div class="index-section-header">
-                        <h3 class="index-section-title">🏭 申万行业指数 <span class="rotation-merge-hint" title="已合并轮动趋势：动量得分、排名变化">🔗 含轮动趋势</span></h3>
+                        <h3 class="index-section-title">🏭 行业指数与概念板块 <span class="rotation-merge-hint" title="已合并轮动趋势：动量得分、排名变化">🔗 含轮动趋势</span></h3>
                         <div class="index-search-box">
                             <span class="index-search-icon">🔍</span>
                             <input type="text" id="index-search-input" class="index-search-input" placeholder="搜索代码或名称..." oninput="filterIndustryIndices()">
                             <button id="index-search-clear" class="index-search-clear" onclick="clearIndexSearch()" style="display:none;">✕</button>
                         </div>
+                        <select id="index-badge-filter" class="index-badge-filter" onchange="filterIndustryIndices()" title="按趋势/金叉标识筛选">
+                            <option value="">全部标识</option>
+                            <optgroup label="趋势状态">
+                                <option value="trend:strong_bull">强多头</option>
+                                <option value="trend:weak_bull">弱多头</option>
+                                <option value="trend:sideways">震荡</option>
+                                <option value="trend:weak_bear">弱空头</option>
+                                <option value="trend:strong_bear">强空头</option>
+                            </optgroup>
+                            <optgroup label="金叉信号">
+                                <option value="macd:golden">MACD金叉</option>
+                                <option value="macd:near_golden">MACD即将金叉</option>
+                                <option value="ma:golden">MA金叉</option>
+                                <option value="ma:near_golden">MA即将金叉</option>
+                            </optgroup>
+                            <option value="none">无标识</option>
+                        </select>
                         <span id="industry-count-display" class="industry-count-display"></span>
                         <span id="followed-count-display" class="followed-count-badge" style="display:none;">⭐ 关注 <span id="followed-count-num">0</span></span>
                         <button class="industry-table-toggle" id="industry-table-toggle" onclick="toggleIndustryTable()">
                             <span class="toggle-text">展开全部</span>
                             <span class="toggle-arrow">▼</span>
                         </button>
+                    </div>
+                    <!-- 子 Tab 切换：行业指数 / 概念板块 -->
+                    <div class="industry-tab-nav">
+                        <button class="industry-tab-btn active" data-tab="industry" onclick="switchIndustryTab('industry')">🏭 行业指数</button>
+                        <button class="industry-tab-btn" data-tab="concept" onclick="switchIndustryTab('concept')">💡 概念板块</button>
                     </div>
                     <div class="index-table-wrapper collapsed" id="industry-table-wrapper">
                         <table class="index-table" id="industry-indices-table">

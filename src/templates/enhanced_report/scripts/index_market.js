@@ -2,6 +2,8 @@
         let industryIndicesData = [];
         let industrySortField = 'followed';
         let industrySortOrder = 'desc';
+        // 当前 Tab：'industry'（申万行业指数） / 'concept'（概念板块）
+        let currentIndustryTab = 'industry';
         let currentKlineCode = '';
         let currentKlineName = '';
         let klineChart = null;
@@ -387,8 +389,39 @@
             const searchInput = document.getElementById('index-search-input');
             const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
             let filtered = industryIndicesData;
+
+            // Tab 过滤：'industry' = 申万行业指数（code 为纯数字） / 'concept' = 概念板块（code 为中文名称）
+            const isConceptCode = (code) => !/^\d+$/.test(String(code || ''));
+            if (currentIndustryTab === 'industry') {
+                filtered = filtered.filter(idx => !isConceptCode(idx.code));
+            } else {
+                filtered = filtered.filter(idx => isConceptCode(idx.code));
+            }
+
+            // 标识筛选（趋势/金叉）
+            const badgeFilter = document.getElementById('index-badge-filter');
+            const badgeValue = badgeFilter ? badgeFilter.value : '';
+            if (badgeValue) {
+                filtered = filtered.filter(idx => {
+                    const co = idx.crossover;
+                    if (badgeValue === 'none') {
+                        // 无标识：无趋势、无金叉、无即将金叉
+                        const hasTrend = co && co.trend && co.trend.trend;
+                        const hasMacd = co && (co.macd === 'golden' || co.macd === 'near_golden');
+                        const hasMa = co && (co.ma === 'golden' || co.ma === 'near_golden');
+                        return !hasTrend && !hasMacd && !hasMa;
+                    }
+                    const [type, val] = badgeValue.split(':');
+                    if (!co) return false;
+                    if (type === 'trend') return co.trend && co.trend.trend === val;
+                    if (type === 'macd') return co.macd === val;
+                    if (type === 'ma') return co.ma === val;
+                    return false;
+                });
+            }
+
             if (query) {
-                filtered = industryIndicesData.filter(idx =>
+                filtered = filtered.filter(idx =>
                     idx.code.toLowerCase().includes(query) ||
                     idx.name.toLowerCase().includes(query)
                 );
@@ -567,6 +600,19 @@
             if (clearBtn) {
                 clearBtn.style.display = searchInput.value ? 'block' : 'none';
             }
+            renderIndustryIndices();
+        }
+
+        // 切换行业指数 / 概念板块 Tab
+        function switchIndustryTab(tab) {
+            if (currentIndustryTab === tab) return;
+            currentIndustryTab = tab;
+            document.querySelectorAll('.industry-tab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tab);
+            });
+            // 切换 Tab 时重置排序为默认（按今日涨跌幅降序）
+            industrySortField = 'followed';
+            industrySortOrder = 'desc';
             renderIndustryIndices();
         }
 
