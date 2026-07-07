@@ -12,7 +12,7 @@ from pathlib import Path
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.config import DATA_SOURCES, REQUESTS
+from src.config import DATA_SOURCES, REQUESTS, SOURCE_URLS
 from src.utils import get_logger
 from .base import BaseFetcher, TrendingItem
 
@@ -34,6 +34,10 @@ class DouyinHotFetcher(BaseFetcher):
         super().__init__(config, logger)
         self.logger = logger or get_logger(self.name)
         self.config = config or DATA_SOURCES.get(self.name, {'limit': 50})
+        # P2: 统一从 config 读取 UA/超时/URL
+        self.user_agent = REQUESTS.get('user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        self.page_timeout = int(REQUESTS.get('timeout', 60)) * 1000  # 秒 -> 毫秒
+        self.hot_url = SOURCE_URLS.get('douyin_hot', self.HOT_URL)
 
     def fetch(self) -> List[TrendingItem]:
         """
@@ -51,12 +55,19 @@ class DouyinHotFetcher(BaseFetcher):
         items = []
         try:
             with sync_playwright() as p:
-                # 启动浏览器
-                browser = p.chromium.launch(headless=True)
+                # 启动浏览器（P1: 补齐反检测参数，与知乎/微博一致）
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-web-security',
+                        '--disable-features=IsolateOrigins,site-per-process',
+                    ]
+                )
 
                 # 创建上下文
                 context = browser.new_context(
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    user_agent=self.user_agent,
                     viewport={'width': 1920, 'height': 1080},
                     locale='zh-CN',
                 )
@@ -65,11 +76,16 @@ class DouyinHotFetcher(BaseFetcher):
                 page = context.new_page()
 
                 # 访问抖音热榜
-                self.logger.info(f"访问: {self.HOT_URL}")
-                page.goto(self.HOT_URL, wait_until='domcontentloaded', timeout=30000)
+                self.logger.info(f"访问: {self.hot_url}")
+                page.goto(self.hot_url, wait_until='domcontentloaded', timeout=self.page_timeout)
 
                 # 等待页面加载
                 time.sleep(5)
+                # 等待热榜元素渲染（最长 8s），失败则继续尝试解析
+                try:
+                    page.wait_for_selector('[data-e2e="hot-list-item"], .hot-list-item', timeout=8000)
+                except Exception:
+                    self.logger.warning("未找到热榜元素选择器，尝试继续解析...")
 
                 # 解析热榜数据
                 items = self._parse_hot_list(page)
@@ -91,9 +107,12 @@ class DouyinHotFetcher(BaseFetcher):
         items = []
 
         try:
-            # 尝试使用选择器获取更结构化的数据
-            hot_cards = page.query_selector_all('[data-e2e="hot-list-item"], .hot-list-item, [class*="hot"] [class*="item"], .list-item')
-            
+            # P1: 优先使用精确选择器，避免 [class*="hot"] [class*="item"] 等宽泛匹配引入噪声
+            hot_cards = page.query_selector_all('[data-e2e="hot-list-item"], .hot-list-item')
+            if not hot_cards:
+                # 回退到较宽泛的选择器
+                hot_cards = page.query_selector_all('[class*="hot-list"] [class*="item"], .list-item')
+
             if hot_cards and len(hot_cards) > 0:
                 # 使用结构化解析
                 items = self._parse_structured_cards(hot_cards)
@@ -142,10 +161,18 @@ class DouyinHotFetcher(BaseFetcher):
                 if author_el:
                     author = author_el.inner_text().strip()
                 
-                if title and len(title) > 3:
-                    search_query = title.replace(' ', '').replace('#', '')
-                    url = f"https://www.douyin.com/search/{search_query}"
-                    
+                if title and len(title) >= 2:
+                    # P1: 优先取条目内链接，否则用搜索 URL 兜底
+                    link_el = card.query_selector('a[href]')
+                    url = ''
+                    if link_el:
+                        href = link_el.get_attribute('href') or ''
+                        if href:
+                            url = href if href.startswith('http') else f"https://www.douyin.com{href}"
+                    if not url:
+                        search_query = title.replace(' ', '').replace('#', '')
+                        url = f"https://www.douyin.com/search/{search_query}"
+
                     item = TrendingItem(
                         source=self.name,
                         title=title,
@@ -201,33 +228,16 @@ class DouyinHotFetcher(BaseFetcher):
                             hot_text = f"{match.group(1)}万"
                             i += 1  # 跳过热度行
                         
-                        # 尝试查找创作者（通常在热度之后）
-                        # 注意：抖音热榜通常不显示创作者信息，这里仅在有明确标识时才提取
-                        # 创作者通常有特定的前缀或标识，如 "@用户名" 或 "创作者：xxx"
+                        # P1: 仅当下一行明确以 @ 开头时才识别为创作者
+                        # 抖音热榜通常不显示作者，强猜会引入噪声，故移除脆弱的关键词启发式
                         if i + 3 < len(lines):
                             next_line = lines[i + 3].strip()
-                            # 严格判断：只有符合创作者特征的行才认为是创作者
-                            # 创作者特征：以 @ 开头，或包含 "创作者"、"作者" 等关键词
-                            is_author = (
-                                next_line.startswith('@') or
-                                '创作者' in next_line or
-                                '作者' in next_line or
-                                '发布者' in next_line
-                            )
-                            # 同时排除明显不是创作者的情况（如另一个标题）
-                            is_likely_title = (
-                                len(next_line) > 15 or  # 标题通常较长
-                                '大师赛' in next_line or  # 常见标题关键词
-                                '冠军' in next_line or
-                                '比赛' in next_line or
-                                '决赛' in next_line
-                            )
-                            if is_author and not is_likely_title:
+                            if next_line.startswith('@') and len(next_line) <= 30:
                                 author = next_line
                                 i += 1
 
-                    # 过滤无效标题
-                    if title and len(title) > 3 and not title.startswith('热度'):
+                    # 过滤无效标题（P1: 放宽至 >=2 字符，与其他 fetcher 对齐）
+                    if title and len(title) >= 2 and not title.startswith('热度'):
                         hot_items.append({
                             'rank': rank,
                             'title': title,

@@ -232,25 +232,32 @@ class RetryManager:
                 del self._retry_queue[source]
         
         self.logger.info(f"开始重试数据源: {source}")
-        
+
+        # 重试次数累加（无论成功失败，本次重试都算一次）
+        current_retry_count = self._get_retry_count(source)
+
         try:
             # 执行获取
             fetcher = self._fetchers[source]
             items = fetcher()
-            
-            # 创建成功结果
+
+            success = len(items) > 0
+            # 创建结果（成功时 retry_count 保持当前值，失败时 +1）
             result = FetchResult(
                 source=source,
-                success=len(items) > 0,
+                success=success,
                 item_count=len(items),
                 items=items,
-                error_message=None,
+                error_message=None if success else "获取数据为空",
                 timestamp=datetime.now(),
-                retry_count=self._get_retry_count(source),
-                status=FetchStatus.SUCCESS
+                retry_count=current_retry_count if success else current_retry_count + 1,
+                status=FetchStatus.SUCCESS if success else FetchStatus.PENDING
             )
-            
-            self.logger.info(f"数据源 {source} 重试成功，获取 {len(items)} 条数据")
+
+            if success:
+                self.logger.info(f"数据源 {source} 重试成功，获取 {len(items)} 条数据")
+            else:
+                self.logger.warning(f"数据源 {source} 重试返回空数据")
             
         except Exception as e:
             # 创建失败结果
@@ -261,10 +268,10 @@ class RetryManager:
                 items=[],
                 error_message=str(e),
                 timestamp=datetime.now(),
-                retry_count=self._get_retry_count(source) + 1,
+                retry_count=current_retry_count + 1,
                 status=FetchStatus.PENDING
             )
-            
+
             self.logger.error(f"数据源 {source} 重试失败: {e}")
         
         # 记录结果

@@ -648,9 +648,28 @@ class IndexFetcher:
             end_date = datetime.now().strftime('%Y%m%d')
             start_date = (datetime.now() - timedelta(days=days * 2)).strftime('%Y%m%d')
 
-            df = ak.stock_board_concept_index_ths(symbol=name, start_date=start_date, end_date=end_date)
+            # 尝试用原始 name 获取，失败后遍历 CONCEPT_ALIASES 中的别名
+            # 同花顺源的概念名称可能与白名单名不一致（如白名单"CPO概念"，同花顺叫"共封装光学(CPO)"）
+            candidates = [name]
+            aliases = self.CONCEPT_ALIASES.get(name, [])
+            # 去掉"概念"后缀的变体也加入候选
+            if name.endswith('概念'):
+                candidates.append(name[:-2])
+            candidates.extend(aliases)
+
+            df = None
+            tried_names = []
+            for sym in candidates:
+                try:
+                    tried_names.append(sym)
+                    df = ak.stock_board_concept_index_ths(symbol=sym, start_date=start_date, end_date=end_date)
+                    if df is not None and not df.empty:
+                        break
+                except Exception:
+                    continue
+
             if df is None or df.empty:
-                self.logger.warning(f"概念板块 K 线数据为空: {name}")
+                self.logger.warning(f"概念板块 K 线数据为空: {name}（已尝试: {tried_names}）")
                 return []
 
             # 同花顺源返回字段：日期、开盘价、最高价、最低价、收盘价、成交量、成交额
@@ -710,8 +729,7 @@ class IndexFetcher:
         覆盖范围：
         - 市场指数（MARKET_INDICES）：source='sina'
         - 申万行业指数（从数据库读取代码列表）：source='sw'
-
-        概念板块（同花顺源）K 线按需拉取，不参与批量缓存（数量多且名称动态变化）。
+        - 概念板块（config.yaml concept_watchlist 白名单）：source='ths'
 
         Args:
             db_path: 数据库路径
@@ -744,7 +762,7 @@ class IndexFetcher:
 
         # ===== 2. 缓存申万行业指数 K 线（申万宏源源） =====
         try:
-            industry_indices = dao.get_industry_indices(limit=500)
+            industry_indices = dao.get_industry_indices(limit=10000)
             # 过滤出申万行业指数（code 以 80 开头，6 位数字）
             sw_codes = [
                 (idx.code, idx.name)
@@ -766,6 +784,34 @@ class IndexFetcher:
                     self.logger.error(f"  ❌ 申万行业 {name}({code}) 缓存失败: {e}")
         except Exception as e:
             self.logger.error(f"读取申万行业指数列表失败，跳过该部分缓存: {e}")
+
+        # ===== 3. 缓存概念板块 K 线（同花顺源，按 config 白名单） =====
+        try:
+            watchlist = self.config.get('concept_watchlist', []) if self.config else []
+            if watchlist:
+                self.logger.info(f"开始批量缓存概念板块 K 线数据（白名单 {len(watchlist)} 项）...")
+                concept_saved = 0
+                concept_failed = 0
+                for name in watchlist:
+                    try:
+                        # 概念板块 code 即为名称（中文）
+                        klines = self._fetch_kline_concept(name, days=days)
+                        if klines:
+                            saved = dao.save_klines(name, klines, source='ths')
+                            total_saved += saved
+                            concept_saved += 1
+                        else:
+                            self.logger.warning(f"  ⚠️  概念板块 {name}: K 线数据为空")
+                    except Exception as e:
+                        concept_failed += 1
+                        self.logger.error(f"  ❌ 概念板块 {name} 缓存失败: {e}")
+                self.logger.info(
+                    f"概念板块 K 线缓存完成: 成功 {concept_saved} 个, 失败 {concept_failed} 个"
+                )
+            else:
+                self.logger.debug("概念板块白名单为空，跳过概念板块 K 线缓存")
+        except Exception as e:
+            self.logger.error(f"缓存概念板块 K 线失败: {e}")
 
         self.logger.info(f"K 线数据批量缓存完成: 共 {total_saved} 条")
         return total_saved

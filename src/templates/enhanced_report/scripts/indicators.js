@@ -7,27 +7,37 @@
          * 同步三个图表的 tooltip 高亮
          * @param {Chart} sourceChart  触发源图表
          * @param {number} dataIndex   数据索引
+         * @param {object} eventPos    源图表的鼠标位置（可选，用于计算目标图表的 tooltip 位置）
          */
-        function syncChartsTooltip(sourceChart, dataIndex) {
+        function syncChartsTooltip(sourceChart, dataIndex, eventPos) {
             if (_syncTooltipLock) return;
             _syncTooltipLock = true;
-            try {
-                const charts = [klineChart, volumeChart, indicatorChart];
-                charts.forEach(c => {
-                    if (!c || c === sourceChart) return;
-                    // 找到第一个非隐藏 dataset 来设置 active element
-                    let dsIdx = 0;
-                    for (let i = 0; i < c.data.datasets.length; i++) {
-                        const meta = c.getDatasetMeta(i);
-                        if (meta && !meta.hidden) { dsIdx = i; break; }
-                    }
-                    c.setActiveElements([{ datasetIndex: dsIdx, index: dataIndex }]);
-                    c.tooltip.setActiveElements([{ datasetIndex: dsIdx, index: dataIndex }], { x: 0, y: 0 });
-                    c.update();
-                });
-            } finally {
-                _syncTooltipLock = false;
-            }
+            // 用 requestAnimationFrame 延迟同步，让源图表的原生 tooltip 先完成更新与渲染，
+            // 避免同步调用 c.update('none') 阻塞 event 处理导致源图表 tooltip opacity 为 0。
+            requestAnimationFrame(() => {
+                try {
+                    const charts = [klineChart, volumeChart, indicatorChart];
+                    charts.forEach(c => {
+                        if (!c || c === sourceChart) return;
+                        // 找到第一个非隐藏 dataset 来设置 active element
+                        let dsIdx = 0;
+                        for (let i = 0; i < c.data.datasets.length; i++) {
+                            const meta = c.getDatasetMeta(i);
+                            if (meta && !meta.hidden) { dsIdx = i; break; }
+                        }
+                        // 用目标 chart 的 canvas 中心作为 eventPosition，避免 (0,0) 导致 tooltip 不渲染
+                        const canvas = c.canvas;
+                        const xPos = canvas ? canvas.width / 2 : 0;
+                        const yPos = canvas ? canvas.height / 2 : 0;
+                        c.setActiveElements([{ datasetIndex: dsIdx, index: dataIndex }]);
+                        c.tooltip.setActiveElements([{ datasetIndex: dsIdx, index: dataIndex }], { x: xPos, y: yPos });
+                        // 用 render() 代替 update('none')：只触发渲染，不重新计算数据集，更轻量
+                        c.render();
+                    });
+                } finally {
+                    _syncTooltipLock = false;
+                }
+            });
         }
 
         /** 清除所有图表的 active 高亮 */
@@ -39,10 +49,24 @@
                     if (!c) return;
                     c.setActiveElements([]);
                     c.tooltip.setActiveElements([], { x: 0, y: 0 });
-                    c.update();
+                    c.update('none');
                 });
             } finally {
                 _syncTooltipLock = false;
+            }
+        }
+
+        /**
+         * 通用 onHover 处理：基于 index 模式获取数据索引并同步三图 tooltip
+         * 用 getElementsAtEventForMode 替代 elements 参数，确保即使 bar 较细也能获取 index
+         * @param {Chart} chart   当前图表实例
+         * @param {Event} event   鼠标事件
+         */
+        function handleChartHover(chart, event) {
+            if (!chart || !event) return;
+            const els = chart.getElementsAtEventForMode(event, 'index', { intersect: false }, false);
+            if (els && els.length > 0) {
+                syncChartsTooltip(chart, els[0].index, { x: event.x, y: event.y });
             }
         }
 
@@ -504,13 +528,13 @@
                         intersect: false
                     },
                     onHover: (event, elements) => {
-                        if (elements && elements.length > 0) {
-                            syncChartsTooltip(indicatorChart, elements[0].index);
-                        }
+                        handleChartHover(indicatorChart, event);
                     },
                     plugins: {
                         legend: { display: true },
                         tooltip: {
+                            mode: 'index',
+                            intersect: false,
                             callbacks: {
                                 title: function(items) {
                                     if (!items || !items.length) return '';
@@ -594,13 +618,13 @@
                         intersect: false
                     },
                     onHover: (event, elements) => {
-                        if (elements && elements.length > 0) {
-                            syncChartsTooltip(volumeChart, elements[0].index);
-                        }
+                        handleChartHover(volumeChart, event);
                     },
                     plugins: {
                         legend: { display: false },
                         tooltip: {
+                            mode: 'index',
+                            intersect: false,
                             callbacks: {
                                 title: function(items) {
                                     if (!items || !items.length) return '';

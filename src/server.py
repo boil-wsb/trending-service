@@ -172,13 +172,13 @@ class TrendingServer:
             """申万行业指数列表（含 3日/7日 涨跌幅、金叉信号，60s 缓存）"""
             try:
                 from src.db.index_dao import IndexDAO
-                from src.utils.crossover import get_cached_crossover
+                from src.utils.crossover import get_cached_crossover, get_cached_drawdown
                 from flask import request
 
                 try:
-                    limit = min(int(request.args.get('limit', 500)), 1000)
+                    limit = min(int(request.args.get('limit', 10000)), 10000)
                 except (ValueError, TypeError):
-                    limit = 500
+                    limit = 10000
 
                 # 缓存检查（60s TTL）
                 cache_key = f"industry:{limit}"
@@ -195,6 +195,8 @@ class TrendingServer:
                     d = idx.to_dict()
                     # 从内存缓存读取金叉信号（由定时任务后台预计算）
                     d['crossover'] = get_cached_crossover(idx.code)
+                    # 从内存缓存读取距高点回撤数据
+                    d['drawdown'] = get_cached_drawdown(idx.code)
                     result_list.append(d)
 
                 result = jsonify({
@@ -431,7 +433,7 @@ class TrendingServer:
 
                 dao = IndexDAO(DATABASE['path'])
                 # 获取全部行业指数（含 3日/7日涨跌幅）
-                indices = dao.get_industry_indices_with_changes(limit=500)
+                indices = dao.get_industry_indices_with_changes(limit=10000)
                 if not indices:
                     result = jsonify({'success': True, 'data': {'indices': [], 'count': 0}})
                     _api_cache.set(cache_key, result, ttl=60)

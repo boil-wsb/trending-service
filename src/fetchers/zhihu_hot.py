@@ -6,6 +6,7 @@
 import os
 import sys
 import json
+import re
 import time
 from typing import List, Dict, Optional
 from pathlib import Path
@@ -13,7 +14,7 @@ from pathlib import Path
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.config import DATA_SOURCES, REQUESTS, PROJECT_ROOT
+from src.config import DATA_SOURCES, REQUESTS, SOURCE_URLS, PROJECT_ROOT
 from src.utils import get_logger
 from .base import BaseFetcher, TrendingItem
 
@@ -36,6 +37,10 @@ class ZhihuHotFetcher(BaseFetcher):
         self.logger = logger or get_logger(self.name)
         self.config = config or DATA_SOURCES.get(self.name, {'limit': 50})
         self.cookies_file = PROJECT_ROOT / 'data' / 'zhihu_cookies.json'
+        # P2: 统一从 config 读取 UA/超时/URL，支持热加载与统一管理
+        self.user_agent = REQUESTS.get('user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        self.page_timeout = int(REQUESTS.get('timeout', 60)) * 1000  # 秒 -> 毫秒
+        self.hot_url = SOURCE_URLS.get('zhihu_hot', self.HOT_URL)
 
     def fetch(self) -> List[TrendingItem]:
         """
@@ -65,7 +70,7 @@ class ZhihuHotFetcher(BaseFetcher):
 
                 # 创建上下文
                 context = browser.new_context(
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    user_agent=self.user_agent,
                     viewport={'width': 1920, 'height': 1080},
                     locale='zh-CN',
                 )
@@ -81,8 +86,8 @@ class ZhihuHotFetcher(BaseFetcher):
                 page = context.new_page()
 
                 # 访问知乎热榜
-                self.logger.info(f"访问: {self.HOT_URL}")
-                page.goto(self.HOT_URL, wait_until='domcontentloaded', timeout=60000)
+                self.logger.info(f"访问: {self.hot_url}")
+                page.goto(self.hot_url, wait_until='domcontentloaded', timeout=self.page_timeout)
 
                 # 等待页面加载完成
                 time.sleep(3)
@@ -160,6 +165,7 @@ class ZhihuHotFetcher(BaseFetcher):
 
                     # 获取热度
                     hot_score = 0.0
+                    metrics_text = ''  # 预初始化，避免作用域未定义
                     metrics_elem = item_element.query_selector('.HotItem-metrics')
                     if metrics_elem:
                         metrics_text = metrics_elem.inner_text().strip()
@@ -196,23 +202,29 @@ class ZhihuHotFetcher(BaseFetcher):
                     self.logger.warning(f"解析热榜条目失败: {e}")
                     continue
 
+            # P1: 应用 limit 限制（与其他 fetcher 一致）
+            limit = self.config.get('limit', 50)
+            items = items[:limit]
+
         except Exception as e:
             self.logger.error(f"解析热榜页面失败: {e}")
 
         return items
 
     def _parse_hot_score(self, text: str) -> float:
-        """解析热度文本"""
+        """解析热度文本（优先匹配"X 万"格式，避免误匹配排名数字）"""
+        if not text:
+            return 0.0
         try:
-            # 处理格式: "1234 万热度"、"1234 热度" 等
-            import re
-            match = re.search(r'(\d+(?:\.\d+)?)\s*万?', text)
+            # 优先匹配 "X 万" 格式（带单位），避免误匹配排名等其它数字
+            match = re.search(r'(\d+(?:\.\d+)?)\s*万', text)
             if match:
-                score = float(match.group(1))
-                if '万' in text:
-                    score *= 10000
-                return score
-        except:
+                return float(match.group(1)) * 10000
+            # 再匹配纯数字（如 "1234 热度"）
+            match = re.search(r'(\d+(?:\.\d+)?)', text)
+            if match:
+                return float(match.group(1))
+        except (ValueError, AttributeError):
             pass
         return 0.0
 

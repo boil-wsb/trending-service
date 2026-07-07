@@ -4,13 +4,15 @@
 """
 
 import sys
+import re
+import time
 from typing import List, Dict, Optional
 from pathlib import Path
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.config import DATA_SOURCES, REQUESTS
+from src.config import DATA_SOURCES, REQUESTS, SOURCE_URLS
 from src.utils import get_logger
 from .base import BaseFetcher, TrendingItem
 
@@ -32,6 +34,10 @@ class WeiboHotFetcher(BaseFetcher):
         super().__init__(config, logger)
         self.logger = logger or get_logger(self.name)
         self.config = config or DATA_SOURCES.get(self.name, {'limit': 50})
+        # P2: 统一从 config 读取 UA/超时/URL
+        self.user_agent = REQUESTS.get('user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        self.page_timeout = int(REQUESTS.get('timeout', 60)) * 1000  # 秒 -> 毫秒
+        self.hot_url = SOURCE_URLS.get('weibo_hot', self.HOT_URL)
 
     def fetch(self) -> List[TrendingItem]:
         """
@@ -61,7 +67,7 @@ class WeiboHotFetcher(BaseFetcher):
 
                 # 创建上下文
                 context = browser.new_context(
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    user_agent=self.user_agent,
                     viewport={'width': 1920, 'height': 1080},
                     locale='zh-CN',
                 )
@@ -70,12 +76,16 @@ class WeiboHotFetcher(BaseFetcher):
                 page = context.new_page()
 
                 # 访问微博热搜
-                self.logger.info(f"访问: {self.HOT_URL}")
-                page.goto(self.HOT_URL, wait_until='domcontentloaded', timeout=30000)
+                self.logger.info(f"访问: {self.hot_url}")
+                page.goto(self.hot_url, wait_until='domcontentloaded', timeout=self.page_timeout)
 
                 # 等待页面加载
-                import time
                 time.sleep(3)
+                # 等待热搜表格渲染完成（最长 5s），失败则继续尝试解析
+                try:
+                    page.wait_for_selector('#pl_top_realtimehot table tr', timeout=5000)
+                except Exception:
+                    self.logger.warning("未找到热搜表格选择器，尝试继续解析...")
 
                 # 解析热榜数据
                 items = self._parse_hot_list(page)
@@ -109,9 +119,9 @@ class WeiboHotFetcher(BaseFetcher):
                     if len(tds) < 2:
                         continue
 
-                    # 获取排名
-                    rank_elem = tds[0].query_selector('i')
-                    rank = rank_elem.inner_text().strip() if rank_elem else str(idx)
+                    # 获取排名：优先取单元格纯文本，其次 <i>，最后用循环下标兜底
+                    rank_text = tds[0].inner_text().strip()
+                    rank = rank_text if rank_text.isdigit() else str(idx)
 
                     # 获取标题和链接
                     title_elem = tds[1].query_selector('a')
@@ -123,17 +133,14 @@ class WeiboHotFetcher(BaseFetcher):
                     if url.startswith('/'):
                         url = f"https://s.weibo.com{url}"
 
-                    # 获取热度
+                    # 获取热度（支持"万"单位）
                     hot_score = 0.0
                     hot_elem = tds[1].query_selector('span')
                     if hot_elem:
                         hot_text = hot_elem.inner_text().strip()
-                        try:
-                            hot_score = float(hot_text)
-                        except:
-                            pass
+                        hot_score = self._parse_hot_score(hot_text)
 
-                    # 获取标签（热、新、爆等）
+                    # 获取标签（热、新、沸、爆等）
                     tag_elem = tds[1].query_selector('i')
                     tag = tag_elem.inner_text().strip() if tag_elem else ''
 
@@ -166,6 +173,23 @@ class WeiboHotFetcher(BaseFetcher):
             self.logger.error(f"解析热榜页面失败: {e}")
 
         return items
+
+    def _parse_hot_score(self, text: str) -> float:
+        """解析热度文本（支持"万"单位，与知乎/抖音保持一致）"""
+        if not text:
+            return 0.0
+        try:
+            # 优先匹配 "X 万" 格式
+            match = re.search(r'(\d+(?:\.\d+)?)\s*万', text)
+            if match:
+                return float(match.group(1)) * 10000
+            # 再匹配纯数字
+            match = re.search(r'(\d+(?:\.\d+)?)', text)
+            if match:
+                return float(match.group(1))
+        except (ValueError, AttributeError):
+            pass
+        return 0.0
 
 
 def main():

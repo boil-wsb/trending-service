@@ -308,16 +308,16 @@ class FetchFailureDAO:
         deleted_count = self.db.execute('DELETE FROM fetch_failures')
         return deleted_count
     
-    def _row_to_failure(self, row: tuple) -> FetchFailure:
+    def _row_to_failure(self, row: dict) -> FetchFailure:
         """将数据库行转换为 FetchFailure 对象"""
         return FetchFailure(
-            id=row[0],
-            source=row[1],
-            error_message=row[2],
-            retry_count=row[3] or 0,
-            last_try_at=row[4],
-            next_retry_at=row[5],
-            status=FailureStatus(row[6]) if row[6] else FailureStatus.PENDING,
-            created_at=row[7],
-            updated_at=row[8]
+            id=row['id'],
+            source=row['source'],
+            error_message=row['error_message'],
+            retry_count=row['retry_count'] or 0,
+            last_try_at=row['last_try_at'],
+            next_retry_at=row['next_retry_at'],
+            status=FailureStatus(row['status']) if row['status'] else FailureStatus.PENDING,
+            created_at=row['created_at'],
+            updated_at=row['updated_at']
         )

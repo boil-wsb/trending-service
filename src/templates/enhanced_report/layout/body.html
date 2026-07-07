@@ -154,6 +154,7 @@
                                     <th class="sortable" onclick="sortIndustryTable('change_pct')">今日涨跌幅 <span class="sort-arrow"></span></th>
                                     <th class="sortable" onclick="sortIndustryTable('change_pct_3d')">3日涨跌幅 <span class="sort-arrow"></span></th>
                                     <th class="sortable" onclick="sortIndustryTable('change_pct_7d')">7日涨跌幅 <span class="sort-arrow"></span></th>
+                                    <th class="sortable" onclick="sortIndustryTable('drawdown')" title="距 K 线历史最高收盘价的回撤幅度">距高点回撤 <span class="sort-arrow"></span></th>
                                     <th class="sortable rotation-col" onclick="sortIndustryTable('momentum')" title="动量得分">动量 <span class="sort-arrow"></span></th>
                                     <th class="sortable rotation-col" onclick="sortIndustryTable('rank_today')" title="今日排名">今日排名 <span class="sort-arrow"></span></th>
                                     <th class="sortable rotation-col" onclick="sortIndustryTable('rank_3d')" title="3日排名">3日排名 <span class="sort-arrow"></span></th>
@@ -164,7 +165,7 @@
                                 </tr>
                             </thead>
                             <tbody id="industry-indices-body">
-                                <tr><td colspan="14" class="index-loading">加载中...</td></tr>
+                                <tr><td colspan="15" class="index-loading">加载中...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -212,7 +213,8 @@
                         <label>周期：</label>
                         <select id="kline-days" onchange="loadKlineData()">
                             <option value="7">7天</option>
-                            <option value="30" selected>30天</option>
+                            <option value="30">30天</option>
+                            <option value="60" selected>60天</option>
                             <option value="90">90天</option>
                             <option value="180">180天</option>
                         </select>

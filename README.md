@@ -1,238 +1,108 @@
 # Trending Service
 
-## 项目概述
+## 项目简介
 
-**Trending Service** 是一个热点信息采集服务，自动获取 GitHub Trending、B站热门视频、ArXiv论文等热点信息，并通过Web界面展示。
+**Trending Service** 是一个热点信息采集与 A 股行情分析服务，自动获取 GitHub Trending、B站热门、ArXiv 论文、知乎/微博/抖音热榜、AIHOT 等热点信息，同时采集 A 股市场指数、申万行业指数、概念板块 K 线、行业轮动与主力资金流向，通过 Web 界面集中展示。
 
-## 功能特性
+### 核心功能
 
-- 📊 **GitHub Trending** 获取
-- 🎬 **B站热门视频** 获取
-- 🧬 **ArXiv论文** 获取（支持生物和计算机-人工智能分类）
-- 🤖 **AI Trending** 获取
-- 🌐 **Web界面** 展示热点报告
-- 🔄 **定时任务** 自动获取热点信息
-- 📡 **API接口** 提供数据访问
-- 🛠️ **服务管理** 脚本（启动/停止/检查）
+**热点数据采集**：GitHub Trending（含 AI 子榜）、B站热门、ArXiv 论文、HackerNews、知乎热榜、微博热搜、抖音热榜、AIHOT 资讯
+
+**A 股行情分析**：市场指数、申万行业指数（含涨跌幅/回撤/动量/排名变化）、K 线图（candlestick 蜡烛图 + MA/BOLL/MACD/RSI/KDJ + 金叉信号）、行业轮动分析、主力资金流向、概念板块（白名单过滤）
+
+**系统特性**：暗色主题 Web 界面、定时任务调度、重试管理器、RESTful API、HTML 报告自动生成
 
 ## 环境要求
 
-- **Python**: 3.8 或更高版本（推荐 3.10+）
+- **Python**: 3.12+（推荐 3.12.10）
+- **Playwright Chromium**: 知乎/抖音数据源必需
 - **操作系统**: Windows / Linux / macOS
 
-## 安装说明
+## 安装步骤
 
-### 1. 克隆项目
-
-```bash
-git clone <repository-url>
-cd trending-service
-```
-
-### 2. 创建虚拟环境（推荐）
-
-```bash
-# 创建虚拟环境
-python -m venv venv
-
-# 激活虚拟环境
-# Windows:
-venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
-```
-
-### 3. 安装依赖
+### 1. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. 配置项目
+### 2. 安装 Playwright Chromium
 
-项目配置位于 `config.yaml` 文件中，可根据需要调整服务器端口、定时任务时间、数据源等设置。配置支持热加载，修改后无需重启服务即可生效。
+项目将 `PLAYWRIGHT_BROWSERS_PATH` 指向项目本地 `vendor/playwright-browsers/`，必须安装到该路径：
+
+```powershell
+# Windows PowerShell
+$env:PLAYWRIGHT_BROWSERS_PATH='d:\MYDATA\Include\trending-service\vendor\playwright-browsers'
+C:\Users\<用户名>\.pyenv\pyenv-win\versions\3.12.10\python.exe -m playwright install chromium
+```
+
+验证：`vendor/playwright-browsers/chromium-1208/chrome-win64/chrome.exe` 应存在。
+
+### 3. 配置
+
+配置文件 `config.yaml` 支持热加载，主要项：
+- `server.port`: 端口（默认 8888）
+- `data_sources`: 数据源开关、条数、概念板块白名单
+- `schedule`: 定时任务（fetch_trending 每 8 小时 / fetch_index 开盘时段每 30 分钟）
+- `database.path`: SQLite 路径（默认 `data/db/trending.db`）
 
 ## 使用方法
+
+### 启动服务
+
+```bash
+# 前台模式
+python -m src.main
+
+# 后台模式（关闭 IDE 仍运行）
+python scripts/start_service.py
+```
+
+### 访问报告
+
+```
+http://localhost:8888/report.html
+```
+
+### 服务管理
+
+```bash
+python scripts/start_service.py   # 启动
+python scripts/stop_service.py    # 停止
+python scripts/check_service.py   # 检查状态
+python -m src.main --status       # 查看状态
+```
+
+### 立即执行任务
+
+```bash
+# 执行热点采集任务
+python -m src.main --run-task fetch_trending
+
+# 刷新指定数据源（不影响运行中的服务）
+python -m src.main --refresh weibo zhihu douyin
+
+# 刷新所有数据源
+python -m src.main --refresh
+```
 
 ### 手动生成报告
 
 ```bash
-python -c "from src.utils import ReportGenerator; ReportGenerator().generate_report()"
+python -c "import sys; sys.path.insert(0, '.'); from src.utils.report_generator import ReportGenerator; ReportGenerator().generate_report()"
 ```
 
-### 启动服务（前台模式）
-
-```bash
-python -m src.main
-```
-
-### 启动服务（后台模式）
-
-```bash
-python scripts/start_service.py
-```
-
-后台模式即使关闭IDE，服务也会继续运行。
-
-### 访问报告
-
-服务启动后，在浏览器中打开：
-
-```
-http://localhost:8000/report.html
-```
-
-
-
-## 项目结构
-
-```
-trending-service/
-├── src/                          # 源代码目录
-│   ├── __init__.py              # 包初始化
-│   ├── main.py                  # 主启动文件
-│   ├── server.py                # HTTP服务器
-│   ├── scheduler.py             # 定时任务调度器
-│   ├── config.py                # 配置文件
-│   ├── fetchers/                # 数据获取模块
-│   │   ├── __init__.py
-│   │   ├── github_trending.py   # GitHub热点获取
-│   │   ├── bilibili_hot.py      # B站热门获取
-│   │   └── arxiv_papers.py      # arXiv论文获取
-│   └── utils/                   # 工具模块
-│       ├── __init__.py
-│       ├── html_generator.py    # HTML生成器
-│       └── logger.py            # 日志工具
-├── data/                        # 数据目录
-│   ├── reports/                 # 生成的报告
-│   └── logs/                    # 日志文件
-├── scripts/                     # 脚本目录
-│   ├── start_service.py         # 启动脚本
-│   ├── stop_service.py          # 停止脚本
-│   └── check_service.py         # 检查脚本
-├── requirements.txt             # 依赖包
-├── setup.py                     # 安装脚本
-└── .gitignore                   # Git忽略文件
-```
-
-## API接口
-
-### 获取GitHub热点
-
-```
-GET http://localhost:8000/api/github_trending
-```
-
-### 获取B站热门
-
-```
-GET http://localhost:8000/api/bilibili_trending
-```
-
-### 获取ArXiv生物分类
-
-```
-GET http://localhost:8000/api/arxiv_biology
-```
-
-### 获取ArXiv计算机-人工智能分类
-
-```
-GET http://localhost:8000/api/arxiv_computer_ai
-```
-
-### 获取AI热点
-
-```
-GET http://localhost:8000/api/ai_trending
-```
-
-### 获取GitHub本周增长
-
-```
-GET http://localhost:8000/api/github_weekly_growth
-```
-
-## 定时任务
-
-服务内部集成了定时任务，无需外部依赖：
-
-| 任务               | 执行时间  | 功能                 |
-| ------------------ | --------- | -------------------- |
-| **fetch_trending** | 每日 8:00 | 自动获取所有热点信息 |
-
-## 后台运行
-
-### 启动服务（后台模式）
-
-```bash
-python scripts/start_service.py
-```
-
-服务将在后台运行，即使关闭IDE也不会停止。
-
-### 停止服务
-
-```bash
-python scripts/stop_service.py
-```
-
-### 检查服务状态
-
-```bash
-python scripts/check_service.py
-```
-
-### 服务管理说明
-
-- **PID文件**: `trending_service.pid` - 存储服务进程ID
-- **日志文件**: `data/logs/trending_service.log` - 记录服务运行日志
-- **访问地址**: http://localhost:8000/report.html
+> **重要**：`src/templates/enhanced_report/` 下的文件是权威来源（source），`data/reports/report.html` 是生成产物。修改前端代码只改 source，再重新生成报告，避免双向修改不同步。
 
 ## 技术栈
 
-- **Python 3.12+**
-- **Flask** - Web框架
-- **requests** - HTTP客户端
-- **BeautifulSoup** - HTML解析
-- **logging** - 日志记录
-
-## 日志文件
-
-服务日志位于：
-
-```
-data/logs/trending_service.log
-```
-
-## 维护说明
-
-1. 定期检查日志文件，确保服务正常运行
-2. 监控服务运行状态，可使用 `check_service.py` 脚本
-3. 根据需要调整定时任务时间（在 `config.yaml` 中）
-4. 如需修改数据源或添加新的数据源，可修改 `src/fetchers/` 目录下的相应文件
-5. 配置文件 `config.yaml` 支持热加载，修改后约 2 秒内自动生效
-
-## 常见问题
-
-### 服务无法启动
-
-- 检查端口是否被占用
-- 检查依赖是否正确安装
-- 查看日志文件了解具体错误
-
-### 数据不更新
-
-- 检查定时任务是否启用（在 `config.yaml` 中）
-- 手动运行服务，查看控制台输出了解错误
-- 检查网络连接是否正常
-
-### 报告页面显示异常
-
-- 检查浏览器控制台是否有错误信息
-- 检查数据文件是否存在且格式正确
-- 重启服务尝试解决
+- **Python 3.12+** + **Flask** - Web 框架
+- **Playwright** - 浏览器自动化（知乎/抖音热榜）
+- **Chart.js 4.4.1** + **chartjs-chart-financial 0.2.1** + **chartjs-adapter-date-fns 3.0.0** - K 线图渲染
+- **jieba** - 中文分词
+- **SQLite** - 数据存储
+- **APScheduler** - 定时任务
 
 ## 许可证
 
-本项目采用 MIT 许可证。
+MIT

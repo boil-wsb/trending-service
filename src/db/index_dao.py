@@ -208,8 +208,8 @@ class IndexDAO:
         Returns:
             带有 change_pct_3d 和 change_pct_7d 的指数数据列表
         """
-        # 1. 获取最新日期的全部行业指数（不 limit，先查全部再排序后截取）
-        indices = self.get_industry_indices(limit=500)
+        # 1. 获取最新日期的全部行业指数（不限制数量，先查全部再排序后截取）
+        indices = self.get_industry_indices(limit=10000)
         if not indices:
             return indices
 

@@ -21,6 +21,12 @@ except ImportError:
 PROJECT_ROOT = Path(__file__).parent.parent
 CONFIG_FILE = PROJECT_ROOT / 'config.yaml'
 
+# 方案 A: 在 import playwright 之前设置浏览器二进制路径，实现项目内绑定，减少对系统用户目录的依赖。
+# 必须在任何 playwright import 之前生效；由于 fetcher 模块均为 `from src.config import ...` 在
+# `from playwright...` 之前，本模块最先执行，可保证环境变量先于 playwright 读取路径时设置。
+# 使用 setdefault 允许外部环境（如 CI 共享缓存）通过显式设置同名变量覆盖。
+os.environ.setdefault('PLAYWRIGHT_BROWSERS_PATH', str(PROJECT_ROOT / 'vendor' / 'playwright-browsers'))
+
 DATA_DIR = PROJECT_ROOT / "data"
 REPORTS_DIR = DATA_DIR / "reports"
 LOGS_DIR = DATA_DIR / "logs"

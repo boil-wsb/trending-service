@@ -145,7 +145,7 @@
             try {
                 const [marketRes, industryRes] = await Promise.all([
                     fetch('/api/index/market'),
-                    fetch('/api/index/industry?limit=1000')
+                    fetch('/api/index/industry?limit=10000')
                 ]);
                 const marketData = await marketRes.json();
                 const industryData = await industryRes.json();
@@ -397,26 +397,11 @@
             // 获取关注列表
             const followedSet = new Set(getFollowedIndices());
 
-            // 排序（三级优先级：关注状态 > 趋势强度+金叉信号 > 用户排序字段）
-            // 趋势强度排序映射
-            const TREND_RANK = {
-                'strong_bull': 5, 'weak_bull': 4, 'sideways': 3,
-                'weak_bear': 2, 'strong_bear': 1
-            };
-            // 综合排序分：趋势强度×10 + 金叉信号分（趋势优先，金叉作为同趋势内的微调）
-            const crossoverRank = (co) => {
-                if (!co) return 0;
-                let rank = 0;
-                // 趋势分（权重高）
-                if (co.trend && co.trend.trend) {
-                    rank += (TREND_RANK[co.trend.trend] || 3) * 10;
-                }
-                // 金叉信号分（权重低，作为同趋势内的微调）
-                if (co.macd === 'golden') rank += 3;
-                if (co.ma === 'golden') rank += 3;
-                if (co.macd === 'near_golden') rank += 1;
-                if (co.ma === 'near_golden') rank += 1;
-                return rank;
+            // 排序（三级优先级：关注状态 > 金叉标识置顶 > 正常排序）
+            // 仅 MACD金叉 / MA金叉 视为金叉置顶；其他标识（趋势/即将金叉）按正常排序
+            const isGolden = (co) => {
+                if (!co) return false;
+                return co.macd === 'golden' || co.ma === 'golden';
             };
             const sorted = [...filtered].sort((a, b) => {
                 // 1) 关注状态优先（始终最优先）
@@ -425,16 +410,16 @@
                 if (aFollowed !== bFollowed) {
                     return bFollowed - aFollowed;  // 关注的在前
                 }
-                // 2) 趋势强度+金叉信号次优先（综合分高的在前）
-                const aCross = crossoverRank(a.crossover);
-                const bCross = crossoverRank(b.crossover);
-                if (aCross !== bCross) {
-                    return bCross - aCross;
+                // 2) 金叉标识置顶（仅 MACD金叉 / MA金叉），其他标识按正常排序
+                const aGolden = isGolden(a.crossover) ? 1 : 0;
+                const bGolden = isGolden(b.crossover) ? 1 : 0;
+                if (aGolden !== bGolden) {
+                    return bGolden - aGolden;
                 }
-                // 3) 用户选中的排序字段（同关注状态+同综合分时）
+                // 3) 正常排序
+                // 默认（industrySortField === 'followed'）按今日涨跌幅降序
                 if (industrySortField === 'followed') {
-                    // 默认排序：前两级已确定，按 code 升序兜底保持稳定
-                    return a.code.localeCompare(b.code);
+                    return (b.change_pct || 0) - (a.change_pct || 0);
                 }
                 let valA = a[industrySortField];
                 let valB = b[industrySortField];
@@ -454,6 +439,10 @@
                         valA = (rotA.rank_change_pct != null && rotA.rank_change_pct_7d != null) ? (rotA.rank_change_pct_7d - rotA.rank_change_pct) : null;
                         valB = (rotB.rank_change_pct != null && rotB.rank_change_pct_7d != null) ? (rotB.rank_change_pct_7d - rotB.rank_change_pct) : null;
                     }
+                } else if (industrySortField === 'drawdown') {
+                    // 回撤从 idx.drawdown.drawdown_pct 解析
+                    valA = a.drawdown ? a.drawdown.drawdown_pct : null;
+                    valB = b.drawdown ? b.drawdown.drawdown_pct : null;
                 }
                 // null 值排到最后
                 if (valA == null) valA = industrySortOrder === 'asc' ? Infinity : -Infinity;
@@ -499,7 +488,7 @@
             };
 
             if (sorted.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="14" class="index-loading">未找到匹配的数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="15" class="index-loading">未找到匹配的数据</td></tr>';
             } else {
                 tbody.innerHTML = sorted.map(idx => {
                     const changeClass = formatChangeClass(idx.change_pct);
@@ -510,6 +499,18 @@
                     // 今日涨跌幅：带色深背景
                     const todayBg = getChangeDepthBg(idx.change_pct, 5, 0.10, 0.45);
                     const todayChangeHtml = `<span style="padding:2px 6px;border-radius:3px;background:${todayBg};">${formatChangeText(idx.change, idx.change_pct)}</span>`;
+                    // 距高点回撤：回撤越深背景越红
+                    let drawdownHtml = '<span class="index-flat">—</span>';
+                    if (idx.drawdown) {
+                        const dd = idx.drawdown.drawdown_pct;
+                        // 回撤着色：0-20% 浅红，20-35% 中红，35-50% 深红，50%+ 极深红
+                        let ddBg;
+                        if (dd >= 50) ddBg = 'rgba(220,38,38,0.55)';
+                        else if (dd >= 35) ddBg = 'rgba(220,38,38,0.38)';
+                        else if (dd >= 20) ddBg = 'rgba(220,38,38,0.22)';
+                        else ddBg = 'rgba(220,38,38,0.10)';
+                        drawdownHtml = `<span class="index-down" style="padding:2px 6px;border-radius:3px;background:${ddBg};" title="最高 ${idx.drawdown.high_price} (${idx.drawdown.high_date})，距今 ${idx.drawdown.days_since_high} 天">-${dd.toFixed(2)}%</span>`;
+                    }
                     // 合并轮动数据
                     const rot = rotationByCode[idx.code] || {};
                     const momentum = rot.momentum;
@@ -536,6 +537,7 @@
                             <td>${todayChangeHtml}</td>
                             <td>${formatMultiDayChange(idx.change_pct_3d)}</td>
                             <td>${formatMultiDayChange(idx.change_pct_7d)}</td>
+                            <td>${drawdownHtml}</td>
                             <td class="rotation-col">${momentumHtml}</td>
                             <td class="rotation-col">${fmtRank(rankToday)}</td>
                             <td class="rotation-col">${fmtRank(rank3d)}</td>
@@ -621,14 +623,21 @@
         // 加载K线数据
         async function loadKlineData() {
             if (!currentKlineCode) return;
-            const days = document.getElementById('kline-days').value;
+            const displayDays = parseInt(document.getElementById('kline-days').value, 10) || 30;
+            // 多取 60 天历史用于 MA60 / BOLL(20) 等指标计算，
+            // 确保显示窗口内每个交易日的均线都有完整数据支撑（避免起始段 MA 缺失）。
+            const fetchDays = Math.min(displayDays + 60, 365);
             try {
-                const res = await fetch(`/api/index/kline?code=${currentKlineCode}&days=${days}`);
+                const res = await fetch(`/api/index/kline?code=${currentKlineCode}&days=${fetchDays}`);
                 const data = await res.json();
                 if (data.success) {
-                    const klines = data.data.kline || [];
-                    const crossoverPoints = data.data.crossover_points || [];
-                    renderKlineChart(klines, crossoverPoints);
+                    const allKlines = data.data.kline || [];
+                    const allCrossoverPoints = data.data.crossover_points || [];
+                    // 主图：传完整数据 + displayDays，内部计算 MA 后切片显示
+                    renderKlineChart(allKlines, allCrossoverPoints, displayDays);
+                    // 副图/风险指标：只传显示窗口内的数据
+                    const start = Math.max(0, allKlines.length - displayDays);
+                    const klines = allKlines.slice(start);
                     renderVolumeChart(klines);
                     renderRiskMetrics(klines);
                     // 初始化指标描述和默认指标图
@@ -674,126 +683,169 @@
         }
 
         // 渲染K线图（使用 Chart.js）
-        function renderKlineChart(klines, crossoverPoints) {
+        // allKlines: 完整历史数据（含 MA 计算所需的缓冲期）
+        // allCrossoverPoints: 完整历史金叉点
+        // displayDays: 实际显示的天数（只渲染 allKlines 的最后 displayDays 天）
+        function renderKlineChart(allKlines, allCrossoverPoints, displayDays) {
             const canvas = document.getElementById('kline-canvas');
-            if (!canvas || !klines || klines.length === 0) return;
+            if (!canvas || !allKlines || allKlines.length === 0) return;
 
             if (klineChart) {
                 klineChart.destroy();
             }
 
-            // 保存当前 K 线数据供其他函数访问
+            // 日期字符串 -> 时间戳（ms）。chartjs-chart-financial 0.2.1 candlestick 的
+            // FinancialController 设置 parsing:false，要求 dataset 数据为对象格式，
+            // x 轴为 timeseries，t 字段需要可排序的数值（时间戳）。
+            const toTs = (dateStr) => {
+                // dateStr 形如 'YYYY-MM-DD'，构造为 UTC 0 点避免时区偏移
+                const parts = String(dateStr).split('-');
+                if (parts.length !== 3) return Date.parse(dateStr);
+                const [y, m, d] = parts.map(Number);
+                return Date.UTC(y, m - 1, d);
+            };
+
+            // 用完整历史数据计算 MA / BOLL，确保显示窗口起始日的均线已有完整数据支撑。
+            // calculateMA 在数据不足时返回 null，切片后 null 会被 toXY 过滤，不影响渲染。
+            const allCloses = allKlines.map(k => k.close);
+            const ma5Full = calculateMA(allCloses, 5);
+            const ma10Full = calculateMA(allCloses, 10);
+            const ma20Full = calculateMA(allCloses, 20);
+            const ma60Full = calculateMA(allCloses, 60);
+
+            // 切片：只渲染最后 displayDays 天
+            const start = Math.max(0, allKlines.length - (displayDays || allKlines.length));
+            const slice = (arr) => arr.slice(start);
+            const klines = slice(allKlines);
+
+            // 保存当前 K 线数据供其他函数访问（切片后的显示窗口数据）
             window.currentKlineData = klines;
             currentKlineData = klines;
 
+            // 切片后的显示窗口数据（tooltip / crossover 构建使用）
             const labels = klines.map(k => k.date);
-            const opens = klines.map(k => k.open);
+            const tsArr = klines.map(k => toTs(k.date));
             const closes = klines.map(k => k.close);
-            const highs = klines.map(k => k.high);
-            const lows = klines.map(k => k.low);
+            const ma5 = slice(ma5Full);
+            const ma10 = slice(ma10Full);
+            const ma20 = slice(ma20Full);
+            const ma60 = slice(ma60Full);
 
-            // 计算移动平均线
-            const ma5 = calculateMA(closes, 5);
-            const ma10 = calculateMA(closes, 10);
-            const ma20 = calculateMA(closes, 20);
-            const ma60 = calculateMA(closes, 60);
+            // 将数值数组转为 {x: timestamp, y: value} 对象数组。
+            // 注意：parsing:false 时 Chart.js 直接把 data[i] 作为 _parsed[i]，
+            // scale 的 getMinMax 会访问 _parsed[i].x，因此不能含 null，需过滤掉。
+            // 由于 x 为时间戳，过滤后仍能按日期正确对齐。
+            const toXY = (arr) => {
+                const out = [];
+                for (let i = 0; i < arr.length; i++) {
+                    const v = arr[i];
+                    if (v !== null && v !== undefined) {
+                        out.push({ x: tsArr[i], y: v });
+                    }
+                }
+                return out;
+            };
 
-            // 金叉标记点：构建 pointStyle / pointRadius / pointBackgroundColor 数组
-            const cpArr = crossoverPoints || [];
-            const pointStyles = closes.map((_, i) => {
+            // 金叉标记点：构建散点数据（仅包含金叉日，不含 null）
+            // candlestick 不支持 pointStyle 数组，故拆出独立 scatter dataset。
+            // parsing:false 下 data 与 pointStyle/pointRadius 等数组必须按索引对齐且不含 null。
+            // 只保留显示窗口内的金叉点
+            const windowStart = labels[0];
+            const cpArr = (allCrossoverPoints || []).filter(p => p.date >= windowStart);
+            const crossoverPointData = [];
+            const crossoverPointStyles = [];
+            const crossoverPointRadii = [];
+            const crossoverPointBgColors = [];
+            const crossoverPointBorderColors = [];
+            for (let i = 0; i < closes.length; i++) {
                 const pt = cpArr.find(p => p.date === labels[i]);
-                return pt ? 'triangle' : false;
-            });
-            const pointRadii = closes.map((_, i) => {
-                const pt = cpArr.find(p => p.date === labels[i]);
-                return pt ? 10 : 0;
-            });
-            const pointColors = closes.map((_, i) => {
-                const pt = cpArr.find(p => p.date === labels[i]);
-                if (!pt) return 'transparent';
-                return pt.type === 'macd' ? 'rgba(231, 76, 60, 0.9)' : 'rgba(52, 152, 219, 0.9)';
-            });
+                if (pt && closes[i] != null) {
+                    crossoverPointData.push({ x: tsArr[i], y: closes[i] });
+                    crossoverPointStyles.push('triangle');
+                    crossoverPointRadii.push(9);
+                    crossoverPointBgColors.push(
+                        pt.type === 'macd' ? 'rgba(231, 76, 60, 0.95)' :
+                        pt.type === 'ma' ? 'rgba(52, 152, 219, 0.95)' : 'transparent'
+                    );
+                    crossoverPointBorderColors.push(
+                        pt.type === 'macd' ? '#c0392b' :
+                        pt.type === 'ma' ? '#2471a3' : 'transparent'
+                    );
+                }
+            }
 
             // 构建数据集（不含成交量，成交量独立副图）
+            // 主图改为 candlestick（金融通用蜡烛图），MA 以 line 叠加
+            // 注意：chartjs-chart-financial 0.2.1 candlestick 要求 parsing:false，
+            // 为避免混合 parsing 模式冲突，所有 dataset 统一使用 parsing:false，
+            // 数据全部采用对象格式 {x,y} / {x,o,h,l,c}，x 为时间戳数值(ms)。
             const datasets = [
                 {
-                    label: '收盘价',
-                    data: closes,
-                    borderColor: '#4a90d9',
-                    backgroundColor: 'rgba(74, 144, 217, 0.1)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.1,
-                    yAxisID: 'y',
-                    pointStyle: pointStyles,
-                    pointRadius: pointRadii,
-                    pointBackgroundColor: pointColors,
-                    pointBorderColor: pointColors,
-                    pointHoverRadius: 12
-                },
-                {
-                    label: '开盘价',
-                    data: opens,
-                    borderColor: '#f39c12',
+                    type: 'candlestick',
+                    label: 'K线',
+                    // candlestick 直接读取 data[i].o/h/l/c；x 为时间戳(ms)，供 timeseries 轴定位。
+                    // 注意：FinancialController.overrides 设置 parsing:false，Chart.js 4.x
+                    // 在 parsing:false 时 _parsed[i]=data[i]，timeseries 轴读取 _parsed[i].x，
+                    // 因此必须用 x 字段而非 t 字段（t 字段仅在 parsing:true 时被自动解析）。
+                    data: klines.map(k => ({ x: toTs(k.date), o: k.open, h: k.high, l: k.low, c: k.close })),
+                    // 国内习惯：红涨绿跌
+                    color: {
+                        up: '#e74c3c',       // 收阳（上涨）实体颜色
+                        down: '#27ae60',     // 收阴（下跌）实体颜色
+                        unchanged: '#95a5a6' // 平盘
+                    },
+                    borderColor: {
+                        up: '#e74c3c',
+                        down: '#27ae60',
+                        unchanged: '#95a5a6'
+                    },
                     borderWidth: 1,
-                    fill: false,
-                    tension: 0.1,
                     yAxisID: 'y',
-                    hidden: true
+                    order: 1  // 蜡烛主体绘制顺序（数值越大越靠下层）
                 },
                 {
-                    label: '最高价',
-                    data: highs,
-                    borderColor: '#e74c3c',
-                    borderWidth: 1,
-                    fill: false,
-                    tension: 0.1,
-                    yAxisID: 'y',
-                    hidden: true
-                },
-                {
-                    label: '最低价',
-                    data: lows,
-                    borderColor: '#27ae60',
-                    borderWidth: 1,
-                    fill: false,
-                    tension: 0.1,
-                    yAxisID: 'y',
-                    hidden: true
-                },
-                {
+                    type: 'line',
                     label: 'MA5',
-                    data: ma5,
+                    data: toXY(ma5),
                     borderColor: '#9b59b6',
                     borderWidth: 1.5,
                     fill: false,
                     tension: 0.1,
                     yAxisID: 'y',
-                    pointRadius: 0
+                    pointRadius: 0,
+                    order: 0,
+                    parsing: false  // 统一 parsing:false，数据已是 {x,y} 对象
                 },
                 {
+                    type: 'line',
                     label: 'MA10',
-                    data: ma10,
+                    data: toXY(ma10),
                     borderColor: '#e67e22',
                     borderWidth: 1.5,
                     fill: false,
                     tension: 0.1,
                     yAxisID: 'y',
-                    pointRadius: 0
+                    pointRadius: 0,
+                    order: 0,
+                    parsing: false
                 },
                 {
+                    type: 'line',
                     label: 'MA20',
-                    data: ma20,
+                    data: toXY(ma20),
                     borderColor: '#1abc9c',
                     borderWidth: 1.5,
                     fill: false,
                     tension: 0.1,
                     yAxisID: 'y',
-                    pointRadius: 0
+                    pointRadius: 0,
+                    order: 0,
+                    parsing: false
                 },
                 {
+                    type: 'line',
                     label: 'MA60',
-                    data: ma60,
+                    data: toXY(ma60),
                     borderColor: '#34495e',
                     borderWidth: 1.5,
                     fill: false,
@@ -801,63 +853,95 @@
                     yAxisID: 'y',
                     pointRadius: 0,
                     // MA60 数据较少时（< 60 日）全部为 null，不显示意义不大；保留以备长周期数据
-                    hidden: currentIndicator !== 'ma'  // 非 MA 模式下默认隐藏
+                    hidden: currentIndicator !== 'ma',  // 非 MA 模式下默认隐藏
+                    order: 0,
+                    parsing: false
                 }
             ];
 
             // 布林带指标：叠加在主图上（带半透明填充区域增强可视性）
             if (currentIndicator === 'boll') {
-                const boll = calculateBOLL(closes, 20, 2);
+                // 用完整历史数据计算 BOLL，再切片，确保显示窗口起始日 BOLL 有值
+                const bollFull = calculateBOLL(allCloses, 20, 2);
+                const boll = {
+                    upper: slice(bollFull.upper),
+                    mid: slice(bollFull.mid),
+                    lower: slice(bollFull.lower)
+                };
                 // 填充区域：上下轨之间的半透明背景
                 const upperDataForFill = boll.upper;
                 const lowerDataForFill = boll.lower;
                 datasets.push({
                     label: 'BOLL通道',
-                    data: upperDataForFill.map((v, i) => v !== null && lowerDataForFill[i] !== null ? v : null),
+                    data: upperDataForFill.map((v, i) => (v !== null && lowerDataForFill[i] !== null) ? { x: tsArr[i], y: v } : null).filter(p => p !== null),
                     backgroundColor: 'rgba(155, 89, 182, 0.08)',
                     fill: '-3',  // 填充到 BOLL下轨（当前 dataset index + 3）
                     tension: 0.1,
                     yAxisID: 'y',
                     pointRadius: 0,
-                    order: -1  // 置于底层
+                    order: -1,  // 置于底层
+                    parsing: false
                 });
                 datasets.push({
                     label: 'BOLL上轨',
-                    data: boll.upper,
+                    data: toXY(boll.upper),
                     borderColor: '#e74c3c',
                     borderWidth: 2,
                     fill: false,
                     tension: 0.1,
                     yAxisID: 'y',
                     pointRadius: 0,
-                    borderDash: [5, 3]
+                    borderDash: [5, 3],
+                    parsing: false
                 });
                 datasets.push({
                     label: 'BOLL中轨',
-                    data: boll.mid,
+                    data: toXY(boll.mid),
                     borderColor: '#f39c12',
                     borderWidth: 2,
                     fill: false,
                     tension: 0.1,
                     yAxisID: 'y',
-                    pointRadius: 0
+                    pointRadius: 0,
+                    parsing: false
                 });
                 datasets.push({
                     label: 'BOLL下轨',
-                    data: boll.lower,
+                    data: toXY(boll.lower),
                     borderColor: '#27ae60',
                     borderWidth: 2,
                     fill: false,
                     tension: 0.1,
                     yAxisID: 'y',
                     pointRadius: 0,
-                    borderDash: [5, 3]
+                    borderDash: [5, 3],
+                    parsing: false
+                });
+            }
+
+            // 金叉标记点：独立 scatter dataset，叠加在所有图层最上方
+            // （candlestick dataset 不支持 pointStyle 数组，故拆出）
+            const hasCrossover = crossoverPointData.length > 0;
+            if (hasCrossover) {
+                datasets.push({
+                    type: 'scatter',
+                    label: '金叉信号',
+                    data: crossoverPointData,
+                    pointStyle: crossoverPointStyles,
+                    pointRadius: crossoverPointRadii,
+                    pointHoverRadius: 12,
+                    pointBackgroundColor: crossoverPointBgColors,
+                    pointBorderColor: crossoverPointBorderColors,
+                    pointBorderWidth: 1.5,
+                    yAxisID: 'y',
+                    order: -1,  // 最上层
+                    parsing: false
                 });
             }
 
             const ctx = canvas.getContext('2d');
             klineChart = new Chart(ctx, {
-                type: 'line',
+                type: 'candlestick',
                 data: {
                     labels: labels,
                     datasets: datasets
@@ -870,9 +954,7 @@
                         intersect: false
                     },
                     onHover: (event, elements) => {
-                        if (elements && elements.length > 0) {
-                            syncChartsTooltip(klineChart, elements[0].index);
-                        }
+                        handleChartHover(klineChart, event);
                     },
                     plugins: {
                         legend: {
@@ -910,6 +992,8 @@
                             }
                         },
                         tooltip: {
+                            mode: 'index',
+                            intersect: false,
                             callbacks: {
                                 title: function(items) {
                                     if (!items || items.length === 0) return '';
@@ -921,34 +1005,54 @@
                                     const idx = context.dataIndex;
                                     const k = klines[idx];
                                     const label = context.dataset.label;
-                                    const val = context.parsed.y;
-                                    if (val === null || val === undefined) return null;
-                                    let extra = '';
-                                    if (label === '收盘价') {
-                                        extra = `  涨跌幅: ${k.change_pct}%`;
-                                        // 金叉标记提示
+                                    const dsType = context.dataset.type;
+                                    // candlestick：显示 OHLC + 涨跌幅 + 金叉提示
+                                    if (dsType === 'candlestick') {
                                         const cp = cpArr.find(p => p.date === labels[idx]);
+                                        let extra = `  涨跌幅: ${k.change_pct}%`;
                                         if (cp) {
                                             extra += cp.type === 'macd' ? '  ⬆MACD金叉' : '  ⬆MA金叉';
                                         }
+                                        return `K线  开:${k.open.toFixed(2)}  高:${k.high.toFixed(2)}  低:${k.low.toFixed(2)}  收:${k.close.toFixed(2)}${extra}`;
                                     }
-                                    return `${label}: ${val.toFixed(2)}${extra}`;
+                                    // 金叉信号散点
+                                    if (dsType === 'scatter') {
+                                        const cp = cpArr.find(p => p.date === labels[idx]);
+                                        if (cp) {
+                                            return cp.type === 'macd' ? '⬆ MACD金叉' : '⬆ MA金叉';
+                                        }
+                                        return null;
+                                    }
+                                    // MA 等线型
+                                    const val = context.parsed.y;
+                                    if (val === null || val === undefined) return null;
+                                    return `${label}: ${val.toFixed(2)}`;
                                 }
                             }
                         }
                     },
                     scales: {
+                        // x 轴使用 timeseries 类型：candlestick FinancialController 的 overrides
+                        // 默认就是 timeseries，这里显式声明并自定义 ticks 显示。
+                        // timeseries 轴的 ticks.value 是时间戳（ms），用 label 回调转成 MM-DD/周几。
                         x: {
+                            type: 'timeseries',
                             display: true,
                             title: { display: true, text: '日期' },
                             ticks: {
-                                // 显示周几
-                                callback: function(value, index) {
-                                    if (index % Math.ceil(labels.length / 15) !== 0 && labels.length > 15) return '';
-                                    return dateToWeekday(labels[index]);
-                                },
+                                source: 'data',
                                 maxRotation: 0,
-                                autoSkip: false
+                                autoSkip: true,
+                                autoSkipPadding: 75,
+                                callback: function(value, index, ticks) {
+                                    // value 为时间戳(ms)，转成简短日期 + 周几
+                                    const d = new Date(value);
+                                    if (isNaN(d.getTime())) return '';
+                                    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+                                    const dd = String(d.getUTCDate()).padStart(2, '0');
+                                    const wd = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getUTCDay()];
+                                    return `${mm}-${dd} ${wd}`;
+                                }
                             }
                         },
                         y: {

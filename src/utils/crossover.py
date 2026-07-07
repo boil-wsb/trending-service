@@ -393,6 +393,8 @@ TREND_RANK = {
 
 # 模块级内存缓存：{code: crossover_result}
 _crossover_cache: Dict = {}
+# 模块级回撤缓存：{code: {drawdown_pct, high_price, high_date, days_since_high}}
+_drawdown_cache: Dict = {}
 _cache_lock = threading.Lock()
 _cache_last_updated: Optional[datetime] = None
 
@@ -404,6 +406,19 @@ def get_cached_crossover(code: str) -> Optional[Dict]:
     """
     with _cache_lock:
         return _crossover_cache.get(code)
+
+
+def get_cached_drawdown(code: str) -> Optional[Dict]:
+    """从内存缓存读取指数的距高点回撤数据（供 API 调用，O(1) 复杂度）
+
+    返回 None 表示无数据；返回字典包含：
+        drawdown_pct: 回撤百分比（如 47.40 表示 47.40%）
+        high_price:   历史最高收盘价
+        high_date:    最高价日期（YYYY-MM-DD）
+        days_since_high: 距最高点的交易日天数
+    """
+    with _cache_lock:
+        return _drawdown_cache.get(code)
 
 
 def get_cache_last_updated() -> Optional[datetime]:
@@ -420,7 +435,7 @@ def refresh_all_crossovers(dao, logger=None) -> int:
     - _fetch_index_kline_data 完成后（每日 16:30 / 18:00）
     - 服务启动时预热
 
-    计算范围：市场指数 + 申万行业指数（不含概念板块，概念板块 K 线按需拉取）
+    计算范围：市场指数 + 申万行业指数 + 概念板块（白名单，K 线由定时任务批量缓存）
 
     缓存结构：
     - 有金叉信号或趋势信号的指数：{code: {crossover字段..., 'trend': {...}}}
@@ -436,7 +451,7 @@ def refresh_all_crossovers(dao, logger=None) -> int:
     global _cache_last_updated
     try:
         market_indices = dao.get_market_indices(limit=50)
-        industry_indices = dao.get_industry_indices(limit=500)
+        industry_indices = dao.get_industry_indices(limit=10000)
         # 去重：market 和 industry 可能有重复 code（如概念板块同时出现在两个分类中）
         seen_codes = set()
         all_indices = []
@@ -446,7 +461,9 @@ def refresh_all_crossovers(dao, logger=None) -> int:
                 all_indices.append(idx)
 
         new_cache: Dict[str, Dict] = {}
+        new_drawdown_cache: Dict[str, Dict] = {}
         trend_count = 0
+        drawdown_count = 0
         for idx in all_indices:
             code = idx.code
             # 根据 code 判断 K 线数据源
@@ -485,15 +502,36 @@ def refresh_all_crossovers(dao, logger=None) -> int:
                         trend_count += 1
                     new_cache[code] = entry
 
+            # 计算距高点回撤（用更长 K 线，约 1 年）
+            long_klines = dao.get_klines(code, days=400, source=kline_source)
+            if long_klines and len(long_klines) >= 10:
+                # 找最高收盘价
+                high_item = max(long_klines, key=lambda k: k['close'])
+                high_close = high_item['close']
+                high_date = high_item['date']
+                cur_close = long_klines[-1]['close']
+                if high_close > 0 and cur_close > 0:
+                    drawdown_pct = (high_close - cur_close) / high_close * 100.0
+                    days_since_high = sum(1 for k in long_klines if k['date'] > high_date)
+                    new_drawdown_cache[code] = {
+                        'drawdown_pct': round(drawdown_pct, 2),
+                        'high_price': round(high_close, 2),
+                        'high_date': high_date,
+                        'days_since_high': days_since_high,
+                    }
+                    drawdown_count += 1
+
         with _cache_lock:
             _crossover_cache.clear()
             _crossover_cache.update(new_cache)
+            _drawdown_cache.clear()
+            _drawdown_cache.update(new_drawdown_cache)
             _cache_last_updated = datetime.now()
 
         if logger:
             logger.info(
                 f"✅ 金叉信号+趋势内存缓存已刷新: {len(new_cache)} 个指数有数据 "
-                f"(其中 {trend_count} 个有趋势, 共扫描 {len(all_indices)} 个指数)"
+                f"(其中 {trend_count} 个有趋势, {drawdown_count} 个有回撤, 共扫描 {len(all_indices)} 个指数)"
             )
         return len(new_cache)
     except Exception as e:
