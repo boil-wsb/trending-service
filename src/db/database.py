@@ -119,6 +119,42 @@ class Database:
             )
         ''')
 
+        # 迁移：为 index_data 表添加 market_cap 列（概念板块总市值，单位：元）
+        try:
+            cursor.execute("SELECT market_cap FROM index_data LIMIT 1")
+        except Exception:
+            cursor.execute("ALTER TABLE index_data ADD COLUMN market_cap REAL DEFAULT 0.0")
+
+        # 市场情绪涨跌停统计表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS limit_up_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                limit_up_count INTEGER DEFAULT 0,
+                limit_down_count INTEGER DEFAULT 0,
+                broken_limit_count INTEGER DEFAULT 0,
+                broken_rate REAL DEFAULT 0,
+                max_consecutive INTEGER DEFAULT 0,
+                sentiment_score REAL DEFAULT 0,
+                consecutive_tiers TEXT,
+                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(date)
+            )
+        ''')
+
+        # 北向资金每日净流入表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS northbound_flow (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                sh_net_buy REAL DEFAULT 0,
+                sz_net_buy REAL DEFAULT 0,
+                total_net_buy REAL DEFAULT 0,
+                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(date)
+            )
+        ''')
+
         conn.commit()
     
     def _create_indexes(self, conn: sqlite3.Connection):
@@ -194,7 +230,13 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.execute(sql, parameters)
             return cursor.rowcount
-    
+
+    def execute_returning_id(self, sql: str, parameters: tuple = ()) -> int:
+        """执行 INSERT 并返回新记录的 ID（同一连接内获取 lastrowid）"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(sql, parameters)
+            return cursor.lastrowid
+
     def fetch_one(self, sql: str, parameters: tuple = ()) -> Optional[dict]:
         """查询单条记录"""
         with self.get_connection() as conn:

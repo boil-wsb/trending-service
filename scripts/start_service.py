@@ -185,8 +185,34 @@ def start_service_background():
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
     try:
+        # 启动前检查端口是否已被占用（无 PID 文件的残留进程场景）
+        if check_port_open(SERVER['host'], SERVER['port']):
+            logger.warning(f"⚠️  端口 {SERVER['port']} 已被占用，尝试清理残留进程...")
+            import ctypes
+            # 通过 netstat 查找占用端口的 PID
+            try:
+                netstat_result = subprocess.run(
+                    ['netstat', '-ano'], capture_output=True, text=True, timeout=5
+                ).stdout
+                for line in netstat_result.splitlines():
+                    if f':{SERVER["port"]}' in line and 'LISTENING' in line:
+                        parts = line.split()
+                        old_pid = int(parts[-1])
+                        if old_pid > 0:
+                            kernel32 = ctypes.windll.kernel32
+                            handle = kernel32.OpenProcess(1, False, old_pid)
+                            if handle != 0:
+                                kernel32.TerminateProcess(handle, 1)
+                                kernel32.CloseHandle(handle)
+                                logger.info(f"已终止占用端口的残留进程 (PID: {old_pid})")
+                            break
+                import time as _time
+                _time.sleep(2)
+            except Exception as e:
+                logger.warning(f"清理残留进程失败: {e}")
+
         # 使用 DETACHED_PROCESS 让子进程独立运行
-        # 同时将输出重定向到日志文件以便调试
+        # 将 stdout/stderr 重定向到日志文件以便排查启动失败
         log_dir = Path(LOGGING['file']).parent
         log_dir.mkdir(parents=True, exist_ok=True)
         stdout_log = log_dir / 'service_stdout.log'
@@ -197,8 +223,8 @@ def start_service_background():
             cwd=str(project_root),
             env=env,
             startupinfo=startupinfo,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=open(stdout_log, 'w', encoding='utf-8'),
+            stderr=open(stderr_log, 'w', encoding='utf-8'),
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
         )
 
@@ -224,6 +250,17 @@ def start_service_background():
             error_msg = f"❌ 服务启动失败: {message}"
             print(error_msg)
             logger.error(error_msg)
+
+            # 读取 stderr 日志，帮助排查启动失败原因
+            try:
+                if stderr_log.exists():
+                    stderr_content = stderr_log.read_text(encoding='utf-8').strip()
+                    if stderr_content:
+                        print(f"\n📋 子进程错误日志 ({stderr_log}):")
+                        print(stderr_content[-2000:])  # 最后 2000 字符
+                        logger.error(f"子进程 stderr: {stderr_content[-2000:]}")
+            except Exception:
+                pass
 
             # 尝试终止进程
             try:

@@ -8,9 +8,9 @@
 
 **热点数据采集**：GitHub Trending（含 AI 子榜）、B站热门、ArXiv 论文、HackerNews、知乎热榜、微博热搜、抖音热榜、AIHOT 资讯
 
-**A 股行情分析**：市场指数、申万行业指数（含涨跌幅/回撤/动量/排名变化）、K 线图（candlestick 蜡烛图 + MA/BOLL/MACD/RSI/KDJ + 金叉信号）、行业轮动分析、主力资金流向、概念板块（白名单过滤）
+**A 股行情分析**：市场指数、申万行业指数（含涨跌幅/回撤/动量/排名变化）、K 线图（candlestick 蜡烛图 + MA/BOLL/MACD/RSI/KDJ + 金叉信号）、行业轮动分析（排名趋势图 + 强弱 TOP10 并排 + 动量得分）、主力资金流向（双向条形图 + 桑基图资金流向路径，支持今日/5日/10日周期切换）、概念板块（白名单过滤 + 热力图）、市场情绪温度计（涨跌停/炸板/连板梯队）、北向资金流入
 
-**系统特性**：暗色主题 Web 界面、定时任务调度、重试管理器、RESTful API、HTML 报告自动生成
+**系统特性**：暗色主题 Web 界面、定时任务调度、重试管理器、RESTful API（统一错误格式 + 响应时间监控）、HTML 报告自动生成、配置热加载
 
 ## 环境要求
 
@@ -48,22 +48,6 @@ C:\Users\<用户名>\.pyenv\pyenv-win\versions\3.12.10\python.exe -m playwright 
 
 ## 使用方法
 
-### 启动服务
-
-```bash
-# 前台模式
-python -m src.main
-
-# 后台模式（关闭 IDE 仍运行）
-python scripts/start_service.py
-```
-
-### 访问报告
-
-```
-http://localhost:8888/report.html
-```
-
 ### 服务管理
 
 ```bash
@@ -72,6 +56,24 @@ python scripts/stop_service.py    # 停止
 python scripts/check_service.py   # 检查状态
 python -m src.main --status       # 查看状态
 ```
+
+### 启动服务
+
+```bash
+# 后台模式（关闭 IDE 仍运行）
+python scripts/start_service.py
+
+# 前台模式
+python -m src.main
+```
+
+### 访问报告
+
+```
+http://localhost:8888/report.html
+```
+
+
 
 ### 立即执行任务
 
@@ -98,10 +100,19 @@ python -c "import sys; sys.path.insert(0, '.'); from src.utils.report_generator 
 
 - **Python 3.12+** + **Flask** - Web 框架
 - **Playwright** - 浏览器自动化（知乎/抖音热榜）
+- **AKShare** - A 股行情/资金流/涨跌停数据源
 - **Chart.js 4.4.1** + **chartjs-chart-financial 0.2.1** + **chartjs-adapter-date-fns 3.0.0** - K 线图渲染
+- **chartjs-chart-sankey 0.12.1** - 资金流向桑基图
+- **chartjs-chart-treemap** - 行业热力图
 - **jieba** - 中文分词
 - **SQLite** - 数据存储
 - **APScheduler** - 定时任务
+
+## 注意事项
+
+- **Python 环境**：必须使用 Python 3.12.10（`C:\Users\<用户名>\.pyenv\pyenv-win\versions\3.12.10\python.exe`），低版本未安装 AKShare 会导致资金流/情绪等接口返回空数据
+- **端口冲突**：Flask 开发服务器无法优雅关闭，启动前如遇 `Address already in use`，需用 `netstat -ano | findstr :8888` 查找并 `Stop-Process -Id <PID> -Force` 清理残留进程
+- **报告生成**：修改 `src/templates/enhanced_report/` 下 source 文件后，需重新运行报告生成命令更新 `data/reports/report.html`
 
 ## 许可证
 

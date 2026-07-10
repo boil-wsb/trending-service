@@ -4,6 +4,20 @@
         // UI 配置
         window.UI_CONFIG = { default_theme: 'light' };
 
+        // 前端性能监控器 - 基于 performance.now() 记录关键渲染耗时
+        window.perfMonitor = {
+            marks: {},
+            start(label) { this.marks[label] = performance.now(); },
+            end(label) {
+                if (this.marks[label]) {
+                    const duration = performance.now() - this.marks[label];
+                    console.debug(`[perf] ${label}: ${duration.toFixed(1)}ms`);
+                    delete this.marks[label];
+                    return duration;
+                }
+            }
+        };
+
         // 当前状态
         let currentView = 'overview';
         let currentSource = 'all';
@@ -414,14 +428,8 @@
 
                 try {
                     const activeSource = document.querySelector('.source-tag.active');
-                    const sourceParam = activeSource && activeSource.dataset.source !== 'all' ? `&source=${activeSource.dataset.source}` : '';
-                    const resp = await fetch(`/api/search?q=${encodeURIComponent(query)}${sourceParam}&limit=100`);
-                    const data = await resp.json();
-
-                    if (!data.success) {
-                        searchList.innerHTML = `<div class="search-no-results">搜索失败: ${data.error}</div>`;
-                        return;
-                    }
+                    const sourceFilter = activeSource && activeSource.dataset.source !== 'all' ? activeSource.dataset.source : '';
+                    const data = await DataService.search(query, sourceFilter, 100);
 
                     const items = data.items || [];
                     searchCount.textContent = `共 ${items.length} 条结果`;
@@ -1488,32 +1496,22 @@
 
             try {
                 // 尝试从API加载数据（支持日期范围）
-                const response = await fetch(`/api/data?start_date=${startDate}&end_date=${endDate}`);
+                const data = await DataService.getDataByDateRange(startDate, endDate);
 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                // 更新全局数据
+                window.REPORT_DATA = data;
 
-                const data = await response.json();
+                // 重新渲染页面
+                renderOverview(data);
+                renderKeywords(data);
+                renderGitHubWeekly(data);
 
-                if (data.success && data.data) {
-                    // 更新全局数据
-                    window.REPORT_DATA = data.data;
-
-                    // 重新渲染页面
-                    renderOverview(data.data);
-                    renderKeywords(data.data);
-                    renderGitHubWeekly(data.data);
-
-                    // 更新统计信息
-                    const dbStats = data.data.db_stats || {};
-                    document.getElementById('total-items').textContent = formatNumber(dbStats.total_count || data.data.total_items || 0);
-                    document.getElementById('total-sources').textContent =
-                        dbStats.sources_count || (data.data.sources ? Object.keys(data.data.sources).length : 0);
-                    showToast(`✅ 已加载 ${startDate} 至 ${endDate} 的数据`, 'success');
-                } else {
-                    throw new Error(data.message || '数据加载失败');
-                }
+                // 更新统计信息
+                const dbStats = data.db_stats || {};
+                document.getElementById('total-items').textContent = formatNumber(dbStats.total_count || data.total_items || 0);
+                document.getElementById('total-sources').textContent =
+                    dbStats.sources_count || (data.sources ? Object.keys(data.sources).length : 0);
+                showToast(`✅ 已加载 ${startDate} 至 ${endDate} 的数据`, 'success');
             } catch (error) {
                 console.error('加载日期范围数据失败:', error);
 
@@ -1536,48 +1534,23 @@
             }
         }
 
-        // 显示提示消息
+        // 显示提示消息（代理到 Toast 单例，借鉴 stock-dashboard Toast.tsx）
+        // 保留原函数签名以兼容现有调用，内部转发到 Toast.success/error/info/warning
         function showToast(message, type = 'info') {
-            // 创建提示元素
-            const toast = document.createElement('div');
-            toast.className = `toast toast-${type}`;
-            toast.textContent = message;
-            toast.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 12px 20px;
-                border-radius: 8px;
-                background: ${type === 'success' ? '#43e97b' : type === 'error' ? '#ff6b6b' : '#4facfe'};
-                color: white;
-                font-weight: 500;
-                z-index: 10000;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                animation: slideIn 0.3s ease;
-            `;
-
-            document.body.appendChild(toast);
-
-            // 3秒后自动移除
-            setTimeout(() => {
-                toast.style.animation = 'slideOut 0.3s ease';
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
+            if (typeof Toast === 'undefined') {
+                // 兜底：Toast 未加载时降级到 console
+                console.log(`[${type}] ${message}`);
+                return;
+            }
+            // 移除消息中的 emoji 前缀（Toast 已有图标）
+            const cleanMsg = message.replace(/^[✅❌📊⚠️ℹ️✓✕]+\s*/, '');
+            switch (type) {
+                case 'success': Toast.success(cleanMsg); break;
+                case 'error':   Toast.error(cleanMsg); break;
+                case 'warning': Toast.warning(cleanMsg); break;
+                default:        Toast.info(cleanMsg);
+            }
         }
-
-        // 添加动画样式
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes slideIn {
-                from { transform: translateX(100%); opacity: 0; }
-                to { transform: translateX(0); opacity: 1; }
-            }
-            @keyframes slideOut {
-                from { transform: translateX(0); opacity: 1; }
-                to { transform: translateX(100%); opacity: 0; }
-            }
-        `;
-        document.head.appendChild(style);
 
         // 渲染GitHub本周增长
         function renderGitHubWeekly(data) {

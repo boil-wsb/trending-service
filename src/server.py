@@ -8,6 +8,7 @@ import threading
 import time
 import json
 import hashlib
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from functools import wraps
@@ -17,9 +18,11 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from flask import Flask, jsonify, send_from_directory, redirect, Response, request
+from flask import Flask, jsonify, send_from_directory, redirect, Response, request, g
 from src.config import SERVER, REPORTS_DIR, ROUTES, DATABASE, ConfigHotReloader
 from src.utils import get_logger
+from src.utils.symbol import normalize_symbol, to_kline_source
+from src.utils.api_error import ApiError, ErrorCode, handle_api_error, api_success
 
 
 class TTLCache:
@@ -61,38 +64,24 @@ class TTLCache:
 # 全局缓存实例
 _api_cache = TTLCache()
 
+# 全局 API 响应时间记录器（线程安全，保留最近 1000 条）
+# 每条记录: {endpoint, method, duration_ms, timestamp}
+_MAX_RESPONSE_RECORDS = 1000
+_response_times = deque(maxlen=_MAX_RESPONSE_RECORDS)
+_response_times_lock = threading.Lock()
 
-def cached(ttl_seconds=30, key_prefix=''):
-    """
-    API 响应缓存装饰器
 
-    Args:
-        ttl_seconds: 缓存存活时间（秒）
-        key_prefix: 缓存 key 前缀，用于按前缀清除
-    """
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # 生成缓存 key：前缀 + 函数名 + 参数哈希
-            arg_str = json.dumps({
-                'args': [str(a) for a in args],
-                'kwargs': {k: str(v) for k, v in kwargs.items()},
-                'query': dict(request.args) if request else {}
-            }, sort_keys=True)
-            key_hash = hashlib.md5(arg_str.encode()).hexdigest()[:12]
-            cache_key = f"{key_prefix}:{func.__name__}:{key_hash}"
+# 缓存回源锁（防止 dogpile effect）
+_cache_locks = {}
+_cache_locks_lock = threading.Lock()
 
-            # 尝试读缓存
-            cached_val = _api_cache.get(cache_key)
-            if cached_val is not None:
-                return cached_val
 
-            # 执行函数并缓存结果
-            result = func(*args, **kwargs)
-            _api_cache.set(cache_key, result, ttl_seconds)
-            return result
-        return wrapper
-    return decorator
+def _get_cache_lock(key):
+    """获取指定缓存 key 的回源锁"""
+    with _cache_locks_lock:
+        if key not in _cache_locks:
+            _cache_locks[key] = threading.Lock()
+        return _cache_locks[key]
 
 
 class TrendingServer:
@@ -136,6 +125,45 @@ class TrendingServer:
     def _register_routes(self, app: Flask):
         """注册路由"""
 
+        # ========== 性能监控中间件 ==========
+
+        @app.before_request
+        def _record_start_time():
+            """记录请求开始时间"""
+            g.start_time = time.time()
+
+        @app.after_request
+        def _record_response_time(response):
+            """记录响应时间并写入结构化日志"""
+            try:
+                start = getattr(g, 'start_time', None)
+                if start is None:
+                    return response
+
+                duration_ms = round((time.time() - start) * 1000, 2)
+                endpoint = request.path
+                method = request.method
+
+                # /api/metrics 自身不计入统计，避免自引用
+                if endpoint != '/api/metrics':
+                    record = {
+                        'endpoint': endpoint,
+                        'method': method,
+                        'duration_ms': duration_ms,
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    with _response_times_lock:
+                        _response_times.append(record)
+
+                # 结构化日志（不含敏感信息如 token）
+                self.logger.info(
+                    f"module=api_metrics method={method} endpoint={endpoint} "
+                    f"status={response.status_code} duration_ms={duration_ms}"
+                )
+            except Exception as e:
+                self.logger.warning(f"记录响应时间失败: {e}")
+            return response
+
         # ========== 指数行情API ==========
 
         @app.route('/api/index/market')
@@ -155,17 +183,48 @@ class TrendingServer:
                     d['crossover'] = get_cached_crossover(idx.code)
                     result.append(d)
 
+                # 获取市场总览历史对比数据（vs昨日/近5日均值）
+                comparison = dao.get_market_overview_comparison()
+                # 获取数据完整性质量指标
+                data_quality = dao.get_data_quality()
+
                 return jsonify({
                     'success': True,
                     'data': {
                         'indices': result,
                         'count': len(result),
-                        'fetched_at': indices[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if indices else None
+                        'fetched_at': indices[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if indices and indices[0].fetched_at else None,
+                        'comparison': comparison,
+                        'data_quality': data_quality
                     }
                 })
             except Exception as e:
                 self.logger.error(f"获取市场指数失败: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
+
+        @app.route('/api/index/data-quality')
+        def api_index_data_quality():
+            """数据完整性质量指标（行业/概念板块字段填充率，60s 缓存）"""
+            try:
+                from src.db.index_dao import IndexDAO
+
+                # 缓存检查（60s TTL）
+                cache_key = "data_quality:all"
+                cached = _api_cache.get(cache_key)
+                if cached is not None:
+                    return cached
+
+                dao = IndexDAO(DATABASE['path'])
+                quality = dao.get_data_quality()
+
+                result = jsonify({'success': True, 'data': quality})
+                _api_cache.set(cache_key, result, ttl=60)
+                return result
+            except Exception as e:
+                self.logger.error(f"获取数据质量指标失败: {e}")
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
 
         @app.route('/api/index/industry')
         def api_index_industry():
@@ -204,14 +263,15 @@ class TrendingServer:
                     'data': {
                         'indices': result_list,
                         'count': len(result_list),
-                        'fetched_at': indices[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if indices else None
+                        'fetched_at': indices[0].fetched_at.strftime('%Y-%m-%d %H:%M:%S') if indices and indices[0].fetched_at else None
                     }
                 })
                 _api_cache.set(cache_key, result, ttl=60)
                 return result
             except Exception as e:
                 self.logger.error(f"获取行业指数失败: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
 
         @app.route('/api/index/latest')
         def api_index_latest():
@@ -239,7 +299,8 @@ class TrendingServer:
                 })
             except Exception as e:
                 self.logger.error(f"获取最新指数数据失败: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
 
         @app.route('/api/index/detail')
         def api_index_detail():
@@ -250,7 +311,7 @@ class TrendingServer:
 
                 code = request.args.get('code')
                 if not code:
-                    return jsonify({'success': False, 'error': '缺少指数代码参数: code'}), 400
+                    return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, '缺少指数代码参数: code', status_code=400).to_response()), 400
 
                 try:
                     limit = min(int(request.args.get('limit', 30)), 200)
@@ -261,7 +322,7 @@ class TrendingServer:
                 indices = dao.get_index_by_code(code, limit=limit)
 
                 if not indices:
-                    return jsonify({'success': False, 'error': f'未找到指数: {code}'}), 404
+                    return jsonify(ApiError(ErrorCode.DATA_NOT_FOUND, f'未找到指数: {code}', status_code=404).to_response()), 404
 
                 return jsonify({
                     'success': True,
@@ -275,7 +336,8 @@ class TrendingServer:
                 })
             except Exception as e:
                 self.logger.error(f"获取指数详情失败: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
 
         @app.route('/api/index/kline')
         def api_index_kline():
@@ -294,134 +356,178 @@ class TrendingServer:
 
                 code = request.args.get('code')
                 if not code:
-                    return jsonify({'success': False, 'error': '缺少指数代码参数: code'}), 400
+                    return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, '缺少指数代码参数: code', status_code=400).to_response()), 400
 
                 try:
                     days = min(int(request.args.get('days', 30)), 365)
                 except (ValueError, TypeError):
                     days = 30
 
+                # 周期参数：day(日K)/week(周K)/month(月K)，默认 day
+                period = request.args.get('period', 'day')
+                if period not in ('day', 'week', 'month'):
+                    period = 'day'
+
                 # 强制刷新参数：?force=1 跳过缓存直接拉取
                 force_refresh = request.args.get('force', '0') == '1'
 
                 # API 内存缓存检查（5min TTL，强制刷新时跳过）
-                cache_key = f"kline:{code}:{days}"
+                cache_key = f"kline:{code}:{days}:{period}"
                 if not force_refresh:
                     cached = _api_cache.get(cache_key)
                     if cached is not None:
                         return cached
 
-                # 根据指数代码类型确定数据源
-                if code.startswith('80') and len(code) == 6 and code.isdigit():
-                    source = 'sw'      # 申万行业指数
-                elif code.isdigit() and len(code) == 6:
-                    source = 'sina'    # 市场指数（新浪源）
-                else:
-                    source = 'ths'     # 概念板块（同花顺源）
+                # 防止缓存击穿（dogpile effect）：同一 cache_key 的并发回源串行化
+                lock = _get_cache_lock(cache_key)
+                with lock:
+                    # 双重检查（可能其他线程已经填充了缓存）；force_refresh 跳过
+                    if not force_refresh:
+                        cached = _api_cache.get(cache_key)
+                        if cached is not None:
+                            return cached
 
-                dao = IndexDAO(DATABASE['path'])
+                    # 根据指数代码类型确定数据源（统一走 normalize_symbol 解析）
+                    sym = normalize_symbol(code)
+                    source = to_kline_source(sym)
 
-                # 1. 先读数据库缓存（使用对应数据源）
-                if not force_refresh:
-                    cached = dao.get_klines(code, days=days, source=source)
-                    latest_date = dao.get_kline_latest_date(code, source=source)
+                    dao = IndexDAO(DATABASE['path'])
 
-                    # 2. 计算预期应该有数据的最近交易日
-                    now = datetime.now()
-                    today = now.date()
-                    weekday = today.weekday()  # 0=Mon, 1=Tue, ..., 5=Sat, 6=Sun
+                    # 1. 先读数据库缓存（使用对应数据源）
+                    if not force_refresh:
+                        cached = dao.get_klines(code, days=days, source=source)
+                        latest_date = dao.get_kline_latest_date(code, source=source)
 
-                    def _get_expected_latest_date():
-                        """根据当前时间计算应该已有K线数据的最近交易日"""
-                        if weekday >= 5:  # 周六或周日
-                            # 周末：应该有周五的数据
-                            return today - timedelta(days=weekday - 4)
-                        elif now.hour < 15:  # 交易日收盘前(15:00前)
-                            # 盘中：今天的K线未收盘，应该有前一个交易日的数据
-                            if weekday == 0:  # 周一盘中，应该有上周五数据
-                                return today - timedelta(days=3)
-                            else:  # 周二~周五盘中，应该有昨天数据
-                                return today - timedelta(days=1)
-                        else:  # 交易日收盘后(15:00后)
-                            # 收盘后：应该有今天的数据
-                            return today
+                        # 2. 计算预期应该有数据的最近交易日
+                        now = datetime.now()
+                        today = now.date()
+                        weekday = today.weekday()  # 0=Mon, 1=Tue, ..., 5=Sat, 6=Sun
 
-                    expected_latest = _get_expected_latest_date()
-                    need_refresh = True
-                    if latest_date:
+                        def _get_expected_latest_date():
+                            """根据当前时间计算应该已有K线数据的最近交易日"""
+                            if weekday >= 5:  # 周六或周日
+                                # 周末：应该有周五的数据
+                                return today - timedelta(days=weekday - 4)
+                            elif now.hour < 15:  # 交易日收盘前(15:00前)
+                                # 盘中：今天的K线未收盘，应该有前一个交易日的数据
+                                if weekday == 0:  # 周一盘中，应该有上周五数据
+                                    return today - timedelta(days=3)
+                                else:  # 周二~周五盘中，应该有昨天数据
+                                    return today - timedelta(days=1)
+                            else:  # 交易日收盘后(15:00后)
+                                # 收盘后：应该有今天的数据
+                                return today
+
+                        expected_latest = _get_expected_latest_date()
+                        need_refresh = True
+                        if latest_date:
+                            try:
+                                latest_dt = datetime.strptime(latest_date, '%Y-%m-%d').date()
+                                # 如果缓存最新日期 >= 预期日期，说明缓存是最新的，不需要刷新
+                                if latest_dt >= expected_latest:
+                                    need_refresh = False
+                            except ValueError:
+                                pass
+
+                        if need_refresh and latest_date:
+                            self.logger.debug(
+                                f"K线缓存需要刷新: {code}, latest={latest_date}, "
+                                f"expected={expected_latest}, today={today}, hour={now.hour}"
+                            )
+
+                        # 3. 如果缓存有效，直接返回
+                        if cached and not need_refresh:
+                            # 按周期聚合日K数据（day 原样返回）
+                            kline_data = IndexFetcher.aggregate_kline(cached, period) if period != 'day' else cached
+                            # 计算金叉标记点（基于聚合后的数据）
+                            from src.utils.crossover import detect_crossover_history
+                            closes = [k['close'] for k in kline_data]
+                            dates = [k['date'] for k in kline_data]
+                            crossover_points = detect_crossover_history(closes, dates)
+                            return jsonify({
+                                'success': True,
+                                'data': {
+                                    'code': code,
+                                    'kline': kline_data,
+                                    'crossover_points': crossover_points,
+                                    'count': len(kline_data),
+                                    'source': 'cache',
+                                    'period': period
+                                }
+                            })
+
+                    # 4. 缓存不存在或过期或强制刷新，按指数类型从对应数据源拉取
+                    fetcher = IndexFetcher(logger=self.logger)
+                    kline = fetcher.fetch_kline(code, days=days)
+
+                    # 5. 保存到数据库缓存（始终保存日K原始数据，使用对应数据源标识）
+                    if kline:
                         try:
-                            latest_dt = datetime.strptime(latest_date, '%Y-%m-%d').date()
-                            # 如果缓存最新日期 >= 预期日期，说明缓存是最新的，不需要刷新
-                            if latest_dt >= expected_latest:
-                                need_refresh = False
-                        except ValueError:
-                            pass
+                            dao.save_klines(code, kline, source=source)
+                            self.logger.info(f"K线数据已缓存: {code} {len(kline)} 条 (source={source})")
+                        except Exception as e:
+                            self.logger.warning(f"K线数据缓存失败: {e}")
 
-                    if need_refresh and latest_date:
-                        self.logger.debug(
-                            f"K线缓存需要刷新: {code}, latest={latest_date}, "
-                            f"expected={expected_latest}, today={today}, hour={now.hour}"
-                        )
+                    # 6. 按周期聚合日K数据（day 原样返回）
+                    kline_data = IndexFetcher.aggregate_kline(kline, period) if period != 'day' else kline
 
-                    # 3. 如果缓存有效，直接返回
-                    if cached and not need_refresh:
-                        # 计算金叉标记点
-                        from src.utils.crossover import detect_crossover_history
-                        closes = [k['close'] for k in cached]
-                        dates = [k['date'] for k in cached]
-                        crossover_points = detect_crossover_history(closes, dates)
-                        return jsonify({
-                            'success': True,
-                            'data': {
-                                'code': code,
-                                'kline': cached,
-                                'crossover_points': crossover_points,
-                                'count': len(cached),
-                                'source': 'cache'
-                            }
-                        })
+                    # 计算金叉标记点（基于聚合后的数据）
+                    from src.utils.crossover import detect_crossover_history
+                    closes = [k['close'] for k in kline_data]
+                    dates = [k['date'] for k in kline_data]
+                    crossover_points = detect_crossover_history(closes, dates)
 
-                # 4. 缓存不存在或过期或强制刷新，按指数类型从对应数据源拉取
-                fetcher = IndexFetcher(logger=self.logger)
-                kline = fetcher.fetch_kline(code, days=days)
-
-                # 5. 保存到数据库缓存（使用对应数据源标识）
-                if kline:
-                    try:
-                        dao.save_klines(code, kline, source=source)
-                        self.logger.info(f"K线数据已缓存: {code} {len(kline)} 条 (source={source})")
-                    except Exception as e:
-                        self.logger.warning(f"K线数据缓存失败: {e}")
-
-                # 计算金叉标记点
-                from src.utils.crossover import detect_crossover_history
-                closes = [k['close'] for k in kline]
-                dates = [k['date'] for k in kline]
-                crossover_points = detect_crossover_history(closes, dates)
-
-                result = jsonify({
-                    'success': True,
-                    'data': {
-                        'code': code,
-                        'kline': kline,
-                        'crossover_points': crossover_points,
-                        'count': len(kline),
-                        'source': source
-                    }
-                })
-                _api_cache.set(cache_key, result, ttl=300)  # 5min 缓存
-                return result
+                    result = jsonify({
+                        'success': True,
+                        'data': {
+                            'code': code,
+                            'kline': kline_data,
+                            'crossover_points': crossover_points,
+                            'count': len(kline_data),
+                            'source': source,
+                            'period': period
+                        }
+                    })
+                    _api_cache.set(cache_key, result, ttl=300)  # 5min 缓存
+                    return result
             except Exception as e:
                 self.logger.error(f"获取指数K线失败: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
 
         @app.route('/api/index/rotation')
         def api_index_rotation():
             """行业轮动分析数据（60s 缓存）
 
-            返回行业指数的多周期涨跌幅排名、动量得分、成交额，
+            返回行业指数的多周期涨跌幅排名、多因子动量得分（0-100 标准化）、成交额，
             用于前端展示强势/弱势排名表、热力图、轮动趋势。
+
+            多因子动量模型包含 3 类因子：
+            - 价格动量（50%）：今日/3日/7日涨跌幅的百分位加权
+            - 量价动量（30%）：成交额 5 日变化率 + 换手率的百分位加权
+            - 资金动量（20%）：主力净流入额的百分位
+            缺失数据用 50（中性）填充，避免惩罚无数据的板块。
             """
+            def rank_percentile(values):
+                """将原始值列表转为 0-100 百分位
+
+                Args:
+                    values: list of (key, value) tuples，value 可为 None
+                Returns:
+                    dict: key -> percentile(0-100)，None 值映射为 50（中性）
+                """
+                valid = [(k, v) for k, v in values if v is not None]
+                valid.sort(key=lambda x: x[1], reverse=True)
+                n = len(valid)
+                result = {}
+                for k, v in values:
+                    if v is None:
+                        result[k] = 50.0
+                    else:
+                        rank = next(i for i, (kk, _) in enumerate(valid) if kk == k)
+                        result[k] = round((n - rank) / max(n - 1, 1) * 100, 2)
+                return result
+
             try:
                 from src.db.index_dao import IndexDAO
 
@@ -435,17 +541,41 @@ class TrendingServer:
                 # 获取全部行业指数（含 3日/7日涨跌幅）
                 indices = dao.get_industry_indices_with_changes(limit=10000)
                 if not indices:
-                    result = jsonify({'success': True, 'data': {'indices': [], 'count': 0}})
+                    result = jsonify({'success': True, 'data': {'indices': [], 'count': 0, 'alerts': []}})
                     _api_cache.set(cache_key, result, ttl=60)
                     return result
 
-                # 计算排名和动量得分
+                # 量价动量子因子：5 日均量变化率（来自 index_kline 表）
+                avg_amount_data = dao.get_5d_avg_amount([idx.code for idx in indices])
+
+                # 资金动量子因子：主力净流入额（按 name 匹配，失败时用空 dict）
+                fund_flow_map = {}
+                try:
+                    from src.fetchers.fund_flow import fetch_sector_fund_flow
+                    ff_data = fetch_sector_fund_flow(indicator='今日')
+                    fund_flow_map = {item['name']: item['main_in_flow'] for item in ff_data}
+                except Exception as e:
+                    self.logger.warning(f"获取 fund-flow 数据失败，资金动量将使用中性值: {e}")
+
+                # 构建 items 列表，收集 6 个子因子原始值
                 items = []
                 for idx in indices:
-                    change_3d = idx.change_pct_3d if idx.change_pct_3d is not None else 0
-                    change_7d = idx.change_pct_7d if idx.change_pct_7d is not None else 0
-                    # 动量得分 = 今日(40%) + 3日(30%) + 7日(30%)
-                    momentum = round(idx.change_pct * 0.4 + change_3d * 0.3 + change_7d * 0.3, 2)
+                    # amount 单位统一为亿元：
+                    #   akshare 源（行业指数）返回万元，需 /10000 转亿元
+                    #   ths 源（概念板块资金净额）已是亿元
+                    #   em 源（概念板块）已是亿元
+                    if idx.amount:
+                        amount_val = idx.amount / 10000 if idx.source == 'akshare' else idx.amount
+                        amount_val = round(amount_val, 2)
+                    else:
+                        amount_val = 0
+                    # 收集多因子原始值（None 表示无数据，百分位计算时映射为中性 50）
+                    raw_today = idx.change_pct
+                    raw_3d = idx.change_pct_3d
+                    raw_7d = idx.change_pct_7d
+                    raw_amount_rate = avg_amount_data.get(idx.code, {}).get('change_rate')
+                    raw_turnover = idx.turnover_rate if idx.turnover_rate else None
+                    raw_fund = fund_flow_map.get(idx.name)
                     items.append({
                         'code': idx.code,
                         'name': idx.name,
@@ -453,10 +583,64 @@ class TrendingServer:
                         'change_pct': round(idx.change_pct, 2),
                         'change_pct_3d': idx.change_pct_3d,
                         'change_pct_7d': idx.change_pct_7d,
-                        'amount': round(idx.amount / 100000000, 2) if idx.amount else 0,
-                        'momentum': momentum,
-                        'source': idx.source
+                        'amount': amount_val,
+                        'turnover_rate': round(idx.turnover_rate, 2) if idx.turnover_rate else 0,
+                        'market_cap': round(idx.market_cap / 100000000, 2) if idx.market_cap else 0,
+                        'source': idx.source,
+                        '_raw_today': raw_today,
+                        '_raw_3d': raw_3d,
+                        '_raw_7d': raw_7d,
+                        '_raw_amount_rate': raw_amount_rate,
+                        '_raw_turnover': raw_turnover,
+                        '_raw_fund': raw_fund,
                     })
+
+                # 计算 6 个子因子的百分位（0-100，缺失值=50 中性）
+                today_pctile = rank_percentile([(it['code'], it['_raw_today']) for it in items])
+                pct_3d_pctile = rank_percentile([(it['code'], it['_raw_3d']) for it in items])
+                pct_7d_pctile = rank_percentile([(it['code'], it['_raw_7d']) for it in items])
+                amount_pctile = rank_percentile([(it['code'], it['_raw_amount_rate']) for it in items])
+                turnover_pctile = rank_percentile([(it['code'], it['_raw_turnover']) for it in items])
+                fund_pctile = rank_percentile([(it['code'], it['_raw_fund']) for it in items])
+
+                # 计算总动量得分（0-100）和分项得分
+                for it in items:
+                    code = it['code']
+                    tp = today_pctile[code]
+                    d3 = pct_3d_pctile[code]
+                    d7 = pct_7d_pctile[code]
+                    ap = amount_pctile[code]
+                    trp = turnover_pctile[code]
+                    fp = fund_pctile[code]
+                    price_score = round(tp * 0.20 + d3 * 0.15 + d7 * 0.15, 2)
+                    volume_score = round(ap * 0.15 + trp * 0.15, 2)
+                    fund_score = round(fp * 0.20, 2)
+                    it['momentum'] = round(price_score + volume_score + fund_score, 2)
+                    it['momentum_breakdown'] = {
+                        'price': price_score,
+                        'volume': volume_score,
+                        'fund': fund_score,
+                        'price_detail': {
+                            'today': tp,
+                            'd3': d3,
+                            'd7': d7,
+                        },
+                        'volume_detail': {
+                            'amount_change_rate': it['_raw_amount_rate'],
+                            'amount_pctile': ap,
+                            'turnover_pctile': trp,
+                        },
+                        'fund_detail': {
+                            'main_in_flow': it['_raw_fund'],
+                            'fund_pctile': fp,
+                        }
+                    }
+
+                # 删除临时字段，避免泄露到 API 响应
+                for it in items:
+                    for k in ('_raw_today', '_raw_3d', '_raw_7d',
+                              '_raw_amount_rate', '_raw_turnover', '_raw_fund'):
+                        it.pop(k, None)
 
                 # 按各周期排名
                 for field in ['change_pct', 'change_pct_3d', 'change_pct_7d', 'momentum']:
@@ -467,42 +651,182 @@ class TrendingServer:
                 # 按动量得分排序返回
                 items.sort(key=lambda x: x['momentum'], reverse=True)
 
+                # 异常轮动检测（4 条规则，按 high > medium > low 排序）
+                from src.utils.crossover import get_cached_crossover
+                alerts = []
+                for item in items:
+                    code = item['code']
+                    name = item['name']
+                    rank_today = item.get('rank_change_pct', 999)
+                    rank_7d = item.get('rank_change_pct_7d', 999)
+                    change_pct = item.get('change_pct', 0) or 0
+                    change_7d = item.get('change_pct_7d', 0) or 0
+                    momentum = item.get('momentum', 0) or 0
+                    rank_momentum = item.get('rank_momentum', 999)
+
+                    # 规则2: 放量突破（量比 > 2 且涨幅 > 3%）
+                    # amount_change_rate 来自 momentum_breakdown.volume_detail
+                    breakdown = item.get('momentum_breakdown') or {}
+                    vol_detail = breakdown.get('volume_detail') or {}
+                    amount_rate = vol_detail.get('amount_change_rate')
+                    if amount_rate and amount_rate > 100 and change_pct > 3:
+                        amount_ratio = round(amount_rate / 100 + 1, 2)
+                        alerts.append({
+                            'type': 'volume_breakout',
+                            'level': 'high',
+                            'code': code, 'name': name,
+                            'amount_ratio': amount_ratio,
+                            'change_pct': change_pct,
+                            'message': f'{name} 放量突破（量比{amount_ratio}，涨{change_pct}%）'
+                        })
+
+                    # 规则3: 趋势反转（7日跌 > 5% 但今日涨 > 3%）
+                    if change_7d < -5 and change_pct > 3:
+                        alerts.append({
+                            'type': 'trend_reversal',
+                            'level': 'medium',
+                            'code': code, 'name': name,
+                            'change_7d': change_7d,
+                            'change_today': change_pct,
+                            'message': f'{name} 趋势反转（7日{change_7d}%，今日+{change_pct}%）'
+                        })
+
+                    # 规则4: 金叉确认+动量领跑（MACD/MA金叉 且 动量得分>=70 且 排名TOP20）
+                    if rank_momentum and rank_momentum <= 20 and momentum >= 70:
+                        cross = get_cached_crossover(code) or {}
+                        macd_signal = cross.get('macd')
+                        ma_signal = cross.get('ma')
+                        golden_type = None
+                        if macd_signal == 'golden' and ma_signal == 'golden':
+                            golden_type = 'MACD+MA'
+                        elif macd_signal == 'golden':
+                            golden_type = 'MACD'
+                        elif ma_signal == 'golden':
+                            golden_type = 'MA'
+                        if golden_type:
+                            alerts.append({
+                                'type': 'golden_cross_momentum',
+                                'level': 'medium',
+                                'code': code, 'name': name,
+                                'momentum': momentum,
+                                'rank': rank_momentum,
+                                'golden_cross': golden_type,
+                                'message': f'{name} {golden_type}金叉+动量领跑（得分{momentum}，排名#{rank_momentum}）'
+                            })
+
+                # 按级别排序：high > medium > low
+                level_order = {'high': 0, 'medium': 1, 'low': 2}
+                alerts.sort(key=lambda a: level_order.get(a['level'], 3))
+
                 result = jsonify({
                     'success': True,
                     'data': {
                         'indices': items,
                         'count': len(items),
                         'top_strong': items[:10],
-                        'top_weak': items[-10:][::-1]
+                        'top_weak': items[-10:][::-1],
+                        'alerts': alerts
                     }
                 })
                 _api_cache.set(cache_key, result, ttl=60)
                 return result
             except Exception as e:
                 self.logger.error(f"获取行业轮动数据失败: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
+
+        @app.route('/api/index/rotation/history')
+        def api_index_rotation_history():
+            """行业轮动历史排名趋势（5min 缓存）
+
+            查询近 N 日每日板块排名变化，用于前端 bump chart。
+            """
+            try:
+                from src.db.index_dao import IndexDAO
+
+                # 解析 days 参数（默认 30，范围 7-90）
+                try:
+                    days = int(request.args.get('days', 30))
+                except (ValueError, TypeError):
+                    days = 30
+                days = max(7, min(90, days))
+
+                cache_key = f"rotation:history:{days}"
+                cached = _api_cache.get(cache_key)
+                if cached is not None:
+                    return cached
+
+                dao = IndexDAO(DATABASE['path'])
+                history = dao.get_rotation_history(days=days)
+
+                result = jsonify({
+                    'success': True,
+                    'data': {
+                        'dates': history['dates'],
+                        'sectors': history['sectors'],
+                        'count': len(history['dates'])
+                    }
+                })
+                _api_cache.set(cache_key, result, ttl=300)  # 5min 缓存
+                return result
+            except Exception as e:
+                self.logger.error(f"获取行业轮动历史数据失败: {e}")
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
 
         @app.route('/api/index/trigger-fetch', methods=['POST'])
         def api_index_trigger_fetch():
             """手动触发指数数据获取"""
             try:
                 from src.fetchers.index import IndexFetcher
+                from src.db.index_dao import IndexDAO
 
                 fetcher = IndexFetcher(logger=self.logger)
                 count = fetcher.save_to_db(DATABASE['path'])
 
-                self.logger.info(f"手动触发指数数据获取完成: {count} 条")
+                # 抓取后数据完整性校验（不影响抓取流程）
+                dao = IndexDAO(DATABASE['path'])
+                quality = dao.get_data_quality()
+
+                # 兼容旧返回字段：market_cap 填充率
+                concept_total = quality.get('concept_total', 0)
+                market_cap_rate = round(quality.get('concept_market_cap_filled', 0) * 100, 1)
+
+                self.logger.info(
+                    f"手动触发指数数据获取完成: {count} 条, "
+                    f"概念板块 market_cap 填充率: {market_cap_rate}%"
+                )
+
+                # 任一填充率低于 70% 记录 WARN 日志
+                ratios = [
+                    quality.get('industry_amount_filled', 0),
+                    quality.get('concept_market_cap_filled', 0),
+                    quality.get('concept_amount_filled', 0),
+                ]
+                if quality.get('has_data') and any(r < 0.70 for r in ratios):
+                    self.logger.warning(
+                        f'module=data_quality '
+                        f'industry_amount_filled={quality["industry_amount_filled"]} '
+                        f'concept_market_cap_filled={quality["concept_market_cap_filled"]} '
+                        f'concept_amount_filled={quality["concept_amount_filled"]} '
+                        f'level=WARN msg="数据填充率低于阈值"'
+                    )
 
                 return jsonify({
                     'success': True,
                     'data': {
                         'count': count,
-                        'message': f'成功获取 {count} 条指数数据'
+                        'market_cap_filled_count': round(quality.get('concept_market_cap_filled', 0) * concept_total),
+                        'market_cap_total_count': concept_total,
+                        'market_cap_rate': market_cap_rate,
+                        'data_quality': quality,
+                        'message': f'成功获取 {count} 条指数数据（概念板块总市值填充率 {market_cap_rate}%）'
                     }
                 })
             except Exception as e:
                 self.logger.error(f"手动触发指数数据获取失败: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
 
         # ========= 主力资金 / 风格轮动 / 北向资金 API =========
 
@@ -528,7 +852,93 @@ class TrendingServer:
                 })
             except Exception as e:
                 self.logger.error(f"获取主力资金排行失败: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
+
+        @app.route('/api/index/sentiment')
+        def api_index_sentiment():
+            """市场情绪指标（涨跌停统计，60s 缓存）"""
+            try:
+                from src.fetchers.sentiment import fetch_limit_up_stats
+                from src.db.index_dao import IndexDAO
+
+                cache_key = "sentiment:today"
+                cached = _api_cache.get(cache_key)
+                if cached is not None:
+                    return cached
+
+                # 实时获取今日涨跌停数据
+                stats = fetch_limit_up_stats()
+
+                # 保存到数据库（供历史查询）
+                if stats['limit_up_count'] > 0 or stats['limit_down_count'] > 0:
+                    try:
+                        dao = IndexDAO(DATABASE['path'])
+                        dao.save_sentiment_stats(stats)
+                    except Exception as e:
+                        self.logger.warning(f"保存涨跌停统计到数据库失败: {e}")
+
+                # 查询历史数据（近30日）
+                try:
+                    dao = IndexDAO(DATABASE['path'])
+                    history = dao.get_sentiment_history(30)
+                except Exception as e:
+                    self.logger.warning(f"查询情绪历史数据失败: {e}")
+                    history = []
+
+                result = jsonify({
+                    'success': True,
+                    'data': {
+                        'today': stats,
+                        'history': history,
+                    }
+                })
+                _api_cache.set(cache_key, result, ttl=60)
+                return result
+            except Exception as e:
+                self.logger.error(f"获取市场情绪数据失败: {e}")
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
+
+        @app.route('/api/northbound')
+        def api_northbound():
+            """北向资金每日净流入数据（60s 缓存）"""
+            try:
+                from src.fetchers.northbound import fetch_northbound_flow
+                from src.db.index_dao import IndexDAO
+
+                days = request.args.get('days', '30', type=str)
+                try:
+                    days = int(days)
+                    days = max(7, min(90, days))
+                except ValueError:
+                    days = 30
+
+                cache_key = f"northbound:{days}"
+                cached = _api_cache.get(cache_key)
+                if cached is not None:
+                    return cached
+
+                data = fetch_northbound_flow(days=days)
+
+                # 保存到数据库
+                if data.get('dates'):
+                    try:
+                        dao = IndexDAO(DATABASE['path'])
+                        dao.save_northbound_flow(data)
+                    except Exception as e:
+                        self.logger.warning(f"保存北向资金数据到数据库失败: {e}")
+
+                result = jsonify({
+                    'success': True,
+                    'data': data
+                })
+                _api_cache.set(cache_key, result, ttl=60)
+                return result
+            except Exception as e:
+                self.logger.error(f"获取北向资金数据失败: {e}")
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
 
         # ========== 通用API路由 ==========
 
@@ -559,13 +969,13 @@ class TrendingServer:
             """API 接口"""
             # 安全检查：防止目录遍历
             if '..' in data_type or '/' in data_type:
-                return jsonify({'error': 'Invalid data type'}), 400
-            
+                return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, '无效的数据类型', status_code=400).to_response()), 400
+
             data_file = REPORTS_DIR / f"{data_type}.json"
-            
+
             if not data_file.exists():
-                return jsonify({'error': 'Data not found'}), 404
-            
+                return jsonify(ApiError(ErrorCode.DATA_NOT_FOUND, '数据不存在', status_code=404).to_response()), 404
+
             try:
                 import json
                 with open(data_file, 'r', encoding='utf-8') as f:
@@ -575,10 +985,10 @@ class TrendingServer:
                 return response
             except json.JSONDecodeError as e:
                 self.logger.error(f"JSON 解析错误: {e}")
-                return jsonify({'error': 'Invalid JSON'}), 500
+                return jsonify(ApiError(ErrorCode.INTERNAL_ERROR, '数据格式错误', detail=str(e), status_code=500).to_response()), 500
             except Exception as e:
                 self.logger.error(f"读取数据失败: {e}")
-                return jsonify({'error': str(e)}), 500
+                return jsonify(ApiError(ErrorCode.INTERNAL_ERROR, '读取数据失败', detail=str(e), status_code=500).to_response()), 500
 
         @app.route('/api/data')
         def api_data_by_date():
@@ -606,25 +1016,25 @@ class TrendingServer:
                     start_date = target_date
                     end_date = target_date
                 except ValueError:
-                    return jsonify({'success': False, 'error': 'Invalid date format. Expected: YYYY-MM-DD'}), 400
+                    return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, '日期格式无效,应为 YYYY-MM-DD', status_code=400).to_response()), 400
             elif start_date_param and end_date_param:
                 # 日期范围模式
                 try:
                     start_date = datetime.strptime(start_date_param, '%Y-%m-%d').date()
                     end_date = datetime.strptime(end_date_param, '%Y-%m-%d').date()
                 except ValueError:
-                    return jsonify({'success': False, 'error': 'Invalid date format. Expected: YYYY-MM-DD'}), 400
+                    return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, '日期格式无效,应为 YYYY-MM-DD', status_code=400).to_response()), 400
                 
                 # 验证日期范围
                 if start_date > end_date:
-                    return jsonify({'success': False, 'error': 'start_date cannot be later than end_date'}), 400
+                    return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, '开始日期不能晚于结束日期', status_code=400).to_response()), 400
             else:
-                return jsonify({'success': False, 'error': 'Missing required parameters: date or start_date/end_date'}), 400
+                return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, '缺少必要参数: date 或 start_date/end_date', status_code=400).to_response()), 400
             
             # 检查是否是未来日期
             today = datetime.now().date()
             if end_date > today:
-                return jsonify({'success': False, 'error': 'Cannot query future dates'}), 400
+                return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, '不能查询未来日期', status_code=400).to_response()), 400
             
             # 构建日期范围字符串
             if start_date == end_date:
@@ -710,7 +1120,8 @@ class TrendingServer:
                 
             except Exception as e:
                 self.logger.error(f"获取日期数据失败: {e}")
-                return jsonify({'success': False, 'error': f'Internal server error: {str(e)}'}), 500
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
 
         @app.route('/api/search')
         def api_search():
@@ -732,7 +1143,7 @@ class TrendingServer:
                 limit = 50
 
             if not query:
-                return jsonify({'success': False, 'error': 'Missing search query parameter: q'}), 400
+                return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, '缺少搜索关键词参数: q', status_code=400).to_response()), 400
 
             try:
                 dao = TrendingDAO(DATABASE['path'])
@@ -768,7 +1179,8 @@ class TrendingServer:
 
             except Exception as e:
                 self.logger.error(f"搜索失败: {e}")
-                return jsonify({'success': False, 'error': f'Internal server error: {str(e)}'}), 500
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
 
         @app.route('/api/status')
         def api_status():
@@ -783,6 +1195,68 @@ class TrendingServer:
                 }
             })
 
+        @app.route('/api/metrics')
+        def api_metrics():
+            """API 性能指标（P50/P95/平均/最大 响应时间，按端点分组统计）"""
+            try:
+                # 按端点分组
+                groups = {}
+                total_requests = 0
+                with _response_times_lock:
+                    for rec in _response_times:
+                        key = f"{rec['method']} {rec['endpoint']}"
+                        if key not in groups:
+                            groups[key] = {
+                                'endpoint': rec['endpoint'],
+                                'method': rec['method'],
+                                'durations': []
+                            }
+                        groups[key]['durations'].append(rec['duration_ms'])
+                    total_requests = len(_response_times)
+
+                endpoints = []
+                for key, info in groups.items():
+                    durations = sorted(info['durations'])
+                    count = len(durations)
+                    if count == 0:
+                        continue
+
+                    def _percentile(sorted_vals, p):
+                        """线性插值法计算百分位数"""
+                        n = len(sorted_vals)
+                        if n == 1:
+                            return round(sorted_vals[0], 2)
+                        rank = (p / 100) * (n - 1)
+                        lo = int(rank)
+                        hi = min(lo + 1, n - 1)
+                        frac = rank - lo
+                        return round(sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * frac, 2)
+
+                    endpoints.append({
+                        'endpoint': info['endpoint'],
+                        'method': info['method'],
+                        'count': count,
+                        'p50_ms': _percentile(durations, 50),
+                        'p95_ms': _percentile(durations, 95),
+                        'avg_ms': round(sum(durations) / count, 2),
+                        'max_ms': round(durations[-1], 2)
+                    })
+
+                # 按请求数降序排列
+                endpoints.sort(key=lambda x: x['count'], reverse=True)
+
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'endpoints': endpoints,
+                        'total_requests': total_requests
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"获取性能指标失败: {e}")
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
+
         @app.route('/api/refresh/<source>', methods=['POST'])
         def api_refresh_source(source: str):
             """刷新单个数据源"""
@@ -795,10 +1269,7 @@ class TrendingServer:
                 valid_sources = ['github', 'github_ai', 'bilibili', 'arxiv', 
                                'hackernews', 'zhihu', 'weibo', 'douyin', 'aihot']
                 if source not in valid_sources:
-                    return jsonify({
-                        'success': False, 
-                        'message': f'未知的数据源: {source}. 有效的数据源: {", ".join(valid_sources)}'
-                    }), 400
+                    return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, f'未知的数据源: {source}', status_code=400).to_response()), 400
                 
                 # 创建临时调度器来执行刷新
                 scheduler = TrendingTaskScheduler(logger=self.logger)
@@ -816,10 +1287,7 @@ class TrendingServer:
                 })
             except Exception as e:
                 self.logger.error(f"刷新数据源 {source} 失败: {e}")
-                return jsonify({
-                    'success': False, 
-                    'message': f'刷新失败: {str(e)}'
-                }), 500
+                return jsonify(ApiError(ErrorCode.INTERNAL_ERROR, f'刷新数据源 {source} 失败', detail=str(e), status_code=500).to_response()), 500
 
         @app.route('/api/refresh-all', methods=['POST'])
         def api_refresh_all():
@@ -844,10 +1312,8 @@ class TrendingServer:
                 })
             except Exception as e:
                 self.logger.error(f"刷新所有数据源失败: {e}")
-                return jsonify({
-                    'success': False, 
-                    'message': f'刷新失败: {str(e)}'
-                }), 500
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
 
         @app.route('/static/<path:filename>')
         def static_files(filename: str):
@@ -864,14 +1330,18 @@ class TrendingServer:
 
         @app.errorhandler(404)
         def not_found(error):
-            """404 错误处理"""
+            """404 错误处理 - 返回 JSON 而非重定向,保持 API 契约一致"""
+            # 判断是否为 API 请求(路径以 /api/ 开头)
+            if request.path.startswith('/api/'):
+                return jsonify(ApiError(ErrorCode.DATA_NOT_FOUND, f'接口不存在: {request.path}', status_code=404).to_response()), 404
+            # 非 API 请求(浏览器直接访问页面)保持重定向到报告页
             return redirect(ROUTES['report'])
 
         @app.errorhandler(500)
         def internal_error(error):
             """500 错误处理"""
             self.logger.error(f"服务器内部错误: {error}")
-            return jsonify({'error': 'Internal Server Error'}), 500
+            return jsonify(ApiError(ErrorCode.INTERNAL_ERROR, '服务内部错误', status_code=500).to_response()), 500
 
     def _get_default_html(self) -> str:
         """获取默认 HTML 页面"""

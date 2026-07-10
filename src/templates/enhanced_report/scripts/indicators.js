@@ -1,5 +1,32 @@
         // ========== 技术指标相关 ==========
 
+        // ===== 指标预热天数注册表（借鉴 stock-sdk withIndicators 设计）=====
+        // 每个指标所需的最小前置 K 线天数（不含当前日）。
+        // loadKlineData 根据当前启用的指标动态计算总前置天数，替代硬编码 +60。
+        const INDICATOR_WARMUP_DAYS = {
+            ma5: 5,
+            ma10: 10,
+            ma20: 20,
+            ma60: 60,
+            boll: 20,       // BOLL(20, 2)
+            macd: 35,       // EMA(26) + DEA(9) = 35
+            kdj: 9,         // KDJ(9, 3, 3)
+            rsi: 14,        // RSI(14)
+            atr: 14,        // ATR(14, Wilder)
+            cci: 14,        // CCI(14)
+            obv: 0,         // 无前置需求
+        };
+
+        /**
+         * 根据启用的指标列表计算 K 线请求所需的总前置天数
+         * @param {string[]} enabledIndicators - 启用的指标名（如 ['ma5','ma10','ma20','ma60','boll','macd']）
+         * @returns {number} 总前置天数
+         */
+        function calcWarmupDays(enabledIndicators) {
+            if (!enabledIndicators || enabledIndicators.length === 0) return 0;
+            return Math.max(...enabledIndicators.map(i => INDICATOR_WARMUP_DAYS[i] || 0));
+        }
+
         // ===== 三图联动：K线/成交量/指标 副图 tooltip 同步 =====
         let _syncTooltipLock = false;  // 防止递归触发
 
@@ -25,11 +52,27 @@
                             const meta = c.getDatasetMeta(i);
                             if (meta && !meta.hidden) { dsIdx = i; break; }
                         }
+                        // 主图（klineChart）tooltip callback 依赖 _lastHoverX 定位，
+                        // 副图联动时需根据 dataIndex 更新 _lastHoverX，否则主图 tooltip
+                        // 会用旧的鼠标位置显示错误数据。
+                        if (c === klineChart && typeof _lastHoverX !== 'undefined') {
+                            try {
+                                const candleDs = c.data.datasets.find(d => d.type === 'candlestick');
+                                if (candleDs && candleDs.data[dataIndex] && c.scales && c.scales.x) {
+                                    _lastHoverX = c.scales.x.getPixelForValue(candleDs.data[dataIndex].x);
+                                }
+                            } catch (e) {}
+                            // 主图有混合长度 dataset（金叉信号 scatter 仅 6 个点），
+                            // setActiveElements 传入的 index 会对 scatter 越界，触发
+                            // hoverBorderColor 解析 t.toString 错误。跳过 setActiveElements，
+                            // 只用 tooltip.setActiveElements + render 触发 tooltip callback。
+                        } else {
+                            c.setActiveElements([{ datasetIndex: dsIdx, index: dataIndex }]);
+                        }
                         // 用目标 chart 的 canvas 中心作为 eventPosition，避免 (0,0) 导致 tooltip 不渲染
                         const canvas = c.canvas;
                         const xPos = canvas ? canvas.width / 2 : 0;
                         const yPos = canvas ? canvas.height / 2 : 0;
-                        c.setActiveElements([{ datasetIndex: dsIdx, index: dataIndex }]);
                         c.tooltip.setActiveElements([{ datasetIndex: dsIdx, index: dataIndex }], { x: xPos, y: yPos });
                         // 用 render() 代替 update('none')：只触发渲染，不重新计算数据集，更轻量
                         c.render();
@@ -55,6 +98,9 @@
                 _syncTooltipLock = false;
             }
         }
+
+        // 具名 mouseleave handler，便于 addEventListener 前移除旧监听器（避免内存泄漏）
+        const _clearTooltipHandler = () => clearChartsTooltip();
 
         /**
          * 通用 onHover 处理：基于 index 模式获取数据索引并同步三图 tooltip
@@ -277,8 +323,10 @@
                 }
             }
             // 布林带/均线叠加在主图上，需要重新渲染主图
-            if ((ind === 'boll' || ind === 'ma') && currentKlineData) {
-                renderKlineChart(currentKlineData);
+            // 必须用完整历史数据（allKlineData）而非切片数据（currentKlineData），
+            // 否则 MA60/BOLL 等长周期指标因前置数据不足导致显示窗口内大量 null
+            if ((ind === 'boll' || ind === 'ma') && allKlineData) {
+                renderKlineChart(allKlineData, allCrossoverData, currentDisplayDays);
             }
             // 隐藏/显示指标副图容器（主图叠加型指标隐藏副图）
             const indContainer = document.querySelector('.kline-indicator-container');
@@ -581,10 +629,9 @@
                 }
             });
 
-            // 鼠标离开指标图时清除联动高亮
-            canvas.addEventListener('mouseleave', () => {
-                clearChartsTooltip();
-            });
+            // 鼠标离开指标图时清除联动高亮（先移除旧监听器避免内存泄漏）
+            canvas.onmouseleave = null;
+            canvas.addEventListener('mouseleave', _clearTooltipHandler);
         }
 
         // 渲染成交量副图
@@ -653,10 +700,9 @@
                 }
             });
 
-            // 鼠标离开成交量图时清除联动高亮
-            canvas.addEventListener('mouseleave', () => {
-                clearChartsTooltip();
-            });
+            // 鼠标离开成交量图时清除联动高亮（先移除旧监听器避免内存泄漏）
+            canvas.onmouseleave = null;
+            canvas.addEventListener('mouseleave', _clearTooltipHandler);
         }
 
         // 渲染风险指标卡片
@@ -718,11 +764,15 @@
         document.addEventListener('DOMContentLoaded', function() {
             init();
 
-            // 加载数据源状态
-            fetchSourceStatus();
-
-            // 每30秒刷新一次状态
-            setInterval(fetchSourceStatus, 30000);
+            // 加载数据源状态 + 启动轮询（借鉴 usePolling 的 pauseOnHidden）
+            // 页面隐藏时自动暂停，恢复时若过期则立即刷新
+            if (typeof DataService !== 'undefined' && DataService.createPoller) {
+                DataService.createPoller(fetchSourceStatus, 30000).start();
+            } else {
+                // 兜底：DataService 未加载时降级到裸 setInterval
+                fetchSourceStatus();
+                setInterval(fetchSourceStatus, 30000);
+            }
 
             // 渲染图表（会等待 Chart.js 加载）
             renderAllCharts();

@@ -54,20 +54,38 @@ def fetch_sector_fund_flow(indicator="今日"):
     """获取行业主力资金净流入排行，使用 stock_fund_flow_industry
     返回值的单位：元（前端会 /1e8 显示为亿）
     增加流入比(inflow_ratio)和平均每家净流入(per_company)指标
+
+    Args:
+        indicator: 周期，可选 '今日'/'5日'/'10日'（映射到 AKShare symbol）
     """
     if not HAS_AKSHARE:
         logger.warning("akshare not installed")
         return []
+
+    # AKShare stock_fund_flow_industry 支持的 symbol：
+    # "即时"(默认)、"3日排行"、"5日排行"、"10日排行"、"20日排行"
+    # 前端传入 "今日"/"5日"/"10日" 需要映射
+    symbol_map = {"今日": "即时", "5日": "5日排行", "10日": "10日排行"}
+    ak_symbol = symbol_map.get(indicator, "即时")
+
     try:
-        df = _retry_akshare(ak.stock_fund_flow_industry)
+        df = _retry_akshare(ak.stock_fund_flow_industry, symbol=ak_symbol)
         result = []
         for _, row in df.iterrows():
             name = str(row.get("行业", "")).strip()
-            net = float(row.get("净额", 0) or 0) * 100000000
-            inflow = float(row.get("流入资金", 0) or 0) * 100000000
-            outflow = float(row.get("流出资金", 0) or 0) * 100000000
-            pct = float(row.get("行业-涨跌幅", 0) or 0)
-            company_cnt = int(row.get("公司家数", 0) or 0)
+            net = _safe_float(row.get("净额"), multiplier=1e8) or 0.0
+            inflow = _safe_float(row.get("流入资金"), multiplier=1e8) or 0.0
+            outflow = _safe_float(row.get("流出资金"), multiplier=1e8) or 0.0
+            # 涨跌幅列名不同："即时"模式为"行业-涨跌幅"(数值)，
+            # "5日排行"等模式为"阶段涨跌幅"(字符串"3.60%")
+            pct_raw = row.get("行业-涨跌幅")
+            if pct_raw is None or (isinstance(pct_raw, float) and math.isnan(pct_raw)):
+                pct_raw = row.get("阶段涨跌幅")
+            pct = _safe_float(str(pct_raw).strip("%") if pct_raw is not None else "0") or 0.0
+            try:
+                company_cnt = int(row.get("公司家数", 0) or 0)
+            except (ValueError, TypeError):
+                company_cnt = 0
             total_flow = inflow + outflow
             inflow_ratio = (inflow / total_flow * 100) if total_flow > 0 else 50.0
             if pct > 0 and net > 0:

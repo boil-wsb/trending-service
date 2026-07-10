@@ -104,12 +104,51 @@
             <!-- 指数子导航 -->
             <div class="index-sub-nav">
                 <button class="index-sub-tab active" data-subview="market" onclick="switchIndexSubView('market')">📈 行情</button>
+                <button class="index-sub-tab" data-subview="heatmap" onclick="switchIndexSubView('heatmap')">🔥 热力图</button>
                 <button class="index-sub-tab" data-subview="fund-flow" onclick="switchIndexSubView('fund-flow')">💰 主力资金</button>
+                <button class="index-sub-tab" data-subview="sentiment" onclick="switchIndexSubView('sentiment')">🌡️ 情绪</button>
             </div>
 
             <!-- 行情子视图：A股指数 + 行业指数 + 轮动分析 + K线 -->
             <div id="index-market" class="index-sub-content active">
             <div class="index-container">
+                <!-- 市场总览统计区（借鉴 stock-dashboard 总览页：成交额/涨跌/最强最弱板块） -->
+                <div class="index-section market-overview-section">
+                    <div class="index-section-header">
+                        <h3 class="index-section-title">📋 市场总览</h3>
+                        <span id="data-quality-badge" class="data-quality-badge" style="display:none;"></span>
+                        <span id="market-overview-updated" class="market-overview-updated"></span>
+                    </div>
+                    <div id="market-overview-grid" class="market-overview-grid">
+                        <div class="market-overview-card">
+                            <div class="overview-stat-label">全市场成交额</div>
+                            <div class="overview-stat-value" id="overview-total-amount">--</div>
+                            <div class="overview-stat-meta" id="overview-amount-meta">A 股指数合计</div>
+                            <div class="overview-comparison" id="overview-amount-comparison"></div>
+                        </div>
+                        <div class="market-overview-card">
+                            <div class="overview-stat-label">行业涨跌</div>
+                            <div class="overview-stat-value-row">
+                                <span class="index-up" id="overview-rise-count">0</span>
+                                <span class="overview-divider">/</span>
+                                <span class="index-down" id="overview-fall-count">0</span>
+                            </div>
+                            <div class="overview-stat-meta"><span id="overview-flat-count">0</span> 个平盘</div>
+                            <div class="overview-comparison" id="overview-rise-comparison"></div>
+                        </div>
+                        <div class="market-overview-card" id="overview-strongest-card">
+                            <div class="overview-stat-label">最强行业</div>
+                            <div class="overview-stat-value" id="overview-strongest-name">--</div>
+                            <div class="overview-stat-meta index-up" id="overview-strongest-pct">--</div>
+                        </div>
+                        <div class="market-overview-card" id="overview-weakest-card">
+                            <div class="overview-stat-label">最弱行业</div>
+                            <div class="overview-stat-value" id="overview-weakest-name">--</div>
+                            <div class="overview-stat-meta index-down" id="overview-weakest-pct">--</div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 市场指数 -->
                 <div class="index-section">
                     <div class="index-section-header">
@@ -153,7 +192,11 @@
                             </optgroup>
                             <option value="none">无标识</option>
                         </select>
+                        <button class="btn btn--ghost btn--sm screener-toggle-btn" id="screener-toggle-btn" onclick="toggleScreener()">🔍 智能筛选</button>
                         <span id="industry-count-display" class="industry-count-display"></span>
+                        <button class="compare-btn" id="compare-btn" onclick="showCompareModal()" disabled title="勾选 2-4 个板块后可对比">
+                            📊 对比 <span id="compare-count-badge" class="compare-count-badge">0</span>
+                        </button>
                         <span id="followed-count-display" class="followed-count-badge" style="display:none;">⭐ 关注 <span id="followed-count-num">0</span></span>
                         <button class="industry-table-toggle" id="industry-table-toggle" onclick="toggleIndustryTable()">
                             <span class="toggle-text">展开全部</span>
@@ -165,10 +208,52 @@
                         <button class="industry-tab-btn active" data-tab="industry" onclick="switchIndustryTab('industry')">🏭 行业指数</button>
                         <button class="industry-tab-btn" data-tab="concept" onclick="switchIndustryTab('concept')">💡 概念板块</button>
                     </div>
+                    <!-- 智能筛选面板（可折叠） -->
+                    <div class="screener-panel" id="screener-panel">
+                        <div class="screener-row">
+                            <span class="screener-label">趋势状态</span>
+                            <div class="screener-cb-group">
+                                <label class="screener-cb"><input type="checkbox" class="screener-trend-cb" value="strong_bull" onchange="applyScreener()"><span class="crossover-text trend-strong-bull">强多头</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-trend-cb" value="weak_bull" onchange="applyScreener()"><span class="crossover-text trend-weak-bull">弱多头</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-trend-cb" value="sideways" onchange="applyScreener()"><span class="crossover-text trend-sideways">震荡</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-trend-cb" value="weak_bear" onchange="applyScreener()"><span class="crossover-text trend-weak-bear">弱空头</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-trend-cb" value="strong_bear" onchange="applyScreener()"><span class="crossover-text trend-strong-bear">强空头</span></label>
+                            </div>
+                        </div>
+                        <div class="screener-row">
+                            <span class="screener-label">金叉信号</span>
+                            <div class="screener-cb-group">
+                                <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="macd:golden" onchange="applyScreener()"><span class="crossover-text macd-golden">MACD金叉</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="ma:golden" onchange="applyScreener()"><span class="crossover-text ma-golden">MA金叉</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="macd:near_golden" onchange="applyScreener()"><span class="crossover-text macd-near">MACD即将金叉</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="ma:near_golden" onchange="applyScreener()"><span class="crossover-text ma-near">MA即将金叉</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="none" onchange="applyScreener()"><span class="crossover-none">无标识</span></label>
+                            </div>
+                        </div>
+                        <div class="screener-row">
+                            <span class="screener-label">今日涨跌幅</span>
+                            <div class="screener-range"><input type="number" id="screener-change-today-min" class="screener-range-input" placeholder="最小" step="0.01" oninput="applyScreener()"> ~ <input type="number" id="screener-change-today-max" class="screener-range-input" placeholder="最大" step="0.01" oninput="applyScreener()"> %</div>
+                            <span class="screener-label screener-label--gap">3日涨跌幅</span>
+                            <div class="screener-range"><input type="number" id="screener-change-3d-min" class="screener-range-input" placeholder="最小" step="0.01" oninput="applyScreener()"> ~ <input type="number" id="screener-change-3d-max" class="screener-range-input" placeholder="最大" step="0.01" oninput="applyScreener()"> %</div>
+                            <span class="screener-label screener-label--gap">7日涨跌幅</span>
+                            <div class="screener-range"><input type="number" id="screener-change-7d-min" class="screener-range-input" placeholder="最小" step="0.01" oninput="applyScreener()"> ~ <input type="number" id="screener-change-7d-max" class="screener-range-input" placeholder="最大" step="0.01" oninput="applyScreener()"> %</div>
+                        </div>
+                        <div class="screener-row">
+                            <span class="screener-label">换手率</span>
+                            <div class="screener-range"><input type="number" id="screener-turnover-min" class="screener-range-input" placeholder="最小" step="0.01" oninput="applyScreener()"> ~ <input type="number" id="screener-turnover-max" class="screener-range-input" placeholder="最大" step="0.01" oninput="applyScreener()"> %</div>
+                            <span class="screener-label screener-label--gap">动量得分</span>
+                            <div class="screener-range"><input type="number" id="screener-momentum-min" class="screener-range-input" placeholder="0" min="0" max="100" step="0.1" oninput="applyScreener()"> ~ <input type="number" id="screener-momentum-max" class="screener-range-input" placeholder="100" min="0" max="100" step="0.1" oninput="applyScreener()"></div>
+                            <span class="screener-match-count" id="screener-match-count"></span>
+                            <div class="screener-actions">
+                                <button class="btn btn--ghost btn--sm" onclick="resetScreener()">重置</button>
+                            </div>
+                        </div>
+                    </div>
                     <div class="index-table-wrapper collapsed" id="industry-table-wrapper">
                         <table class="index-table" id="industry-indices-table">
                             <thead>
                                 <tr>
+                                    <th class="compare-col" title="勾选后可对比">对比</th>
                                     <th class="sortable" onclick="sortIndustryTable('followed')" title="按关注状态排序">⭐ <span class="sort-arrow"></span></th>
                                     <th class="sortable" onclick="sortIndustryTable('code')">代码 <span class="sort-arrow"></span></th>
                                     <th class="sortable" onclick="sortIndustryTable('name')">名称 <span class="sort-arrow"></span></th>
@@ -187,9 +272,29 @@
                                 </tr>
                             </thead>
                             <tbody id="industry-indices-body">
-                                <tr><td colspan="15" class="index-loading">加载中...</td></tr>
+                                <tr><td colspan="16" class="index-loading">加载中...</td></tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                <!-- 板块对比分析模态框 -->
+                <div class="compare-modal-overlay" id="compare-modal" onclick="onCompareOverlayClick(event)">
+                    <div class="compare-modal-card" onclick="event.stopPropagation()">
+                        <div class="compare-modal-header">
+                            <h3 class="compare-modal-title">📊 板块对比分析</h3>
+                            <button class="compare-modal-close" onclick="closeCompareModal()" title="关闭">✕</button>
+                        </div>
+                        <div class="compare-modal-body">
+                            <div class="compare-loading" id="compare-loading">加载中...</div>
+                            <div class="compare-chart-wrap" id="compare-chart-wrap" style="display:none;">
+                                <canvas id="compare-chart-canvas"></canvas>
+                            </div>
+                            <div class="compare-rs-panel" id="compare-rs-panel"></div>
+                            <div class="compare-modal-note">
+                                归一化基准：首日 = 100 ｜ RS = Mansfield 相对强度比率（基准：沪深300 000300，RS &gt; 100 跑赢大盘）
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -199,6 +304,8 @@
                         <h3 class="index-section-title">🔄 行业轮动分析</h3>
                         <button class="rotation-refresh-btn" onclick="loadRotationData()">🔄 刷新</button>
                     </div>
+                    <!-- 异常轮动预警 -->
+                    <div id="rotation-alerts-container" class="rotation-alerts-container" style="display:none;"></div>
                     <div class="rotation-layout">
                         <!-- 左侧：强势/弱势排名 -->
                         <div class="rotation-ranking">
@@ -211,18 +318,46 @@
                                 <div id="rotation-weak-list"></div>
                             </div>
                         </div>
-                        <!-- 右侧：热力图 -->
-                        <div class="rotation-heatmap">
-                            <div class="rotation-heatmap-header">
-                                <h4 style="margin:0;">📊 行业热力图</h4>
-                                <button class="heatmap-toggle" id="heatmap-toggle-btn" onclick="toggleHeatmap()">
-                                    <span class="toggle-text">展开</span>
-                                </button>
+                    </div>
+                    <!-- 轮动历史排名趋势 -->
+                    <div class="rotation-history-section">
+                        <div class="rotation-history-header">
+                            <h4>📊 近30日排名趋势</h4>
+                            <div class="rotation-history-controls">
+                                <input type="text" id="rotation-history-search" class="rotation-history-search" placeholder="搜索板块名称高亮..." oninput="highlightRotationLine()">
+                                <select id="rotation-history-days" class="rotation-history-days" onchange="loadRotationHistory()">
+                                    <option value="15">15日</option>
+                                    <option value="30" selected>30日</option>
+                                    <option value="60">60日</option>
+                                </select>
                             </div>
-                            <div id="rotation-heatmap-container" class="rotation-heatmap-body"></div>
+                        </div>
+                        <div id="rotation-history-chart-container" style="height:400px;position:relative;">
+                            <canvas id="rotation-history-chart"></canvas>
                         </div>
                     </div>
                     <!-- 轮动趋势表已合并至上方「申万行业指数」表（动量/排名/排名变化列） -->
+                    <!-- 热力图已移至独立子 tab「🔥 热力图」 -->
+                    <!-- 轮动路径桑基图 -->
+                    <div class="rotation-sankey-section">
+                        <div class="rotation-sankey-header">
+                            <h4>💰 资金流向路径</h4>
+                            <div class="sankey-period-controls">
+                                <button class="sankey-period-btn active" data-period="今日" onclick="switchSankeyPeriod('今日')">今日</button>
+                                <button class="sankey-period-btn" data-period="5日" onclick="switchSankeyPeriod('5日')">5日</button>
+                                <button class="sankey-period-btn" data-period="10日" onclick="switchSankeyPeriod('10日')">10日</button>
+                            </div>
+                        </div>
+                        <div id="sankey-data-hint" style="display:none;padding:8px 12px;background:rgba(249,115,22,0.1);border-radius:6px;color:#f97316;font-size:13px;margin-bottom:8px;"></div>
+                        <div id="rotation-sankey-container" style="height:400px;position:relative;">
+                            <canvas id="rotation-sankey-chart"></canvas>
+                        </div>
+                        <div class="sankey-legend">
+                            <span class="sankey-legend-item"><span class="sankey-dot" style="background:#e74c3c;"></span>净流入板块</span>
+                            <span class="sankey-legend-item"><span class="sankey-dot" style="background:#27ae60;"></span>净流出板块</span>
+                            <span class="sankey-hint">连线宽度表示估算资金流量</span>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- K线图区域 -->
@@ -232,7 +367,7 @@
                         <button class="kline-close-btn" onclick="closeKline()">✕ 关闭</button>
                     </div>
                     <div class="kline-controls">
-                        <label>周期：</label>
+                        <label>天数：</label>
                         <select id="kline-days" onchange="loadKlineData()">
                             <option value="7">7天</option>
                             <option value="30">30天</option>
@@ -270,6 +405,56 @@
             </div>
             </div><!-- /index-market -->
 
+            <!-- 热力图子视图（Treemap：面积加权 + 涨跌幅着色） -->
+            <div id="index-heatmap" class="index-sub-content">
+                <div class="index-container">
+                <div class="index-section">
+                    <div class="index-section-header">
+                        <h3 class="index-section-title">🔥 板块热力图</h3>
+                        <button class="rotation-refresh-btn" onclick="loadHeatmapData()">🔄 刷新</button>
+                    </div>
+                    <!-- 控件栏：维度 / 颜色 / 面积 / 数量 -->
+                    <div class="heatmap-controls">
+                        <div class="heatmap-control-group">
+                            <label>维度</label>
+                            <select id="heatmap-dimension" onchange="renderHeatmapTab()">
+                                <option value="industry">行业</option>
+                                <option value="concept">概念</option>
+                            </select>
+                        </div>
+                        <div class="heatmap-control-group">
+                            <label>颜色</label>
+                            <select id="heatmap-color" onchange="renderHeatmapTab()">
+                                <option value="change_pct">涨跌幅</option>
+                                <option value="turnover_rate">换手率</option>
+                            </select>
+                        </div>
+                        <div class="heatmap-control-group">
+                            <label>面积</label>
+                            <select id="heatmap-size" onchange="renderHeatmapTab()">
+                                <option value="amount">成交额</option>
+                                <option value="market_cap">总市值</option>
+                            </select>
+                        </div>
+                        <div class="heatmap-control-group">
+                            <label>数量</label>
+                            <select id="heatmap-top" onchange="renderHeatmapTab()">
+                                <option value="50">Top 50</option>
+                                <option value="100" selected>Top 100</option>
+                                <option value="200">Top 200</option>
+                            </select>
+                        </div>
+                        <button class="heatmap-toggle" id="heatmap-toggle-btn" onclick="toggleHeatmap()">
+                            <span class="toggle-text">展开</span>
+                        </button>
+                    </div>
+                    <div id="heatmap-container" class="rotation-heatmap-body">
+                        <div class="index-loading">加载中...</div>
+                    </div>
+                </div>
+                </div>
+            </div><!-- /index-heatmap -->
+
             <!-- 主力资金行业净流入（指数子视图） -->
             <div id="index-fund-flow" class="index-sub-content">
                 <div class="index-container">
@@ -299,7 +484,109 @@
                             <tbody id="fund-flow-tbody"></tbody>
                         </table>
                     </div>
+                    <!-- 北向资金 -->
+                    <div class="northbound-section">
+                        <h3 class="index-section-title">🌍 北向资金（沪深港通）</h3>
+                        <div class="northbound-stats-row">
+                            <div class="northbound-stat-card">
+                                <div class="northbound-stat-label">今日净流入</div>
+                                <div class="northbound-stat-value" id="nb-latest-total">--</div>
+                            </div>
+                            <div class="northbound-stat-card">
+                                <div class="northbound-stat-label">沪股通</div>
+                                <div class="northbound-stat-value" id="nb-latest-sh">--</div>
+                            </div>
+                            <div class="northbound-stat-card">
+                                <div class="northbound-stat-label">深股通</div>
+                                <div class="northbound-stat-value" id="nb-latest-sz">--</div>
+                            </div>
+                            <div class="northbound-stat-card">
+                                <div class="northbound-stat-label">近5日累计</div>
+                                <div class="northbound-stat-value" id="nb-total-5d">--</div>
+                            </div>
+                            <div class="northbound-stat-card">
+                                <div class="northbound-stat-label">近20日累计</div>
+                                <div class="northbound-stat-value" id="nb-total-20d">--</div>
+                            </div>
+                        </div>
+                        <div class="northbound-chart-controls">
+                            <span class="northbound-chart-label">📈 近</span>
+                            <select id="nb-days-select" class="nb-days-select" onchange="loadNorthbound()">
+                                <option value="15">15</option>
+                                <option value="30" selected>30</option>
+                                <option value="60">60</option>
+                            </select>
+                            <span class="northbound-chart-label">日净流入曲线</span>
+                            <div class="nb-line-toggle">
+                                <label><input type="checkbox" id="nb-show-total" checked onchange="updateNorthboundChart()"> 合计</label>
+                                <label><input type="checkbox" id="nb-show-sh" checked onchange="updateNorthboundChart()"> 沪股通</label>
+                                <label><input type="checkbox" id="nb-show-sz" checked onchange="updateNorthboundChart()"> 深股通</label>
+                            </div>
+                        </div>
+                        <div style="height:350px;position:relative;">
+                            <canvas id="northbound-chart"></canvas>
+                        </div>
+                    </div>
                 </div>
+                </div>
+            </div>
+
+            <!-- 情绪子视图 -->
+            <div id="index-sentiment" class="index-sub-content">
+                <div class="index-container">
+                    <div class="index-section">
+                        <div class="index-section-header">
+                            <h3 class="index-section-title">🌡️ 市场情绪</h3>
+                            <button class="rotation-refresh-btn" onclick="loadSentimentData()">🔄 刷新</button>
+                        </div>
+                        <!-- 情绪温度计 -->
+                        <div class="sentiment-thermometer-section">
+                            <div class="sentiment-thermometer">
+                                <div class="thermometer-label">情绪温度计</div>
+                                <div class="thermometer-value" id="sentiment-score">--</div>
+                                <div class="thermometer-bar-container">
+                                    <div class="thermometer-bar" id="thermometer-bar" style="width:0%;"></div>
+                                </div>
+                                <div class="thermometer-desc" id="sentiment-desc">加载中...</div>
+                            </div>
+                            <div class="sentiment-stats-grid">
+                                <div class="sentiment-stat-card">
+                                    <div class="sentiment-stat-label">涨停家数</div>
+                                    <div class="sentiment-stat-value index-up" id="limit-up-count">--</div>
+                                </div>
+                                <div class="sentiment-stat-card">
+                                    <div class="sentiment-stat-label">跌停家数</div>
+                                    <div class="sentiment-stat-value index-down" id="limit-down-count">--</div>
+                                </div>
+                                <div class="sentiment-stat-card">
+                                    <div class="sentiment-stat-label">炸板家数</div>
+                                    <div class="sentiment-stat-value" id="broken-count">--</div>
+                                </div>
+                                <div class="sentiment-stat-card">
+                                    <div class="sentiment-stat-label">炸板率</div>
+                                    <div class="sentiment-stat-value" id="broken-rate">--</div>
+                                </div>
+                                <div class="sentiment-stat-card">
+                                    <div class="sentiment-stat-label">最高连板</div>
+                                    <div class="sentiment-stat-value" id="max-consecutive">--</div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 涨跌停时序图 -->
+                        <div class="sentiment-chart-section">
+                            <h4>📈 涨跌停家数时序图（近30日）</h4>
+                            <div style="height:300px;position:relative;">
+                                <canvas id="sentiment-history-chart"></canvas>
+                            </div>
+                        </div>
+                        <!-- 连板梯队 -->
+                        <div class="sentiment-tier-section">
+                            <h4>🔥 连板梯队</h4>
+                            <div id="consecutive-tier-list" class="consecutive-tier-list">
+                                <div class="index-loading">加载中...</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -481,4 +768,23 @@
     </div>
 
     <button class="dark-mode-toggle" onclick="toggleDarkMode()">☀️</button>
+
+    <!-- 动量雷达图抽屉 -->
+    <div id="radar-drawer-overlay" class="radar-drawer-overlay" style="display:none;" onclick="closeRadarDrawer()"></div>
+    <aside id="radar-drawer" class="radar-drawer" style="display:none;">
+        <div class="radar-drawer-header">
+            <h3 id="radar-title">📊 动量雷达</h3>
+            <button class="radar-close-btn" onclick="closeRadarDrawer()">✕</button>
+        </div>
+        <div class="radar-drawer-body">
+            <div id="radar-compare-toggle" class="radar-compare-toggle">
+                <button class="radar-mode-btn active" data-mode="single" onclick="setRadarMode('single')">单个板块</button>
+                <button class="radar-mode-btn" data-mode="compare" onclick="setRadarMode('compare')">对比模式</button>
+            </div>
+            <div id="radar-chart-container" style="height:350px;position:relative;">
+                <canvas id="radar-chart"></canvas>
+            </div>
+            <div id="radar-info-panel" class="radar-info-panel"></div>
+        </div>
+    </aside>
 

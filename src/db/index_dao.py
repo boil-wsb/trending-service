@@ -24,76 +24,51 @@ class IndexDAO:
         - 如果记录不存在，则插入新记录
         - 如果记录已存在，则更新行情字段
 
+        amount/market_cap 特殊处理：
+        新值为 0 时保留旧值（接口返回 0 通常是缺失值，非真 0；
+        避免概念板块 ths 源反爬失败时 em 源 amount=0 覆盖已合并的数据）。
+
         Returns:
             保存的数据 id
         """
         fetched_at = index.fetched_at or datetime.now()
+
+        # 使用 UPSERT (ON CONFLICT) 原子操作，消除竞态条件
+        self.db.execute('''
+            INSERT INTO index_data (
+                code, name, category, price, change, change_pct,
+                high, low, open, pre_close, volume, amount,
+                turnover_rate, market_cap, source, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(code, source, fetched_date) DO UPDATE SET
+                name = excluded.name,
+                category = excluded.category,
+                price = excluded.price,
+                change = excluded.change,
+                change_pct = excluded.change_pct,
+                high = excluded.high,
+                low = excluded.low,
+                open = excluded.open,
+                pre_close = excluded.pre_close,
+                volume = excluded.volume,
+                amount = CASE WHEN excluded.amount != 0 THEN excluded.amount ELSE index_data.amount END,
+                turnover_rate = excluded.turnover_rate,
+                market_cap = CASE WHEN excluded.market_cap > 0 THEN excluded.market_cap ELSE index_data.market_cap END,
+                fetched_at = excluded.fetched_at
+        ''', (
+            index.code, index.name, index.category, index.price, index.change,
+            index.change_pct, index.high, index.low, index.open, index.pre_close,
+            index.volume, index.amount, index.turnover_rate, index.market_cap,
+            index.source, fetched_at
+        ))
+
+        # 获取记录 ID（UPSERT 后查询，使用同一 fetched_date）
         fetched_date = fetched_at.date().isoformat()
-
-        existing = self.db.fetch_one('''
-            SELECT id FROM index_data
-            WHERE code = ? AND source = ? AND fetched_date = ?
-        ''', (index.code, index.source, fetched_date))
-
-        if existing:
-            self.db.execute('''
-                UPDATE index_data SET
-                    name = ?,
-                    category = ?,
-                    price = ?,
-                    change = ?,
-                    change_pct = ?,
-                    high = ?,
-                    low = ?,
-                    open = ?,
-                    pre_close = ?,
-                    volume = ?,
-                    amount = ?,
-                    turnover_rate = ?,
-                    fetched_at = ?
-                WHERE id = ?
-            ''', (
-                index.name,
-                index.category,
-                index.price,
-                index.change,
-                index.change_pct,
-                index.high,
-                index.low,
-                index.open,
-                index.pre_close,
-                index.volume,
-                index.amount,
-                index.turnover_rate,
-                fetched_at,
-                existing['id']
-            ))
-            return existing['id']
-        else:
-            self.db.execute('''
-                INSERT INTO index_data (
-                    code, name, category, price, change, change_pct,
-                    high, low, open, pre_close, volume, amount,
-                    turnover_rate, source, fetched_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                index.code,
-                index.name,
-                index.category,
-                index.price,
-                index.change,
-                index.change_pct,
-                index.high,
-                index.low,
-                index.open,
-                index.pre_close,
-                index.volume,
-                index.amount,
-                index.turnover_rate,
-                index.source,
-                fetched_at
-            ))
-            return self.db.get_last_insert_id()
+        row = self.db.fetch_one(
+            'SELECT id FROM index_data WHERE code = ? AND source = ? AND fetched_date = ?',
+            (index.code, index.source, fetched_date)
+        )
+        return row['id'] if row else 0
 
     def save_indices(self, indices: List[IndexData]) -> int:
         """
@@ -107,11 +82,8 @@ class IndexDAO:
 
         saved_count = 0
         for index in indices:
-            try:
-                self.save_index(index)
-                saved_count += 1
-            except Exception as e:
-                raise e
+            self.save_index(index)
+            saved_count += 1
 
         return saved_count
 
@@ -139,6 +111,7 @@ class IndexDAO:
             volume=row.get('volume', 0),
             amount=row.get('amount', 0.0),
             turnover_rate=row.get('turnover_rate', 0.0),
+            market_cap=row.get('market_cap', 0.0),
             source=row.get('source', 'eastmoney'),
             fetched_at=fetched_at or datetime.now()
         )
@@ -347,6 +320,166 @@ class IndexDAO:
         ''', (code, limit))
         return [self._row_to_index(row) for row in rows]
 
+    def get_market_overview_comparison(self) -> dict:
+        """
+        获取市场总览的历史对比数据
+
+        计算指标：
+        - amount_vs_yesterday: 今日市场指数成交额总额 vs 昨日的变化百分比
+        - amount_vs_5d_avg: 今日市场指数成交额总额 vs 近5日日均的变化百分比
+        - rise_count_vs_yesterday: 今日行业上涨家数 - 昨日上涨家数
+
+        边界处理：
+        - 历史数据不足（少于2日）时返回 has_history=False 且各指标为 None
+        - 除零保护：昨日总额或5日日均为0时跳过对应指标（置为 None）
+
+        Returns:
+            dict: {
+                'has_history': bool,
+                'amount_vs_yesterday': float or None,
+                'amount_vs_5d_avg': float or None,
+                'rise_count_vs_yesterday': int or None
+            }
+        """
+        # 1. 查询最近6日的市场指数成交额汇总（按 fetched_date 分组）
+        market_rows = self.db.fetch_all('''
+            SELECT fetched_date, SUM(amount) as total_amount
+            FROM index_data
+            WHERE category = 'market'
+            GROUP BY fetched_date
+            ORDER BY fetched_date DESC
+            LIMIT 6
+        ''')
+
+        # 历史数据不足（少于2日）
+        if len(market_rows) < 2:
+            return {
+                'has_history': False,
+                'amount_vs_yesterday': None,
+                'amount_vs_5d_avg': None,
+                'rise_count_vs_yesterday': None
+            }
+
+        today_amount = market_rows[0]['total_amount'] or 0
+        yesterday_amount = market_rows[1]['total_amount'] or 0
+        today_date = market_rows[0]['fetched_date']
+        yesterday_date = market_rows[1]['fetched_date']
+
+        # 2. 计算 amount_vs_yesterday（今日 vs 昨日）
+        amount_vs_yesterday = None
+        if yesterday_amount > 0:
+            amount_vs_yesterday = round(
+                (today_amount - yesterday_amount) / yesterday_amount * 100, 1
+            )
+
+        # 3. 计算 amount_vs_5d_avg（今日 vs 近5日日均，排除今日）
+        # 取最近6日中第2-6日的数据（索引1到5）计算日均
+        amount_vs_5d_avg = None
+        five_day_amounts = [r['total_amount'] or 0 for r in market_rows[1:6]]
+        if five_day_amounts:
+            five_day_avg = sum(five_day_amounts) / len(five_day_amounts)
+            if five_day_avg > 0:
+                amount_vs_5d_avg = round(
+                    (today_amount - five_day_avg) / five_day_avg * 100, 1
+                )
+
+        # 4. 查询今日和昨日的行业指数涨跌数据，计算上涨家数变化
+        industry_rows = self.db.fetch_all('''
+            SELECT fetched_date, change_pct
+            FROM index_data
+            WHERE category = 'industry'
+            AND fetched_date IN (?, ?)
+        ''', (today_date, yesterday_date))
+
+        today_rise_count = 0
+        yesterday_rise_count = 0
+        for row in industry_rows:
+            change_pct = row['change_pct']
+            if change_pct is None:
+                continue
+            row_date = row['fetched_date']
+            if row_date == today_date and change_pct > 0:
+                today_rise_count += 1
+            elif row_date == yesterday_date and change_pct > 0:
+                yesterday_rise_count += 1
+
+        rise_count_vs_yesterday = today_rise_count - yesterday_rise_count
+
+        return {
+            'has_history': True,
+            'amount_vs_yesterday': amount_vs_yesterday,
+            'amount_vs_5d_avg': amount_vs_5d_avg,
+            'rise_count_vs_yesterday': rise_count_vs_yesterday
+        }
+
+    def get_data_quality(self) -> dict:
+        """
+        获取最新日期的数据完整性质量指标
+
+        校验维度：
+        - 行业指数（category='industry' AND source='akshare'）amount>0 的比例
+        - 概念板块（category='industry' AND source IN ('em','ths')）market_cap>0 的比例
+        - 概念板块 amount!=0 的比例（概念板块资金净额可能为负，非 0 即视为有数据）
+
+        Returns:
+            dict: {
+                'industry_amount_filled': float,   # 行业指数 amount 填充率 (0~1)
+                'concept_market_cap_filled': float, # 概念板块 market_cap 填充率 (0~1)
+                'concept_amount_filled': float,    # 概念板块 amount 填充率 (0~1)
+                'industry_total': int,             # 行业指数总数
+                'concept_total': int,              # 概念板块总数
+                'has_data': bool                   # 是否有数据
+            }
+        """
+        latest_date = self._get_latest_date()
+        if not latest_date:
+            return {
+                'has_data': False,
+                'industry_amount_filled': 0.0,
+                'concept_market_cap_filled': 0.0,
+                'concept_amount_filled': 0.0,
+                'industry_total': 0,
+                'concept_total': 0,
+            }
+
+        # 行业指数（申万，akshare 源）amount>0 比例
+        industry_row = self.db.fetch_one('''
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN amount > 0 THEN 1 ELSE 0 END) as filled
+            FROM index_data
+            WHERE category = 'industry' AND source = 'akshare' AND fetched_date = ?
+        ''', (latest_date,))
+
+        industry_total = (industry_row['total'] or 0) if industry_row else 0
+        industry_filled = (industry_row['filled'] or 0) if industry_row else 0
+        industry_amount_filled = round(industry_filled / industry_total, 4) if industry_total > 0 else 0.0
+
+        # 概念板块（em/ths 源）market_cap>0 和 amount!=0 比例
+        concept_row = self.db.fetch_one('''
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN market_cap > 0 THEN 1 ELSE 0 END) as market_cap_filled,
+                SUM(CASE WHEN amount != 0 THEN 1 ELSE 0 END) as amount_filled
+            FROM index_data
+            WHERE category = 'industry' AND source IN ('em','ths') AND fetched_date = ?
+        ''', (latest_date,))
+
+        concept_total = (concept_row['total'] or 0) if concept_row else 0
+        concept_market_cap_filled_count = (concept_row['market_cap_filled'] or 0) if concept_row else 0
+        concept_amount_filled_count = (concept_row['amount_filled'] or 0) if concept_row else 0
+        concept_market_cap_filled = round(concept_market_cap_filled_count / concept_total, 4) if concept_total > 0 else 0.0
+        concept_amount_filled = round(concept_amount_filled_count / concept_total, 4) if concept_total > 0 else 0.0
+
+        return {
+            'has_data': True,
+            'industry_amount_filled': industry_amount_filled,
+            'concept_market_cap_filled': concept_market_cap_filled,
+            'concept_amount_filled': concept_amount_filled,
+            'industry_total': industry_total,
+            'concept_total': concept_total,
+        }
+
     # ===== K 线数据缓存方法 =====
 
     def save_klines(self, code: str, klines: List[Dict], source: str = 'tx') -> int:
@@ -366,6 +499,8 @@ class IndexDAO:
 
         saved = 0
         from datetime import datetime
+        import logging
+        logger = logging.getLogger(__name__)
         now = datetime.now().isoformat()
 
         for k in klines:
@@ -374,50 +509,36 @@ class IndexDAO:
                 if not date_str:
                     continue
 
-                existing = self.db.fetch_one(
-                    'SELECT id FROM index_kline WHERE code = ? AND date = ? AND source = ?',
-                    (code, date_str, source)
-                )
-
-                if existing:
-                    self.db.execute('''
-                        UPDATE index_kline SET
-                            open = ?, close = ?, high = ?, low = ?,
-                            volume = ?, amount = ?, change = ?, change_pct = ?,
-                            updated_at = ?
-                        WHERE id = ?
-                    ''', (
-                        float(k.get('open', 0) or 0),
-                        float(k.get('close', 0) or 0),
-                        float(k.get('high', 0) or 0),
-                        float(k.get('low', 0) or 0),
-                        int(float(k.get('volume', 0) or 0)),
-                        float(k.get('amount', 0) or 0),
-                        float(k.get('change', 0) or 0),
-                        float(k.get('change_pct', 0) or 0),
-                        now,
-                        existing['id']
-                    ))
-                else:
-                    self.db.execute('''
-                        INSERT INTO index_kline (
-                            code, date, open, close, high, low,
-                            volume, amount, change, change_pct, source, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        code, date_str,
-                        float(k.get('open', 0) or 0),
-                        float(k.get('close', 0) or 0),
-                        float(k.get('high', 0) or 0),
-                        float(k.get('low', 0) or 0),
-                        int(float(k.get('volume', 0) or 0)),
-                        float(k.get('amount', 0) or 0),
-                        float(k.get('change', 0) or 0),
-                        float(k.get('change_pct', 0) or 0),
-                        source, now
-                    ))
+                self.db.execute('''
+                    INSERT INTO index_kline (
+                        code, date, open, close, high, low,
+                        volume, amount, change, change_pct, source, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(code, date, source) DO UPDATE SET
+                        open = excluded.open,
+                        close = excluded.close,
+                        high = excluded.high,
+                        low = excluded.low,
+                        volume = excluded.volume,
+                        amount = excluded.amount,
+                        change = excluded.change,
+                        change_pct = excluded.change_pct,
+                        updated_at = excluded.updated_at
+                ''', (
+                    code, date_str,
+                    float(k.get('open', 0) or 0),
+                    float(k.get('close', 0) or 0),
+                    float(k.get('high', 0) or 0),
+                    float(k.get('low', 0) or 0),
+                    int(float(k.get('volume', 0) or 0)),
+                    float(k.get('amount', 0) or 0),
+                    float(k.get('change', 0) or 0),
+                    float(k.get('change_pct', 0) or 0),
+                    source, now
+                ))
                 saved += 1
             except (ValueError, KeyError, TypeError) as e:
+                logger.warning(f"跳过无效K线数据 code={code} date={date_str}: {e}")
                 continue
 
         return saved
@@ -468,3 +589,225 @@ class IndexDAO:
             (code, source)
         )
         return row['latest'] if row and row['latest'] else None
+
+    def get_5d_avg_amount(self, codes: list) -> dict:
+        """查询指定 codes 的 5 日平均成交额和今日成交额（来自 index_kline 表）
+
+        用于多因子动量模型中的量价动量子因子：amount_change_rate。
+        从 index_kline 表查询最近 6 个交易日，最近 1 日为 today_amount，
+        前 5 日求平均为 avg_5d_amount，change_rate = (today - avg) / avg * 100。
+
+        Args:
+            codes: 指数代码列表
+
+        Returns:
+            dict: code -> {'today_amount': float, 'avg_5d_amount': float or None, 'change_rate': float or None}
+            数据不足 6 日或前 5 日记录不全时 change_rate 为 None
+        """
+        if not codes:
+            return {}
+        result = {}
+        try:
+            # 获取最近 6 个交易日
+            date_rows = self.db.fetch_all('''
+                SELECT DISTINCT date FROM index_kline
+                ORDER BY date DESC LIMIT 6
+            ''')
+            if not date_rows:
+                return {}
+            kline_dates = [r['date'] for r in date_rows]
+            today_date = kline_dates[0]
+            past_5_dates = kline_dates[1:6]
+            placeholders = ','.join('?' * len(codes))
+
+            # 查询今日成交额
+            today_rows = self.db.fetch_all(
+                f'SELECT code, amount FROM index_kline WHERE date = ? AND code IN ({placeholders})',
+                (today_date, *codes)
+            )
+            today_map = {r['code']: r['amount'] for r in today_rows}
+
+            # 前 5 日不足时无法计算 change_rate，但仍返回今日成交额
+            if len(past_5_dates) < 5:
+                for code in codes:
+                    amt = today_map.get(code)
+                    result[code] = {
+                        'today_amount': amt or 0,
+                        'avg_5d_amount': None,
+                        'change_rate': None,
+                    }
+                return result
+
+            # 批量查询前 5 日成交额，按 code 聚合
+            past_placeholders = ','.join('?' * len(past_5_dates))
+            past_rows = self.db.fetch_all(
+                f'''SELECT code, SUM(amount) as total_amount, COUNT(*) as cnt
+                    FROM index_kline
+                    WHERE date IN ({past_placeholders}) AND code IN ({placeholders})
+                    GROUP BY code''',
+                (*past_5_dates, *codes)
+            )
+            past_map = {r['code']: (r['total_amount'], r['cnt']) for r in past_rows}
+
+            for code in codes:
+                today_amount = today_map.get(code)
+                if today_amount is None or today_amount == 0:
+                    result[code] = {
+                        'today_amount': today_amount or 0,
+                        'avg_5d_amount': None,
+                        'change_rate': None,
+                    }
+                    continue
+                past = past_map.get(code)
+                if not past or past[1] < 5 or past[0] == 0:
+                    result[code] = {
+                        'today_amount': today_amount,
+                        'avg_5d_amount': None,
+                        'change_rate': None,
+                    }
+                    continue
+                avg_5d = past[0] / past[1]
+                change_rate = round((today_amount - avg_5d) / avg_5d * 100, 2)
+                result[code] = {
+                    'today_amount': today_amount,
+                    'avg_5d_amount': avg_5d,
+                    'change_rate': change_rate,
+                }
+            return result
+        except Exception:
+            return {}
+
+    def get_rotation_history(self, days: int = 30) -> dict:
+        """查询近 N 日每日行业指数排名（用于前端 bump chart）
+
+        取最近 N 个不同 fetched_date，对每个日期的全部行业指数按 change_pct 降序排名
+        （第 1 名涨跌幅最高）。只返回在最近一日有数据的板块，避免已退市板块干扰。
+        某板块在某日无数据时，该日排名用 None 表示（前端 Chart.js spanGaps 跳过）。
+
+        Args:
+            days: 查询近 N 日
+
+        Returns:
+            {
+                'dates': ['2026-06-10', ...],      # 升序（旧→新）
+                'sectors': [
+                    {'code': ..., 'name': ..., 'ranks': [rank1, rank2, ...]},
+                    ...
+                ]
+            }
+        """
+        # 1. 获取最近 N 个不同 fetched_date
+        date_rows = self.db.fetch_all('''
+            SELECT DISTINCT fetched_date FROM index_data
+            WHERE category = 'industry'
+            ORDER BY fetched_date DESC
+            LIMIT ?
+        ''', (days,))
+        if not date_rows:
+            return {'dates': [], 'sectors': []}
+
+        # 按时间升序排列（左旧右新，便于图表绘制）
+        dates = [r['fetched_date'] for r in date_rows]
+        dates.reverse()
+
+        # 2. 一次性查询这些日期的全部行业指数数据
+        placeholders = ','.join('?' * len(dates))
+        rows = self.db.fetch_all(
+            f'''SELECT code, name, change_pct, fetched_date
+                FROM index_data
+                WHERE category = 'industry' AND fetched_date IN ({placeholders})''',
+            tuple(dates)
+        )
+
+        # 3. 按日期分组
+        date_data = {d: [] for d in dates}
+        for row in rows:
+            d = row['fetched_date']
+            if d in date_data:
+                date_data[d].append((row['code'], row['name'], row['change_pct']))
+
+        # 4. 每日按 change_pct 降序排名（None 视为最差）
+        date_rank = {}
+        for d in dates:
+            items_d = sorted(
+                date_data[d],
+                key=lambda x: x[2] if x[2] is not None else float('-inf'),
+                reverse=True
+            )
+            date_rank[d] = {code: i + 1 for i, (code, _, _) in enumerate(items_d)}
+
+        # 5. 只保留最近一日有数据的板块
+        latest_date = dates[-1]
+        latest_items = date_data[latest_date]
+        latest_codes = {code for code, _, _ in latest_items}
+
+        # 用最近一日的 name 作为板块名称
+        name_map = {code: name for code, name, _ in latest_items}
+
+        sectors = []
+        for code in latest_codes:
+            ranks = [date_rank[d].get(code) for d in dates]
+            sectors.append({
+                'code': code,
+                'name': name_map.get(code, code),
+                'ranks': ranks
+            })
+
+        return {'dates': dates, 'sectors': sectors}
+
+    # ===== 市场情绪涨跌停统计 =====
+
+    def save_sentiment_stats(self, stats: dict):
+        """保存涨跌停统计到数据库"""
+        import json
+        self.db.execute('''
+            INSERT OR REPLACE INTO limit_up_stats
+            (date, limit_up_count, limit_down_count, broken_limit_count, broken_rate,
+             max_consecutive, sentiment_score, consecutive_tiers)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            stats['date'],
+            stats['limit_up_count'],
+            stats['limit_down_count'],
+            stats['broken_limit_count'],
+            stats['broken_rate'],
+            stats['max_consecutive'],
+            stats['sentiment_score'],
+            json.dumps(stats.get('consecutive_tiers', []), ensure_ascii=False)
+        ))
+
+    def get_sentiment_history(self, days: int = 30) -> list:
+        """查询近 N 日涨跌停统计历史"""
+        rows = self.db.fetch_all('''
+            SELECT date, limit_up_count, limit_down_count, broken_limit_count,
+                   broken_rate, max_consecutive, sentiment_score
+            FROM limit_up_stats
+            ORDER BY date DESC
+            LIMIT ?
+        ''', (days,))
+        return [dict(r) for r in rows]
+
+    # ===== 北向资金（沪深港通） =====
+
+    def save_northbound_flow(self, data: dict):
+        """保存北向资金数据到数据库"""
+        dates = data.get('dates', [])
+        sh = data.get('sh_net_flow', [])
+        sz = data.get('sz_net_flow', [])
+        total = data.get('total_net_flow', [])
+        for i, d in enumerate(dates):
+            self.db.execute('''
+                INSERT OR REPLACE INTO northbound_flow
+                (date, sh_net_buy, sz_net_buy, total_net_buy)
+                VALUES (?, ?, ?, ?)
+            ''', (d, sh[i] if i < len(sh) else 0, sz[i] if i < len(sz) else 0, total[i] if i < len(total) else 0))
+
+    def get_northbound_history(self, days: int = 30) -> list:
+        """查询近 N 日北向资金历史"""
+        rows = self.db.fetch_all('''
+            SELECT date, sh_net_buy, sz_net_buy, total_net_buy
+            FROM northbound_flow
+            ORDER BY date DESC
+            LIMIT ?
+        ''', (days,))
+        return [dict(r) for r in rows]

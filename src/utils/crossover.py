@@ -16,6 +16,8 @@ from typing import List, Dict, Optional
 import threading
 from datetime import datetime
 
+from src.utils.symbol import normalize_symbol, to_kline_source
+
 
 def calculate_ema(data: List[float], period: int) -> List[float]:
     """计算指数移动平均线（EMA）"""
@@ -466,14 +468,9 @@ def refresh_all_crossovers(dao, logger=None) -> int:
         drawdown_count = 0
         for idx in all_indices:
             code = idx.code
-            # 根据 code 判断 K 线数据源
-            if code.startswith('80') and len(code) == 6:
-                kline_source = 'sw'
-            elif code.isdigit() and len(code) == 6:
-                kline_source = 'sina'
-            else:
-                # 概念板块（中文 code）：K 线由同花顺源拉取并缓存
-                kline_source = 'ths'
+            # 根据 code 判断 K 线数据源（统一走 normalize_symbol 解析）
+            sym = normalize_symbol(code)
+            kline_source = to_kline_source(sym)
 
             klines = dao.get_klines(code, days=60, source=kline_source)
             closes = None

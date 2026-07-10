@@ -48,22 +48,25 @@ class TrendingItem:
                 # JSON 格式
                 try:
                     keywords = json.loads(keywords)
-                except:
+                except (json.JSONDecodeError, ValueError, TypeError):
                     keywords = []
             else:
                 # 逗号分隔格式
                 keywords = [k.strip() for k in keywords.split(',') if k.strip()]
-        
+
         fetched_at = data.get('fetched_at')
         if isinstance(fetched_at, str):
-            fetched_at = datetime.fromisoformat(fetched_at)
-        
+            try:
+                fetched_at = datetime.fromisoformat(fetched_at)
+            except ValueError:
+                fetched_at = datetime.now()
+
         # 解析 extra 字段
         extra = data.get('extra', '{}')
         if isinstance(extra, str):
             try:
                 extra = json.loads(extra)
-            except:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 extra = {}
         
         return cls(
@@ -111,16 +114,22 @@ class DailyStats:
         if isinstance(top_keywords, str):
             try:
                 top_keywords = json.loads(top_keywords)
-            except:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 top_keywords = {}
-        
+
         date_val = data.get('date')
         if isinstance(date_val, str):
-            date_val = date.fromisoformat(date_val)
-        
+            try:
+                date_val = date.fromisoformat(date_val)
+            except ValueError:
+                date_val = date.today()
+
         created_at = data.get('created_at')
         if isinstance(created_at, str):
-            created_at = datetime.fromisoformat(created_at)
+            try:
+                created_at = datetime.fromisoformat(created_at)
+            except ValueError:
+                created_at = datetime.now()
         
         return cls(
             id=data.get('id'),
@@ -174,6 +183,7 @@ class IndexData:
     volume: int = 0                       # 成交量 (手)
     amount: float = 0.0                   # 成交额 (元)
     turnover_rate: float = 0.0            # 换手率 (%)
+    market_cap: float = 0.0               # 总市值 (元，概念板块从东方财富抓取)
     source: str = "eastmoney"             # 数据源
     fetched_at: datetime = field(default_factory=datetime.now)
     # 多日涨跌幅（从历史快照计算，可选字段）
@@ -197,6 +207,7 @@ class IndexData:
             'volume': self.volume,
             'amount': round(self.amount / 100000000, 2) if self.amount else 0,
             'turnover_rate': round(self.turnover_rate, 2),
+            'market_cap': round(self.market_cap / 100000000, 2) if self.market_cap else 0,
             'source': self.source,
             'fetched_at': self.fetched_at.isoformat() if self.fetched_at else None,
             'change_pct_3d': self.change_pct_3d,
@@ -208,7 +219,10 @@ class IndexData:
         """从字典创建对象"""
         fetched_at = data.get('fetched_at')
         if isinstance(fetched_at, str):
-            fetched_at = datetime.fromisoformat(fetched_at)
+            try:
+                fetched_at = datetime.fromisoformat(fetched_at)
+            except ValueError:
+                fetched_at = datetime.now()
 
         return cls(
             id=data.get('id'),

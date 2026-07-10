@@ -15,6 +15,10 @@
 <body>
 <!-- INCLUDE: enhanced_report/layout/body.html -->
     <script>
+<!-- INCLUDE: enhanced_report/scripts/app_state.js -->
+<!-- INCLUDE: enhanced_report/scripts/toast.js -->
+<!-- INCLUDE: enhanced_report/scripts/data_service.js -->
+<!-- INCLUDE: enhanced_report/scripts/chart_presets.js -->
 <!-- INCLUDE: enhanced_report/scripts/core.js -->
 <!-- INCLUDE: enhanced_report/scripts/source_status.js -->
 <!-- INCLUDE: enhanced_report/scripts/index_market.js -->
@@ -27,6 +31,10 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <!-- Chart.js 金融图表插件（candlestick / ohlc） -->
     <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
+    <!-- Chart.js Treemap 插件（行业热力图面积加权） -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@3.1.0/dist/chartjs-chart-treemap.min.js"></script>
+    <!-- Chart.js Sankey 插件（资金流向桑基图） -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-sankey@0.12.1/dist/chartjs-chart-sankey.min.js"></script>
     <!-- 摘要悬浮窗 -->
     <div id="description-tooltip" class="description-tooltip"></div>
 </body>

@@ -6,6 +6,7 @@
 """
 
 import sys
+import math
 from typing import List, Dict
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +15,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.config import DATA_SOURCES
 from src.utils import get_logger
+from src.utils.symbol import normalize_symbol, to_kline_source, AssetType
 from src.db.models import IndexData
+
+
+def _safe_float(v, default=0.0):
+    if v is None or (isinstance(v, float) and math.isnan(v)):
+        return default
+    try:
+        f = float(v)
+        return default if math.isnan(f) else f
+    except Exception:
+        return default
 
 
 class IndexFetcher:
@@ -125,15 +137,15 @@ class IndexFetcher:
                         code=item['code'],
                         name=item['name'],
                         category='market',
-                        price=float(row.get('最新价', 0) or 0),
-                        change=float(row.get('涨跌额', 0) or 0),
-                        change_pct=float(row.get('涨跌幅', 0) or 0),
-                        high=float(row.get('最高', 0) or 0),
-                        low=float(row.get('最低', 0) or 0),
-                        open=float(row.get('今开', 0) or 0),
-                        pre_close=float(row.get('昨收', 0) or 0),
-                        volume=int(float(row.get('成交量', 0) or 0)),
-                        amount=float(row.get('成交额', 0) or 0),
+                        price=_safe_float(row.get('最新价', 0)),
+                        change=_safe_float(row.get('涨跌额', 0)),
+                        change_pct=_safe_float(row.get('涨跌幅', 0)),
+                        high=_safe_float(row.get('最高', 0)),
+                        low=_safe_float(row.get('最低', 0)),
+                        open=_safe_float(row.get('今开', 0)),
+                        pre_close=_safe_float(row.get('昨收', 0)),
+                        volume=int(_safe_float(row.get('成交量', 0))),
+                        amount=_safe_float(row.get('成交额', 0)),
                         turnover_rate=0.0,
                         source='sina',
                         fetched_at=now,
@@ -180,8 +192,8 @@ class IndexFetcher:
             # 指数代码、指数名称、昨收盘、今开盘、最新价、成交额、成交量、最高价、最低价
             for _, row in df.iterrows():
                 try:
-                    price = float(row.get('最新价', 0) or 0)
-                    pre_close = float(row.get('昨收盘', 0) or 0)
+                    price = _safe_float(row.get('最新价', 0))
+                    pre_close = _safe_float(row.get('昨收盘', 0))
                     change = round(price - pre_close, 2) if pre_close else 0.0
                     change_pct = round((change / pre_close) * 100, 2) if pre_close else 0.0
 
@@ -195,12 +207,12 @@ class IndexFetcher:
                         price=price,
                         change=change,
                         change_pct=change_pct,
-                        high=float(row.get('最高价', 0) or 0),
-                        low=float(row.get('最低价', 0) or 0),
-                        open=float(row.get('今开盘', 0) or 0),
+                        high=_safe_float(row.get('最高价', 0)),
+                        low=_safe_float(row.get('最低价', 0)),
+                        open=_safe_float(row.get('今开盘', 0)),
                         pre_close=pre_close,
-                        volume=int(float(row.get('成交量', 0) or 0)),
-                        amount=float(row.get('成交额', 0) or 0),
+                        volume=int(_safe_float(row.get('成交量', 0))),
+                        amount=_safe_float(row.get('成交额', 0)),
                         turnover_rate=0.0,
                         source='akshare',
                         fetched_at=now,
@@ -243,22 +255,30 @@ class IndexFetcher:
             self.logger.error("AKShare 未安装，无法获取概念板块。请运行: pip install akshare")
             return []
 
-        # 1) 主源：东方财富 stock_board_concept_name_em（含重试）
-        results = self._fetch_concept_via_em(ak)
-        if results:
-            results = self._filter_concept_by_watchlist(results, watchlist)
-            self.logger.info(f"概念板块（东方财富源）获取成功: {len(results)} 条")
-            return results
+        # 1) 主源：东方财富 stock_board_concept_name_em（含 market_cap）
+        em_results = self._fetch_concept_via_em(ak)
+        if em_results:
+            em_results = self._filter_concept_by_watchlist(em_results, watchlist)
+            self.logger.info(f"概念板块（东方财富源）获取成功: {len(em_results)} 条")
 
-        # 2) 备用源：同花顺 stock_fund_flow_concept
-        self.logger.warning("东方财富源未返回数据，回退到同花顺源...")
-        results = self._fetch_concept_via_ths(ak)
-        if results:
-            results = self._filter_concept_by_watchlist(results, watchlist)
-            self.logger.info(f"概念板块（同花顺源）获取成功: {len(results)} 条")
+        # 2) 备用源：同花顺 stock_fund_flow_concept（含 amount/资金净额）
+        ths_results = self._fetch_concept_via_ths(ak)
+        if ths_results:
+            ths_results = self._filter_concept_by_watchlist(ths_results, watchlist)
+            self.logger.info(f"概念板块（同花顺源）获取成功: {len(ths_results)} 条")
+
+        # 3) 合并：em 提供 market_cap，ths 提供 amount，同 code 时合并
+        if em_results and ths_results:
+            merged = self._merge_concept_sources(em_results, ths_results)
+            self.logger.info(f"概念板块合并完成: {len(merged)} 条 (em={len(em_results)}, ths={len(ths_results)})")
+            return merged
+        elif em_results:
+            return em_results
+        elif ths_results:
+            return ths_results
         else:
             self.logger.warning("所有概念板块数据源均未返回数据")
-        return results
+            return []
 
     # 概念板块白名单别名映射
     # key=白名单项, value=数据源中可能的别名列表
@@ -331,10 +351,6 @@ class IndexFetcher:
         ]
         for attempt in range(1, max_retries + 1):
             try:
-                # 设置随机请求头，降低被反爬概率
-                import requests
-                requests.utils.default_headers()['User-Agent'] = random.choice(user_agents)
-
                 df = ak_module.stock_board_concept_name_em()
                 if df is None or df.empty:
                     self.logger.warning(f"东方财富概念板块返回空数据 (尝试 {attempt}/{max_retries})")
@@ -348,10 +364,11 @@ class IndexFetcher:
                         name = str(row.get('板块名称', '')).strip()
                         if not name:
                             continue
-                        price = float(row.get('最新价', 0) or 0)
-                        change_pct = float(row.get('涨跌幅', 0) or 0)
-                        change = float(row.get('涨跌额', 0) or 0)
-                        turnover_rate = float(row.get('换手率', 0) or 0)
+                        price = _safe_float(row.get('最新价', 0))
+                        change_pct = _safe_float(row.get('涨跌幅', 0))
+                        change = _safe_float(row.get('涨跌额', 0))
+                        turnover_rate = _safe_float(row.get('换手率', 0))
+                        market_cap = _safe_float(row.get('总市值', 0))
 
                         # 代码使用概念名称（概念板块无统一数字代码）
                         code = name
@@ -370,6 +387,7 @@ class IndexFetcher:
                             volume=0,
                             amount=0.0,
                             turnover_rate=turnover_rate,
+                            market_cap=market_cap,
                             source='em',
                             fetched_at=now,
                         )
@@ -384,55 +402,189 @@ class IndexFetcher:
                     time.sleep(2 * attempt)  # 递增间隔: 2s, 4s
         return []
 
+    def _merge_concept_sources(self, em_results: List[IndexData], ths_results: List[IndexData]) -> List[IndexData]:
+        """合并东方财富和同花顺概念板块数据。
+
+        合并策略：
+        - em 源提供：market_cap、turnover_rate（东方财富特有）
+        - ths 源提供：amount（资金净额，同花顺特有）
+        - 同 code 时：以 em 为基础，补齐 ths 的 amount；source 标记为 'em'（主源）
+        - 仅 ths 有的：尝试用名称归一化匹配 em（去括号/后缀），匹配则补齐 market_cap
+        - 仍无法匹配的 ths 记录：保留，source='ths'，market_cap=0
+
+        Returns:
+            合并后的概念板块列表
+        """
+        import re
+
+        def normalize_name(name: str) -> str:
+            """归一化概念板块名称：去括号内容、去常见后缀、统一大小写"""
+            # 去括号及内容：共封装光学(CPO) → 共封装光学
+            s = re.sub(r'[（(].*?[)）]', '', name)
+            # 去常见后缀
+            for suffix in ['概念', '板块', '指数']:
+                if s.endswith(suffix):
+                    s = s[:-len(suffix)]
+            return s.strip().lower()
+
+        # 以 code 为 key 建立索引
+        em_map = {idx.code: idx for idx in em_results}
+        ths_map = {idx.code: idx for idx in ths_results}
+
+        # 以归一化名称建立 em/ths 索引（用于跨源名称匹配）
+        em_name_map = {}
+        for idx in em_results:
+            norm = normalize_name(idx.name)
+            if norm not in em_name_map:
+                em_name_map[norm] = idx
+        ths_name_map = {}
+        for idx in ths_results:
+            norm = normalize_name(idx.name)
+            if norm not in ths_name_map:
+                ths_name_map[norm] = idx
+
+        def find_ths_by_name(em_idx: IndexData):
+            """先按 code 精确匹配，再按归一化名称匹配，再按子串包含匹配"""
+            # 1) code 精确匹配
+            ths_idx = ths_map.get(em_idx.code)
+            if ths_idx:
+                return ths_idx
+            # 2) 归一化名称匹配
+            norm = normalize_name(em_idx.name)
+            ths_idx = ths_name_map.get(norm)
+            if ths_idx:
+                return ths_idx
+            # 3) 子串包含匹配（双向）：新能源车 ↔ 新能源汽车
+            for ths_name, ths_item in ths_name_map.items():
+                if len(norm) >= 3 and len(ths_name) >= 3:
+                    if norm in ths_name or ths_name in norm:
+                        return ths_item
+            return None
+
+        def find_em_by_name(ths_idx: IndexData):
+            """先按归一化名称匹配，再按子串包含匹配"""
+            norm = normalize_name(ths_idx.name)
+            # 1) 归一化名称匹配
+            em_match = em_name_map.get(norm)
+            if em_match:
+                return em_match
+            # 2) 子串包含匹配（双向）
+            for em_name, em_item in em_name_map.items():
+                if len(norm) >= 3 and len(em_name) >= 3:
+                    if norm in em_name or em_name in norm:
+                        return em_item
+            return None
+
+        merged: List[IndexData] = []
+        merged_codes = set()
+        amount_filled_count = 0
+
+        # 1) em 有的：补齐 ths 的 amount（先按 code 精确匹配，再按名称匹配）
+        for code, em_idx in em_map.items():
+            ths_idx = find_ths_by_name(em_idx)
+            if ths_idx and ths_idx.amount:
+                em_idx.amount = ths_idx.amount
+                amount_filled_count += 1
+            merged.append(em_idx)
+            merged_codes.add(code)
+
+        # 2) 仅 ths 有的：尝试用名称匹配 em，补齐 market_cap
+        ths_only_count = 0
+        ths_matched_count = 0
+        for code, ths_idx in ths_map.items():
+            if code in merged_codes:
+                continue
+            ths_only_count += 1
+            em_match = find_em_by_name(ths_idx)
+            if em_match and em_match.market_cap:
+                ths_idx.market_cap = em_match.market_cap
+                if not ths_idx.turnover_rate:
+                    ths_idx.turnover_rate = em_match.turnover_rate
+                ths_matched_count += 1
+            merged.append(ths_idx)
+
+        if ths_only_count > 0:
+            self.logger.info(
+                f"概念板块合并：ths 独有 {ths_only_count} 个，"
+                f"名称匹配补齐 market_cap {ths_matched_count} 个，"
+                f"未匹配 {ths_only_count - ths_matched_count} 个"
+            )
+        self.logger.info(
+            f"概念板块合并：em 记录补齐 amount {amount_filled_count}/{len(em_results)} 个"
+        )
+
+        return merged
+
     def _fetch_concept_via_ths(self, ak_module) -> List[IndexData]:
-        """通过同花顺 stock_fund_flow_concept 获取概念板块（备用源）。"""
-        try:
-            df = ak_module.stock_fund_flow_concept(symbol='即时')
-            if df is None or df.empty:
-                self.logger.warning("同花顺概念板块返回空数据")
-                return []
+        """通过同花顺 stock_fund_flow_concept 获取概念板块（备用源，带重试）。
 
-            results: List[IndexData] = []
-            now = datetime.now()
-            # 字段：序号、行业、行业指数、行业-涨跌幅、流入资金、流出资金、
-            #       净额、公司家数、领涨股、领涨股-涨跌幅、当前价
-            for _, row in df.iterrows():
-                try:
-                    name = str(row.get('行业', '')).strip()
-                    if not name:
+        同花顺源在某些时段会因反爬返回 None 导致
+        "'NoneType' object has no attribute 'text'" 错误，故增加 3 次重试，
+        间隔递增（2s/4s），每次重试前设置随机 User-Agent。
+        """
+        import time
+        import random
+        max_retries = 3
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        ]
+        now = datetime.now()
+        for attempt in range(1, max_retries + 1):
+            try:
+                df = ak_module.stock_fund_flow_concept(symbol='即时')
+                if df is None or df.empty:
+                    self.logger.warning(f"同花顺概念板块返回空数据 (尝试 {attempt}/{max_retries})")
+                    if attempt < max_retries:
+                        time.sleep(2 * attempt)
                         continue
-                    price = float(row.get('行业指数', 0) or 0)
-                    change_pct = float(row.get('行业-涨跌幅', 0) or 0)
-                    current_price = float(row.get('当前价', 0) or 0)
-                    if price == 0 and current_price > 0:
-                        price = current_price
+                    return []
 
-                    code = name  # 概念板块无标准代码
-                    index = IndexData(
-                        code=code,
-                        name=name,
-                        category='industry',
-                        price=price,
-                        change=round(price * change_pct / 100, 2) if price else 0.0,
-                        change_pct=change_pct,
-                        high=0.0,
-                        low=0.0,
-                        open=0.0,
-                        pre_close=round(price * (1 - change_pct / 100), 2) if price and change_pct else 0.0,
-                        volume=0,
-                        amount=float(row.get('净额', 0) or 0),  # 净额作为成交额参考
-                        turnover_rate=0.0,
-                        source='ths',
-                        fetched_at=now,
-                    )
-                    results.append(index)
-                except (ValueError, KeyError, TypeError) as e:
-                    self.logger.warning(f"解析概念板块数据失败: {e}, row: {row.to_dict()}")
-                    continue
-            return results
-        except Exception as e:
-            self.logger.error(f"同花顺源获取概念板块失败: {e}")
-            return []
+                results: List[IndexData] = []
+                # 字段：序号、行业、行业指数、行业-涨跌幅、流入资金、流出资金、
+                #       净额、公司家数、领涨股、领涨股-涨跌幅、当前价
+                for _, row in df.iterrows():
+                    try:
+                        name = str(row.get('行业', '')).strip()
+                        if not name:
+                            continue
+                        price = _safe_float(row.get('行业指数', 0))
+                        change_pct = _safe_float(row.get('行业-涨跌幅', 0))
+                        current_price = _safe_float(row.get('当前价', 0))
+                        if price == 0 and current_price > 0:
+                            price = current_price
+
+                        code = name  # 概念板块无标准代码
+                        index = IndexData(
+                            code=code,
+                            name=name,
+                            category='industry',
+                            price=price,
+                            change=round(price * change_pct / 100, 2) if price else 0.0,
+                            change_pct=change_pct,
+                            high=0.0,
+                            low=0.0,
+                            open=0.0,
+                            pre_close=round(price * (1 - change_pct / 100), 2) if price else 0.0,
+                            volume=0,
+                            amount=_safe_float(row.get('净额', 0)),  # 净额作为成交额参考
+                            turnover_rate=0.0,
+                            source='ths',
+                            fetched_at=now,
+                        )
+                        results.append(index)
+                    except (ValueError, KeyError, TypeError) as e:
+                        self.logger.warning(f"解析概念板块数据失败: {e}, row: {row.to_dict()}")
+                        continue
+                return results
+            except Exception as e:
+                self.logger.error(f"同花顺源获取概念板块失败 (尝试 {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    time.sleep(2 * attempt)
+                else:
+                    return []
+        return []
 
     def fetch_kline(self, code: str, days: int = 30) -> List[Dict]:
         """
@@ -450,11 +602,12 @@ class IndexFetcher:
         Returns:
             List[Dict]: K 线数据列表，每条包含 date/open/close/high/low/volume/amount/change_pct
         """
-        # 判断指数类型并选择数据源
-        if code.startswith('80') and len(code) == 6:
+        # 判断指数类型并选择数据源（统一走 normalize_symbol 解析）
+        sym = normalize_symbol(code)
+        if sym.asset_type == AssetType.INDUSTRY_INDEX:
             # 申万行业指数
             return self._fetch_kline_sw(code, days)
-        elif code.isdigit() and len(code) == 6:
+        elif sym.asset_type == AssetType.MARKET_INDEX:
             # 市场指数
             return self._fetch_kline_sina(code, days)
         else:
@@ -713,6 +866,94 @@ class IndexFetcher:
         except Exception as e:
             self.logger.error(f"同花顺源获取概念板块 K 线失败: {e}")
             return []
+
+    @staticmethod
+    def aggregate_kline(daily_klines: List[Dict], period: str) -> List[Dict]:
+        """将日K数据聚合为周K/月K
+
+        聚合规则：
+        - open=首日open, close=末日close, high=max(high), low=min(low), volume=sum(volume)
+        - 周K：按自然周（周一到周日）聚合
+        - 月K：按自然月聚合
+        - 每组的代表日期取该组最后一个交易日的日期
+
+        Args:
+            daily_klines: 日K数据列表（按日期升序），每条含 date/open/close/high/low/volume/amount
+            period: 'week' 或 'month'，其他值原样返回
+
+        Returns:
+            聚合后的K线数据列表（含重新计算的 change_pct/change）
+        """
+        if not daily_klines or period not in ('week', 'month'):
+            return daily_klines
+
+        from datetime import datetime
+
+        def _period_key(date_str):
+            """根据周期返回分组键"""
+            try:
+                dt = datetime.strptime(str(date_str), '%Y-%m-%d')
+            except (ValueError, TypeError):
+                return None
+            if period == 'week':
+                # isocalendar 返回 (ISO年, 周数, 周几)；用前两项作为分组键
+                iso = dt.isocalendar()
+                return (iso[0], iso[1])
+            else:  # month
+                return (dt.year, dt.month)
+
+        # 按周期分组（保持原始升序）
+        groups = []  # [(key, [klines])]
+        current_key = None
+        current_group = []
+        for k in daily_klines:
+            key = _period_key(k.get('date', ''))
+            if key is None:
+                continue
+            if key != current_key:
+                if current_group:
+                    groups.append((current_key, current_group))
+                current_key = key
+                current_group = [k]
+            else:
+                current_group.append(k)
+        if current_group:
+            groups.append((current_key, current_group))
+
+        # 聚合每组数据
+        result = []
+        prev_close = None
+        for _key, group in groups:
+            first = group[0]
+            last = group[-1]
+            open_val = first['open']
+            close_val = last['close']
+            high_val = max(k['high'] for k in group)
+            low_val = min(k['low'] for k in group)
+            volume_val = sum(k.get('volume', 0) for k in group)
+            amount_val = sum(k.get('amount', 0) for k in group)
+
+            if prev_close and prev_close != 0:
+                change_pct = round((close_val - prev_close) / prev_close * 100, 4)
+                change = round(close_val - prev_close, 4)
+            else:
+                change_pct = 0.0
+                change = 0.0
+
+            result.append({
+                'date': last['date'],
+                'open': open_val,
+                'close': close_val,
+                'high': high_val,
+                'low': low_val,
+                'volume': volume_val,
+                'amount': amount_val,
+                'change_pct': change_pct,
+                'change': change,
+            })
+            prev_close = close_val
+
+        return result
 
     def _code_to_sina_symbol(self, code: str) -> str:
         """根据指数代码转换为新浪/腾讯源代码（sh/sz 前缀）"""

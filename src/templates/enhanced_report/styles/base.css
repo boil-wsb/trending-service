@@ -1,3 +1,67 @@
+        /* ===== 语义化设计令牌（亮色默认值）===== */
+        /* 借鉴 stock-dashboard 设计令牌系统，统一颜色/间距/圆角/阴影 */
+        /* 暗色模式在 body.dark-mode 中覆盖同名变量 */
+        :root {
+            /* 背景层级 */
+            --bg-base: #ffffff;
+            --bg-surface: #f8fafc;
+            --bg-elevated: #f1f5f9;
+            --bg-hover: #e2e8f0;
+
+            /* 文字层级 */
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --text-inverse: #ffffff;
+
+            /* 边框 */
+            --border-default: #e2e8f0;
+            --border-strong: #cbd5e1;
+
+            /* 强调色 */
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --accent-rgb: 59, 130, 246;
+
+            /* 状态色（涨/跌/警告）*/
+            --color-up: #10b981;
+            --color-down: #ef4444;
+            --color-warning: #f59e0b;
+
+            /* A股惯例涨跌色（红涨绿跌）— 图表专用，借鉴 stock-dashboard --color-rise/--color-fall */
+            --color-rise: #e74c3c;
+            --color-fall: #27ae60;
+            --color-flat: #95a5a6;
+            --color-rise-rgb: 231, 76, 60;
+            --color-fall-rgb: 39, 174, 96;
+
+            /* 技术指标色（K线 MA/BOLL 系列）*/
+            --color-ma5: #9b59b6;
+            --color-ma10: #e67e22;
+            --color-ma20: #1abc9c;
+            --color-ma60: #34495e;
+            --color-boll-mid: #f39c12;
+            --color-macd-cross: #c0392b;
+            --color-ma-cross: #2471a3;
+
+            /* 阴影 */
+            --shadow-soft: 0 2px 8px rgba(0,0,0,0.06);
+            --shadow-card: 0 4px 20px rgba(0,0,0,0.08);
+            --shadow-strong: 0 20px 60px rgba(0,0,0,0.15);
+
+            /* 圆角 */
+            --radius-sm: 6px;
+            --radius-md: 12px;
+            --radius-lg: 20px;
+
+            /* 间距 */
+            --space-xs: 4px;
+            --space-sm: 8px;
+            --space-md: 16px;
+            --space-lg: 24px;
+            --space-xl: 40px;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -179,6 +243,73 @@
             max-width: 100px;
         }
 
+        /* ===== Button variant/size 体系（借鉴 stock-dashboard Button.tsx）=====
+           新按钮统一用 .btn 基类 + 变体类，替代散乱的 .refresh-btn/.search-btn 等。
+           现有按钮样式保留，向后兼容；新代码优先使用 .btn。 */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border: 1px solid transparent;
+            border-radius: var(--radius-sm, 6px);
+            background: var(--bg-elevated, #f1f5f9);
+            color: var(--text-primary, #1e293b);
+            font-size: 0.875em;
+            font-weight: 500;
+            line-height: 1.2;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+            white-space: nowrap;
+            user-select: none;
+        }
+        .btn:hover { transform: translateY(-1px); }
+        .btn:active { transform: translateY(0); }
+        .btn:disabled,
+        .btn.is-disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn--block { display: flex; width: 100%; }
+
+        /* 变体 */
+        .btn--primary {
+            background: var(--accent, #3b82f6);
+            color: #fff;
+            border-color: var(--accent, #3b82f6);
+        }
+        .btn--primary:hover:not(:disabled) {
+            background: var(--accent-hover, #2563eb);
+            border-color: var(--accent-hover, #2563eb);
+        }
+        .btn--ghost {
+            background: transparent;
+            border-color: var(--border-default, #e2e8f0);
+            color: var(--text-secondary, #64748b);
+        }
+        .btn--ghost:hover:not(:disabled) {
+            background: var(--bg-hover, #e2e8f0);
+            color: var(--text-primary, #1e293b);
+        }
+        .btn--danger {
+            background: #ef4444;
+            color: #fff;
+            border-color: #ef4444;
+        }
+        .btn--danger:hover:not(:disabled) { background: #dc2626; border-color: #dc2626; }
+        .btn--rise {
+            background: var(--color-rise, #e74c3c);
+            color: #fff;
+            border-color: var(--color-rise, #e74c3c);
+        }
+        .btn--rise:hover:not(:disabled) { opacity: 0.9; }
+
+        /* 尺寸 */
+        .btn--sm { padding: 4px 10px; font-size: 0.75em; }
+        .btn--lg { padding: 10px 20px; font-size: 1em; }
+
         .refresh-btn {
             padding: 4px 10px;
             border: none;
@@ -204,6 +335,68 @@
             background: #959da5;
             cursor: wait;
         }
+
+        /* ===== Toast 通知系统（借鉴 stock-dashboard Toast.tsx）===== */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;  /* 容器不拦截，子项单独开启 */
+        }
+        .toast {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-radius: var(--radius-sm, 6px);
+            color: #fff;
+            font-size: 0.875em;
+            font-weight: 500;
+            box-shadow: var(--shadow-card, 0 4px 20px rgba(0,0,0,0.08));
+            pointer-events: auto;
+            opacity: 0;
+            transform: translateX(100%);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            max-width: 360px;
+        }
+        .toast--enter {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .toast--exit {
+            opacity: 0;
+            transform: translateX(100%);
+        }
+        .toast--success { background: var(--color-rise, #43e97b); }
+        .toast--error   { background: #ef4444; }
+        .toast--info    { background: var(--accent, #4facfe); }
+        .toast--warning { background: var(--color-warning, #f59e0b); }
+        .toast__icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.25);
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+        .toast__msg { flex: 1; word-break: break-word; }
+        .toast__close {
+            background: none;
+            border: none;
+            color: rgba(255,255,255,0.8);
+            font-size: 16px;
+            cursor: pointer;
+            padding: 0 4px;
+            line-height: 1;
+        }
+        .toast__close:hover { color: #fff; }
 
         /* 通知样式 */
         .notification {
@@ -816,6 +1009,33 @@
         }
 
         body.dark-mode {
+            /* ===== 语义化令牌暗色覆盖 ===== */
+            --bg-base: #0b0f1a;
+            --bg-surface: #111827;
+            --bg-elevated: #1e293b;
+            --bg-hover: #253044;
+
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --text-inverse: #0b0f1a;
+
+            --border-default: rgba(255,255,255,0.06);
+            --border-strong: rgba(255,255,255,0.10);
+
+            --accent: #22d3ee;
+            --accent-hover: #67e8f9;
+            --accent-rgb: 34, 211, 238;
+
+            --color-up: #34d399;
+            --color-down: #fb7185;
+            --color-warning: #fbbf24;
+
+            --shadow-soft: 0 8px 24px rgba(0,0,0,0.25);
+            --shadow-card: 0 18px 48px rgba(0,0,0,0.24);
+            --shadow-strong: 0 20px 50px rgba(0,0,0,0.40);
+
+            /* ===== 以下为已有 --dm- 变量（保留向后兼容）===== */
             --dm-bg-0: #0b0f1a;
             --dm-bg-1: #111827;
             --dm-bg-2: #1e293b;

@@ -7,11 +7,10 @@
         // 获取数据源状态
         async function fetchSourceStatus() {
             try {
-                const response = await fetch(`${API_BASE_URL}/api/status`);
-                const result = await response.json();
-                
-                if (result.success && result.data) {
-                    sourceStatusCache = result.data.sources || {};
+                const data = await DataService.getSourceStatus();
+
+                if (data) {
+                    sourceStatusCache = data.sources || {};
                     renderSourceStatus();
                 }
             } catch (error) {
@@ -148,27 +147,13 @@
                 const sourceName = sourceConfig[source]?.name || source;
                 showNotification(`正在刷新 ${sourceName}...`, 'info');
                 
-                console.log(`刷新数据源: ${source}, URL: ${API_BASE_URL}/api/refresh/${source}`);
-                
-                const response = await fetch(`${API_BASE_URL}/api/refresh/${source}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                
-                console.log(`响应状态: ${response.status}`);
-                
-                const result = await response.json();
-                console.log('响应结果:', result);
-                
-                if (result.success) {
-                    showNotification(`✅ ${result.message || '刷新成功'}`, 'success');
-                    // 更新状态
-                    await fetchSourceStatus();
-                    // 刷新页面数据
-                    location.reload();
-                } else {
-                    showNotification(`❌ ${result.message || result.error || '刷新失败'}`, 'error');
-                }
+                const result = await DataService.refreshSource(source);
+
+                showNotification(`✅ ${result.message || '刷新成功'}`, 'success');
+                // 更新状态
+                await fetchSourceStatus();
+                // 刷新页面数据
+                location.reload();
             } catch (error) {
                 console.error('刷新数据源失败:', error);
                 showNotification(`❌ 刷新失败: ${error.message || error}`, 'error');
@@ -197,20 +182,11 @@
             try {
                 showNotification('正在刷新所有数据源...', 'info');
                 
-                const response = await fetch(`${API_BASE_URL}/api/refresh-all`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showNotification('✅ ' + result.message, 'success');
-                    // 等待几秒后刷新页面
-                    setTimeout(() => location.reload(), 3000);
-                } else {
-                    showNotification('❌ ' + result.message, 'error');
-                }
+                const result = await DataService.refreshAllSources();
+
+                showNotification('✅ ' + result.message, 'success');
+                // 等待几秒后刷新页面
+                setTimeout(() => location.reload(), 3000);
             } catch (error) {
                 console.error('刷新所有数据源失败:', error);
                 showNotification(`❌ 刷新失败: ${error.message}`, 'error');
