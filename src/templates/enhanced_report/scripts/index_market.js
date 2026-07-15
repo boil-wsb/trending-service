@@ -1962,28 +1962,34 @@
             }
         }
 
-        // 显示K线图
+        // 记录 K 线子视图的来源 subview，关闭时切回
+        let _klineSourceSubview = null;
+
+        // 显示K线图（切换到独立的 kline 子视图，无需滚动）
         function showKline(code, name) {
             currentKlineCode = code;
             currentKlineName = name;
-            // K线图 section 在 index-market 子视图内，需先切换到该子视图
-            var marketEl = document.getElementById('index-market');
-            if (marketEl && !marketEl.classList.contains('active')) {
-                switchIndexSubView('market');
+            // 记录当前激活的子视图作为来源（kline 自身除外）
+            const activeEl = document.querySelector('.index-sub-content.active');
+            if (activeEl && activeEl.id !== 'index-kline') {
+                _klineSourceSubview = activeEl.id.replace('index-', '');
             }
+            // 切换到 kline 子视图
+            switchIndexSubView('kline');
             document.getElementById('kline-title').textContent = `${name} (${code})`;
+            // 隐藏占位提示，显示 K 线 section
+            const placeholder = document.getElementById('kline-placeholder');
+            if (placeholder) placeholder.style.display = 'none';
             document.getElementById('index-kline-section').style.display = 'block';
             loadKlineData();
-            // 延迟滚动，确保子视图切换和布局完成后再滚动
-            setTimeout(function() {
-                var section = document.getElementById('index-kline-section');
-                if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }, 150);
         }
 
-        // 关闭K线图
+        // 关闭K线图（切回来源子视图）
         function closeKline() {
             document.getElementById('index-kline-section').style.display = 'none';
+            // 显示占位提示
+            const placeholder = document.getElementById('kline-placeholder');
+            if (placeholder) placeholder.style.display = 'block';
             if (klineChart) {
                 klineChart.destroy();
                 klineChart = null;
@@ -2000,6 +2006,11 @@
             currentKlineData = null;
             allKlineData = null;
             allCrossoverData = null;
+            // 切回来源子视图
+            if (_klineSourceSubview && _klineSourceSubview !== 'kline') {
+                switchIndexSubView(_klineSourceSubview);
+                _klineSourceSubview = null;
+            }
         }
 
         // 加载K线数据

@@ -107,6 +107,7 @@
                 <button class="index-sub-tab" data-subview="heatmap" onclick="switchIndexSubView('heatmap')">🔥 热力图</button>
                 <button class="index-sub-tab" data-subview="fund-flow" onclick="switchIndexSubView('fund-flow')">💰 主力资金</button>
                 <button class="index-sub-tab" data-subview="sentiment" onclick="switchIndexSubView('sentiment')">🌡️ 情绪</button>
+                <button class="index-sub-tab" data-subview="kline" onclick="switchIndexSubView('kline')">📊 K线</button>
             </div>
 
             <!-- 行情子视图：A股指数 + 行业指数 + 轮动分析 + K线 -->
@@ -360,48 +361,6 @@
                     </div>
                 </div>
 
-                <!-- K线图区域 -->
-                <div id="index-kline-section" class="index-section" style="display:none;">
-                    <div class="kline-header">
-                        <h3 class="index-section-title">📈 <span id="kline-title">K线图</span></h3>
-                        <button class="kline-close-btn" onclick="closeKline()">✕ 关闭</button>
-                    </div>
-                    <div class="kline-controls">
-                        <label>天数：</label>
-                        <select id="kline-days" onchange="loadKlineData()">
-                            <option value="7">7天</option>
-                            <option value="30">30天</option>
-                            <option value="60" selected>60天</option>
-                            <option value="90">90天</option>
-                            <option value="180">180天</option>
-                        </select>
-                        <span class="kline-legend-tip" style="margin-left:16px;font-size:12px;color:#888;">💡 点击图例可隔离显示该线条</span>
-                    </div>
-                    <div class="kline-chart-container">
-                        <canvas id="kline-canvas"></canvas>
-                    </div>
-                    <!-- 成交量副图 -->
-                    <div class="kline-volume-container">
-                        <canvas id="kline-volume-canvas"></canvas>
-                    </div>
-                    <!-- 技术指标 Tab -->
-                    <div class="kline-indicator-tabs">
-                        <button class="indicator-tab active" data-indicator="macd" onclick="switchIndicator('macd')">MACD</button>
-                        <button class="indicator-tab" data-indicator="rsi" onclick="switchIndicator('rsi')">RSI</button>
-                        <button class="indicator-tab" data-indicator="kdj" onclick="switchIndicator('kdj')">KDJ</button>
-                        <button class="indicator-tab" data-indicator="boll" onclick="switchIndicator('boll')">布林带</button>
-                        <button class="indicator-tab" data-indicator="ma" onclick="switchIndicator('ma')">均线</button>
-                        <button class="indicator-tab" data-indicator="obv" onclick="switchIndicator('obv')">OBV</button>
-                        <button class="indicator-tab" data-indicator="atr" onclick="switchIndicator('atr')">ATR</button>
-                        <button class="indicator-tab" data-indicator="cci" onclick="switchIndicator('cci')">CCI</button>
-                    </div>
-                    <div class="kline-indicator-desc" id="indicator-desc"></div>
-                    <div class="kline-indicator-container">
-                        <canvas id="kline-indicator-canvas"></canvas>
-                    </div>
-                    <!-- 风险指标卡片 -->
-                    <div class="risk-metrics-card" id="risk-metrics-card"></div>
-                </div>
             </div>
             </div><!-- /index-market -->
 
@@ -572,23 +531,79 @@
                                 </div>
                             </div>
                         </div>
-                        <!-- 涨跌停时序图 -->
-                        <div class="sentiment-chart-section">
-                            <h4>📈 涨跌停家数时序图（近30日）</h4>
-                            <div style="height:300px;position:relative;">
-                                <canvas id="sentiment-history-chart"></canvas>
+                        <!-- 底部行：时序图（左 2fr） + 连板梯队（右 1fr）并排，充分利用横向空间 -->
+                        <div class="sentiment-bottom-row">
+                            <!-- 涨跌停时序图 -->
+                            <div class="sentiment-chart-section">
+                                <h4>📈 涨跌停家数时序图（近30日）</h4>
+                                <div style="height:340px;position:relative;">
+                                    <canvas id="sentiment-history-chart"></canvas>
+                                </div>
                             </div>
-                        </div>
-                        <!-- 连板梯队 -->
-                        <div class="sentiment-tier-section">
-                            <h4>🔥 连板梯队</h4>
-                            <div id="consecutive-tier-list" class="consecutive-tier-list">
-                                <div class="index-loading">加载中...</div>
+                            <!-- 连板梯队 -->
+                            <div class="sentiment-tier-section">
+                                <h4>🔥 连板梯队</h4>
+                                <div id="consecutive-tier-list" class="consecutive-tier-list">
+                                    <div class="index-loading">加载中...</div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+
+            <!-- K线子视图（独立子 tab，从行情/热力图/资金流/情绪子视图点击板块后切换到此处） -->
+            <div id="index-kline" class="index-sub-content">
+                <div class="index-container">
+                <!-- 占位提示：未选择 K 线时显示 -->
+                <div id="kline-placeholder" class="kline-placeholder">
+                    <div class="kline-placeholder-icon">📊</div>
+                    <div class="kline-placeholder-text">从「行情」「热力图」等子视图点击板块名称或 K 线按钮即可在此查看 K 线图</div>
+                </div>
+                <!-- K线图区域 -->
+                <div id="index-kline-section" class="index-section" style="display:none;">
+                    <div class="kline-header">
+                        <h3 class="index-section-title">📈 <span id="kline-title">K线图</span></h3>
+                        <button class="kline-close-btn" onclick="closeKline()">✕ 关闭</button>
+                    </div>
+                    <div class="kline-controls">
+                        <label>天数：</label>
+                        <select id="kline-days" onchange="loadKlineData()">
+                            <option value="7">7天</option>
+                            <option value="30">30天</option>
+                            <option value="60" selected>60天</option>
+                            <option value="90">90天</option>
+                            <option value="180">180天</option>
+                        </select>
+                        <span class="kline-legend-tip" style="margin-left:16px;font-size:12px;color:#888;">💡 点击图例可隔离显示该线条</span>
+                    </div>
+                    <div class="kline-chart-container">
+                        <canvas id="kline-canvas"></canvas>
+                    </div>
+                    <!-- 成交量副图 -->
+                    <div class="kline-volume-container">
+                        <canvas id="kline-volume-canvas"></canvas>
+                    </div>
+                    <!-- 技术指标 Tab -->
+                    <div class="kline-indicator-tabs">
+                        <button class="indicator-tab active" data-indicator="macd" onclick="switchIndicator('macd')">MACD</button>
+                        <button class="indicator-tab" data-indicator="rsi" onclick="switchIndicator('rsi')">RSI</button>
+                        <button class="indicator-tab" data-indicator="kdj" onclick="switchIndicator('kdj')">KDJ</button>
+                        <button class="indicator-tab" data-indicator="boll" onclick="switchIndicator('boll')">布林带</button>
+                        <button class="indicator-tab" data-indicator="ma" onclick="switchIndicator('ma')">均线</button>
+                        <button class="indicator-tab" data-indicator="obv" onclick="switchIndicator('obv')">OBV</button>
+                        <button class="indicator-tab" data-indicator="atr" onclick="switchIndicator('atr')">ATR</button>
+                        <button class="indicator-tab" data-indicator="cci" onclick="switchIndicator('cci')">CCI</button>
+                    </div>
+                    <div class="kline-indicator-desc" id="indicator-desc"></div>
+                    <div class="kline-indicator-container">
+                        <canvas id="kline-indicator-canvas"></canvas>
+                    </div>
+                    <!-- 风险指标卡片 -->
+                    <div class="risk-metrics-card" id="risk-metrics-card"></div>
+                </div>
+                </div>
+            </div><!-- /index-kline -->
 
         </div>
 
