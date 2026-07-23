@@ -273,12 +273,24 @@ class TrendingTaskScheduler(TaskScheduler):
             enabled=True
         )
 
+        # 市场情绪(涨跌停)数据：每交易日 15:30 收盘后抓取，积累历史时序
+        self.add_task(
+            name='fetch_sentiment',
+            schedule='30 15 * * 1-5',
+            task_func=self._fetch_sentiment_data,
+            enabled=True
+        )
+
         self.add_task(
             name='cleanup_old_data',
             schedule='0 3 * * *',
             task_func=self._cleanup_old_data,
             enabled=True
         )
+
+        # 启动时异步回填近 30 日 sentiment 历史数据（一次性，daemon 线程）
+        self._sentiment_backfill_started = False
+        Thread(target=self._backfill_sentiment_on_startup, daemon=True).start()
 
     def _run_scheduler(self):
         self.logger.info("调度器开始运行（集成重试机制）...")
@@ -670,3 +682,44 @@ class TrendingTaskScheduler(TaskScheduler):
                 self.logger.error(f"❌ 刷新金叉信号缓存失败: {e}")
         except Exception as e:
             self.logger.error(f"❌ 缓存指数 K 线数据失败: {e}")
+
+    def _fetch_sentiment_data(self):
+        """获取当日市场情绪(涨跌停)数据并保存到数据库
+
+        调度：每个交易日 15:30 执行（收盘后 10 分钟，数据已稳定）
+        作用：积累历史时序数据，供 sentiment API 的近 30 日涨跌停时序图展示
+        """
+        try:
+            self.logger.info("🔥 开始获取市场情绪(涨跌停)数据...")
+            from src.fetchers.sentiment import fetch_limit_up_stats
+            from src.db.index_dao import IndexDAO
+
+            stats = fetch_limit_up_stats()
+            if stats['limit_up_count'] > 0 or stats['limit_down_count'] > 0:
+                dao = IndexDAO(DATABASE['path'])
+                dao.save_sentiment_stats(stats)
+                self.logger.info(
+                    f"✅ 情绪数据已保存: 涨停 {stats['limit_up_count']}, "
+                    f"跌停 {stats['limit_down_count']}, 炸板 {stats['broken_limit_count']}"
+                )
+            else:
+                self.logger.info("⏭️  当日无涨跌停数据(可能为非交易日),跳过保存")
+        except Exception as e:
+            self.logger.error(f"❌ 获取情绪数据失败: {e}")
+
+    def _backfill_sentiment_on_startup(self):
+        """服务启动时异步回填近 30 日 sentiment 历史数据（一次性）"""
+        if self._sentiment_backfill_started:
+            return
+        self._sentiment_backfill_started = True
+        try:
+            self.logger.info("🔄 启动时回填近 30 日 sentiment 历史数据...")
+            from src.fetchers.sentiment import backfill_sentiment_history
+            result = backfill_sentiment_history(days=30, db_path=DATABASE['path'], logger=self.logger)
+            self.logger.info(
+                f"✅ sentiment 历史回填结束: 候选 {result['total_trading_days']} 个交易日, "
+                f"已存在 {result['existing']}, 回填 {result['backfilled']}, "
+                f"跳过(节假日/无数据) {result['skipped_holiday']}, 失败 {result['failed']}"
+            )
+        except Exception as e:
+            self.logger.error(f"❌ 启动时回填 sentiment 历史失败: {e}")

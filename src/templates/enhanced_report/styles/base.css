@@ -77,7 +77,8 @@
         }
 
         .container {
-            max-width: 1400px;
+            /* 自适应不同分辨率：96vw 占满屏幕，但上限 1920px 防止 4K 屏拉过宽 */
+            max-width: min(96vw, 1920px);
             margin: 0 auto;
             background: white;
             border-radius: 0;

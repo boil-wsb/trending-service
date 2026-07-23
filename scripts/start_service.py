@@ -150,14 +150,30 @@ def start_service_background():
                 pass
 
     # 获取 Python 解释器路径
-    # 优先使用 Python 3.12.10
-    python_312 = Path.home() / '.pyenv' / 'pyenv-win' / 'versions' / '3.12.10' / 'python.exe'
-    if python_312.exists():
-        python_exe = str(python_312)
-        logger.info(f"🐍 使用 Python 3.12.10: {python_exe}")
+    # 优先使用 pythonw.exe（无控制台窗口版本），避免子进程弹出 cmd 窗口
+    # 优先级 1：项目内 venv 虚拟环境（依赖已本地化，推荐）
+    # 优先级 2：pyenv 全局 Python 3.12.10
+    # 优先级 3：系统默认 Python
+    def _find_pythonw(python_exe_path: str) -> str:
+        """查找对应的 pythonw.exe，不存在则回退到 python.exe"""
+        p = Path(python_exe_path)
+        # venv: Scripts/python.exe -> Scripts/pythonw.exe
+        # pyenv: python.exe -> pythonw.exe (同目录)
+        pythonw = p.parent / 'pythonw.exe'
+        return str(pythonw) if pythonw.exists() else python_exe_path
+
+    venv_python = project_root / 'venv' / 'Scripts' / 'python.exe'
+    if venv_python.exists():
+        python_exe = _find_pythonw(str(venv_python))
+        logger.info(f"🐍 使用项目 venv Python: {python_exe}")
     else:
-        python_exe = sys.executable
-        logger.info(f"🐍 使用默认 Python: {python_exe}")
+        python_312 = Path.home() / '.pyenv' / 'pyenv-win' / 'versions' / '3.12.10' / 'python.exe'
+        if python_312.exists():
+            python_exe = _find_pythonw(str(python_312))
+            logger.info(f"🐍 使用 pyenv Python 3.12.10: {python_exe}")
+        else:
+            python_exe = _find_pythonw(sys.executable)
+            logger.info(f"🐍 使用默认 Python: {python_exe}")
 
     # 启动脚本路径
     main_script = project_root / 'src' / 'main.py'
@@ -183,6 +199,7 @@ def start_service_background():
     # 后台启动进程
     startupinfo = subprocess.STARTUPINFO()
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE  # 隐藏窗口（pythonw.exe 不需要，python.exe 回退时生效）
 
     try:
         # 启动前检查端口是否已被占用（无 PID 文件的残留进程场景）

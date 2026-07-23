@@ -168,3 +168,128 @@ def _empty_result(date_str):
         'limit_up_top': [],
         'sentiment_score': 0,
     }
+
+
+def backfill_sentiment_history(days: int = 30, db_path=None, logger=None) -> dict:
+    """回填近 N 日缺失的涨跌停统计数据
+
+    通过 AKShare 历史接口回填数据库中缺失的交易日数据。
+    仅回填昨天及之前的日期（今天由定时任务/API 触发获取），并自动跳过周末。
+
+    Args:
+        days: 回填天数（默认30，从昨天往前算）
+        db_path: 数据库路径，用于查询已存在日期和保存新数据
+        logger: 日志记录器
+
+    Returns:
+        {
+            'total_trading_days': 候选交易日数,
+            'existing': 已存在数,
+            'backfilled': 成功回填数,
+            'failed': 失败数,
+            'skipped_holiday': 节假日/无数据跳过数,
+        }
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from pathlib import Path
+
+    log = logger or logging.getLogger("index_sentiment")
+
+    if not HAS_AKSHARE:
+        log.warning("akshare not installed, 跳过 sentiment 回填")
+        return {'total_trading_days': 0, 'existing': 0, 'backfilled': 0, 'failed': 0, 'skipped_holiday': 0}
+
+    # 统一转为 Path 对象（Database.__init__ 需要 Path 以调用 .parent.mkdir）
+    if db_path is not None and not isinstance(db_path, Path):
+        db_path = Path(db_path)
+
+    today_dt = datetime.now()
+    candidate_dates = []
+    for i in range(1, days + 1):
+        d = today_dt - timedelta(days=i)
+        # 跳过周末（ISO: 6=周六, 7=周日）
+        if d.isoweekday() in (6, 7):
+            continue
+        candidate_dates.append(d.strftime('%Y%m%d'))
+
+    if not candidate_dates:
+        return {'total_trading_days': 0, 'existing': 0, 'backfilled': 0, 'failed': 0, 'skipped_holiday': 0}
+
+    # 查询数据库已存在的日期
+    existing_dates = set()
+    if db_path:
+        try:
+            from src.db.index_dao import IndexDAO
+            dao = IndexDAO(db_path)
+            history = dao.get_sentiment_history(days=days + 5)
+            existing_dates = {row['date'] for row in history}
+        except Exception as e:
+            log.warning(f"查询已存在 sentiment 日期失败: {e}")
+
+    # 过滤出需要回填的日期
+    to_backfill = []
+    for d_str in candidate_dates:
+        d_iso = f'{d_str[:4]}-{d_str[4:6]}-{d_str[6:8]}'
+        if d_iso not in existing_dates:
+            to_backfill.append(d_str)
+
+    log.info(
+        f"sentiment backfill: 候选交易日 {len(candidate_dates)} 个, "
+        f"已存在 {len(existing_dates)} 个, 待回填 {len(to_backfill)} 个"
+    )
+
+    if not to_backfill:
+        return {
+            'total_trading_days': len(candidate_dates),
+            'existing': len(existing_dates),
+            'backfilled': 0,
+            'failed': 0,
+            'skipped_holiday': 0,
+        }
+
+    def _fetch_one(d_str):
+        try:
+            stats = fetch_limit_up_stats(date_str=d_str)
+            if stats['limit_up_count'] > 0 or stats['limit_down_count'] > 0:
+                return ('ok', d_str, stats)
+            return ('skip', d_str, None)
+        except Exception as e:
+            return ('err', d_str, str(e))
+
+    backfilled = 0
+    failed = 0
+    skipped_holiday = 0
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(_fetch_one, d): d for d in to_backfill}
+        for future in as_completed(futures):
+            status, d_str, payload = future.result()
+            if status == 'ok':
+                if db_path:
+                    try:
+                        from src.db.index_dao import IndexDAO
+                        dao = IndexDAO(db_path)
+                        dao.save_sentiment_stats(payload)
+                        backfilled += 1
+                    except Exception as e:
+                        log.warning(f"保存 sentiment {d_str} 失败: {e}")
+                        failed += 1
+                else:
+                    backfilled += 1
+            elif status == 'skip':
+                skipped_holiday += 1
+            else:
+                log.warning(f"抓取 sentiment {d_str} 失败: {payload}")
+                failed += 1
+
+    log.info(
+        f"✅ sentiment backfill 完成: 回填 {backfilled} 条, "
+        f"跳过(节假日/无数据) {skipped_holiday} 条, 失败 {failed} 条"
+    )
+    return {
+        'total_trading_days': len(candidate_dates),
+        'existing': len(existing_dates),
+        'backfilled': backfilled,
+        'failed': failed,
+        'skipped_holiday': skipped_holiday,
+    }
