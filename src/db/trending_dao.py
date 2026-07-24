@@ -18,11 +18,16 @@ class TrendingDAO:
     
     def save_items(self, items: List[TrendingItem]) -> int:
         """
-        批量保存热点数据（已存在的会更新）
+        批量保存热点数据（单连接批量事务，已存在的会更新）
 
         使用 upsert 逻辑（基于 source + title + fetched_date）：
         - 如果记录不存在，则插入新记录
         - 如果记录已存在（相同数据源、相同标题、相同日期），则更新热度等字段
+
+        关键修复：原实现在 for 循环内每条记录调用 self.db.fetch_one + self.db.execute，
+        每次 2 次 connect/close，283 条热点数据 = 566 次高频连接操作，在 Windows 多线程下
+        触发 SQLite C 扩展 access violation（与 save_indices 段错误同根因）。
+        改为 transaction() 单连接批量事务，connect/close 从 2N 降为 1。
 
         Args:
             items: 热点数据列表
@@ -34,72 +39,73 @@ class TrendingDAO:
             return 0
 
         import json
-        from datetime import date
 
         saved_count = 0
         updated_count = 0
 
-        for item in items:
-            try:
-                # 确保 fetched_at 有值
-                fetched_at = item.fetched_at or datetime.now()
-                fetched_date = fetched_at.date().isoformat()
+        # 单连接批量事务：connect/close 仅 1 次，彻底避免高频连接导致的段错误
+        with self.db.transaction() as conn:
+            for item in items:
+                try:
+                    # 确保 fetched_at 有值
+                    fetched_at = item.fetched_at or datetime.now()
+                    fetched_date = fetched_at.date().isoformat()
 
-                # 先尝试查找是否存在相同记录（基于 source + title + fetched_date）
-                existing = self.db.fetch_one('''
-                    SELECT id FROM trending_items
-                    WHERE source = ? AND title = ? AND fetched_date = ?
-                ''', (item.source, item.title, fetched_date))
+                    # 先尝试查找是否存在相同记录（基于 source + title + fetched_date）
+                    row = conn.execute(
+                        'SELECT id FROM trending_items WHERE source = ? AND title = ? AND fetched_date = ?',
+                        (item.source, item.title, fetched_date)
+                    ).fetchone()
 
-                if existing:
-                    # 更新现有记录
-                    self.db.execute('''
-                        UPDATE trending_items SET
-                            category = ?,
-                            url = ?,
-                            author = ?,
-                            description = ?,
-                            hot_score = ?,
-                            keywords = ?,
-                            extra = ?,
-                            fetched_at = ?
-                        WHERE id = ?
-                    ''', (
-                        item.category,
-                        item.url,
-                        item.author,
-                        item.description,
-                        item.hot_score,
-                        ','.join(item.keywords) if item.keywords else '',
-                        json.dumps(item.extra, ensure_ascii=False) if item.extra else '{}',
-                        fetched_at,
-                        existing['id']
-                    ))
-                    updated_count += 1
-                else:
-                    # 插入新记录
-                    self.db.execute('''
-                        INSERT INTO trending_items
-                        (source, category, title, url, author, description, hot_score, keywords, extra, fetched_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        item.source,
-                        item.category,
-                        item.title,
-                        item.url,
-                        item.author,
-                        item.description,
-                        item.hot_score,
-                        ','.join(item.keywords) if item.keywords else '',
-                        json.dumps(item.extra, ensure_ascii=False) if item.extra else '{}',
-                        fetched_at
-                    ))
-                    saved_count += 1
+                    if row:
+                        # 更新现有记录
+                        conn.execute('''
+                            UPDATE trending_items SET
+                                category = ?,
+                                url = ?,
+                                author = ?,
+                                description = ?,
+                                hot_score = ?,
+                                keywords = ?,
+                                extra = ?,
+                                fetched_at = ?
+                            WHERE id = ?
+                        ''', (
+                            item.category,
+                            item.url,
+                            item.author,
+                            item.description,
+                            item.hot_score,
+                            ','.join(item.keywords) if item.keywords else '',
+                            json.dumps(item.extra, ensure_ascii=False) if item.extra else '{}',
+                            fetched_at,
+                            row['id']
+                        ))
+                        updated_count += 1
+                    else:
+                        # 插入新记录
+                        conn.execute('''
+                            INSERT INTO trending_items
+                            (source, category, title, url, author, description, hot_score, keywords, extra, fetched_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            item.source,
+                            item.category,
+                            item.title,
+                            item.url,
+                            item.author,
+                            item.description,
+                            item.hot_score,
+                            ','.join(item.keywords) if item.keywords else '',
+                            json.dumps(item.extra, ensure_ascii=False) if item.extra else '{}',
+                            fetched_at
+                        ))
+                        saved_count += 1
 
-            except Exception as e:
-                # 记录错误但继续处理其他数据
-                print(f"保存数据失败: {e}, source={item.source}, title={item.title[:30] if item.title else 'N/A'}")
-                continue
+                except Exception as e:
+                    # 记录错误但继续处理其他数据（单条失败不影响整批事务）
+                    print(f"保存数据失败: {e}, source={item.source}, title={item.title[:30] if item.title else 'N/A'}")
+                    continue
 
         total = saved_count + updated_count
         if updated_count > 0:

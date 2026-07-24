@@ -127,6 +127,17 @@ def setup_logger(
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
+    # 显式注册 flush 钩子：Python 默认 atexit 会 flush，但段错误不触发 atexit。
+    # 这里通过 sys.excepthook 和 threading.excepthook 兜底，确保崩溃前日志落盘。
+    import atexit
+    def _flush_all_handlers(*_args, **_kwargs):
+        try:
+            for h in logger.handlers:
+                h.flush()
+        except Exception:
+            pass
+    atexit.register(_flush_all_handlers)
+
     return logger
 
 

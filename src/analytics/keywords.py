@@ -227,19 +227,22 @@ class KeywordExtractor:
     
     def extract_from_item(self, item) -> List[str]:
         """
-        从 TrendingItem 中提取关键词
-        
+        从数据项中提取关键词（兼容 TrendingItem 和 IndexData）
+
         Args:
-            item: 热点数据项
-            
+            item: 热点数据项（TrendingItem 有 title/description，IndexData 有 name 无 description）
+
         Returns:
             List[str]: 关键词列表
         """
-        # 组合标题和描述
-        text = item.title
-        if item.description and item.description != '-':
-            text += ' ' + item.description
-        
+        # 组合标题和描述；IndexData 只有 name 字段，用 getattr 容错
+        text = getattr(item, 'title', None) or getattr(item, 'name', '') or ''
+        description = getattr(item, 'description', None)
+        if description and description != '-':
+            text += ' ' + description
+
+        if not text:
+            return []
         return self.extract(text)
     
     def extract_from_items(self, items: List) -> Dict[str, int]:

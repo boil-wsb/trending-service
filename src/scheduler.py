@@ -490,10 +490,16 @@ class TrendingTaskScheduler(TaskScheduler):
             from src.analytics import extract_keywords_for_items
             all_items = extract_keywords_for_items(all_items, top_k=5)
 
-        if all_items:
+        # 只把 TrendingItem 保存到 trending_items 表；
+        # IndexData 由 IndexFetcher 内部已保存到 index_data 表，不在此处理
+        # 注意：fetcher 层使用 src.fetchers.base.TrendingItem（与 src.db.models.TrendingItem 是两个独立定义）
+        from src.fetchers.base import TrendingItem as FetcherTrendingItem
+        trending_items = [item for item in all_items if isinstance(item, FetcherTrendingItem)]
+
+        if trending_items:
             try:
-                self.logger.info(f"💾 保存 {len(all_items)} 条数据到数据库...")
-                saved_count = self.dao.refresh_items(all_items)
+                self.logger.info(f"💾 保存 {len(trending_items)} 条数据到数据库...")
+                saved_count = self.dao.refresh_items(trending_items)
                 self.logger.info(f"✅ 成功保存 {saved_count} 条数据")
             except Exception as e:
                 self.logger.error(f"❌ 保存数据失败: {e}")

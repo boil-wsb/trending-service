@@ -933,6 +933,13 @@
             color: #0969da;
             border-radius: 10px;
             font-weight: 500;
+            cursor: pointer;
+            transition: transform 0.15s ease, background 0.15s ease;
+        }
+
+        .item-keyword:hover {
+            transform: translateY(-1px);
+            background: linear-gradient(135deg, #b6e3ff 0%, #84d0ff 100%);
         }
 
         .item-score {

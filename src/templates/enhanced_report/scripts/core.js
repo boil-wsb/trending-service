@@ -292,7 +292,7 @@
                                     ${item.category ? `<span class="meta-tag">🏷️ ${item.category}</span>` : ''}
                                 </div>
                                 ${renderDescription(item.description, sourceName, index)}
-                                ${item.keywords && item.keywords.length > 0 ? `<div class="item-card-keywords">${item.keywords.map(k => `<span class="item-keyword">${k}</span>`).join('')}</div>` : ''}
+                                ${item.keywords && item.keywords.length > 0 ? `<div class="item-card-keywords">${item.keywords.map(k => `<span class="item-keyword" onclick="filterByKeyword('${k.replace(/'/g, "\\'")}')" title="点击搜索包含此关键词的文章">${k}</span>`).join('')}</div>` : ''}
                             </div>
                         </div>
                     `).join('')}
@@ -651,11 +651,31 @@
             if (avgEl) avgEl.textContent = avgCount;
         }
 
-        // 点击关键词筛选
+        // 点击关键词筛选 - 复用顶部搜索框搜索数据库记录
         function filterByKeyword(keyword) {
-            console.log('筛选关键词:', keyword);
-            // 可以在这里添加筛选逻辑，比如高亮包含该关键词的内容
-            showNotification(`已选择关键词: ${keyword}`, 'info');
+            const searchInput = document.getElementById('search-input');
+            const searchBtn = document.getElementById('search-btn');
+            if (!searchInput || !searchBtn) {
+                showNotification(`已选择关键词: ${keyword}`, 'info');
+                return;
+            }
+            // 切换到"总览"tab（搜索结果面板挂在 overview 下）
+            const overviewTab = document.getElementById('overview');
+            if (overviewTab && !overviewTab.classList.contains('active')) {
+                document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                const overviewNav = document.querySelector('.nav-tab[data-view="overview"]');
+                if (overviewNav) overviewNav.classList.add('active');
+                overviewTab.classList.add('active');
+            }
+            // 填入关键词并触发搜索
+            searchInput.value = keyword;
+            searchBtn.click();
+            // 滚动到搜索结果
+            const searchPanel = document.getElementById('search-results-panel');
+            if (searchPanel) {
+                setTimeout(() => searchPanel.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+            }
         }
 
 

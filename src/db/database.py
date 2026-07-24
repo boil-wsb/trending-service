@@ -19,9 +19,14 @@ class Database:
         """初始化数据库"""
         # 确保目录存在
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # 创建表结构
         with self.get_connection() as conn:
+            # 启用 WAL 模式：多线程并发读写时不再触发 SQLite C 扩展 access violation
+            # （曾出现 Windows fatal exception: access violation 于频繁 connect/close 场景）
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA synchronous=NORMAL')  # WAL 下 NORMAL 已足够安全，减少 fsync
+            conn.execute('PRAGMA busy_timeout=5000')   # 写锁等待 5 秒，避免 SQLITE_BUSY
             self._create_tables(conn)
             self._create_indexes(conn)
     
@@ -213,9 +218,37 @@ class Database:
     
     @contextmanager
     def get_connection(self):
-        """获取数据库连接（上下文管理器）"""
-        conn = sqlite3.connect(self.db_path)
+        """获取数据库连接（上下文管理器）
+
+        每次 connect/close 频繁调用会在 Windows 多线程下触发 SQLite C 扩展
+        access violation。已启用 WAL + busy_timeout 缓解，批量操作请改用
+        transaction() 在单连接内完成，避免高频 connect/close。
+        """
+        conn = sqlite3.connect(self.db_path, timeout=5.0)
         conn.row_factory = sqlite3.Row
+        # 每连接设置 PRAGMA（WAL 模式持久化在数据库文件，但其他 PRAGMA 每连接需重设）
+        conn.execute('PRAGMA busy_timeout=5000')
+        try:
+            yield conn
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
+
+    @contextmanager
+    def transaction(self):
+        """获取单连接用于批量事务（避免高频 connect/close 触发段错误）
+
+        用法：
+            with db.transaction() as conn:
+                for item in items:
+                    conn.execute(sql, params)
+        """
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA busy_timeout=10000')
         try:
             yield conn
             conn.commit()

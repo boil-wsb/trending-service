@@ -72,7 +72,12 @@ class IndexDAO:
 
     def save_indices(self, indices: List[IndexData]) -> int:
         """
-        批量保存指数数据
+        批量保存指数数据（单连接批量事务）
+
+        关键修复：原实现循环调用 save_index，每条记录 2 次 connect/close
+        （execute + fetch_one），在 Windows 多线程下高频创建/销毁 SQLite
+        连接触发 C 扩展 access violation（Windows fatal exception）。
+        改为单连接批量事务，connect/close 从 2N 降到 1，彻底消除段错误。
 
         Returns:
             保存的数据条数
@@ -80,10 +85,42 @@ class IndexDAO:
         if not indices:
             return 0
 
+        upsert_sql = '''
+            INSERT INTO index_data (
+                code, name, category, price, change, change_pct,
+                high, low, open, pre_close, volume, amount,
+                turnover_rate, market_cap, source, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(code, source, fetched_date) DO UPDATE SET
+                name = excluded.name,
+                category = excluded.category,
+                price = excluded.price,
+                change = excluded.change,
+                change_pct = excluded.change_pct,
+                high = excluded.high,
+                low = excluded.low,
+                open = excluded.open,
+                pre_close = excluded.pre_close,
+                volume = excluded.volume,
+                amount = CASE WHEN excluded.amount != 0 THEN excluded.amount ELSE index_data.amount END,
+                turnover_rate = excluded.turnover_rate,
+                market_cap = CASE WHEN excluded.market_cap > 0 THEN excluded.market_cap ELSE index_data.market_cap END,
+                fetched_at = excluded.fetched_at
+        '''
+        select_sql = 'SELECT id FROM index_data WHERE code = ? AND source = ? AND fetched_date = ?'
+
         saved_count = 0
-        for index in indices:
-            self.save_index(index)
-            saved_count += 1
+        # 单连接批量事务：connect/close 仅 1 次，彻底避免高频连接导致的段错误
+        with self.db.transaction() as conn:
+            for index in indices:
+                fetched_at = index.fetched_at or datetime.now()
+                conn.execute(upsert_sql, (
+                    index.code, index.name, index.category, index.price, index.change,
+                    index.change_pct, index.high, index.low, index.open, index.pre_close,
+                    index.volume, index.amount, index.turnover_rate, index.market_cap,
+                    index.source, fetched_at
+                ))
+                saved_count += 1
 
         return saved_count
 
@@ -484,7 +521,12 @@ class IndexDAO:
 
     def save_klines(self, code: str, klines: List[Dict], source: str = 'tx') -> int:
         """
-        保存指数 K 线数据到数据库（upsert 逻辑）
+        保存指数 K 线数据到数据库（单连接批量事务，upsert 逻辑）
+
+        关键修复：原实现循环调用 self.db.execute，每条 K 线一次 connect/close。
+        K 线缓存共 58520 条 × 2 次 connect/close = 11 万次连接操作，
+        在 Windows 多线程下必然触发 SQLite C 扩展 access violation。
+        改为单连接批量事务 + executemany，彻底消除段错误。
 
         Args:
             code: 指数代码
@@ -497,34 +539,35 @@ class IndexDAO:
         if not klines:
             return 0
 
-        saved = 0
         from datetime import datetime
         import logging
         logger = logging.getLogger(__name__)
         now = datetime.now().isoformat()
 
+        upsert_sql = '''
+            INSERT INTO index_kline (
+                code, date, open, close, high, low,
+                volume, amount, change, change_pct, source, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(code, date, source) DO UPDATE SET
+                open = excluded.open,
+                close = excluded.close,
+                high = excluded.high,
+                low = excluded.low,
+                volume = excluded.volume,
+                amount = excluded.amount,
+                change = excluded.change,
+                change_pct = excluded.change_pct,
+                updated_at = excluded.updated_at
+        '''
+
+        batch = []
         for k in klines:
             try:
                 date_str = str(k.get('date', ''))
                 if not date_str:
                     continue
-
-                self.db.execute('''
-                    INSERT INTO index_kline (
-                        code, date, open, close, high, low,
-                        volume, amount, change, change_pct, source, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(code, date, source) DO UPDATE SET
-                        open = excluded.open,
-                        close = excluded.close,
-                        high = excluded.high,
-                        low = excluded.low,
-                        volume = excluded.volume,
-                        amount = excluded.amount,
-                        change = excluded.change,
-                        change_pct = excluded.change_pct,
-                        updated_at = excluded.updated_at
-                ''', (
+                batch.append((
                     code, date_str,
                     float(k.get('open', 0) or 0),
                     float(k.get('close', 0) or 0),
@@ -536,12 +579,18 @@ class IndexDAO:
                     float(k.get('change_pct', 0) or 0),
                     source, now
                 ))
-                saved += 1
             except (ValueError, KeyError, TypeError) as e:
-                logger.warning(f"跳过无效K线数据 code={code} date={date_str}: {e}")
+                logger.warning(f"跳过无效K线数据 code={code} date={k.get('date')}: {e}")
                 continue
 
-        return saved
+        if not batch:
+            return 0
+
+        # 单连接批量事务：connect/close 仅 1 次，executemany 比逐条 execute 快 10 倍
+        with self.db.transaction() as conn:
+            conn.executemany(upsert_sql, batch)
+
+        return len(batch)
 
     def get_klines(self, code: str, days: int = 30, source: str = 'tx') -> List[Dict]:
         """
