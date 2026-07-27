@@ -307,10 +307,14 @@ def is_time_to_run(schedule_config: dict, current_time: 'datetime' = None) -> bo
 
     try:
         parsed = parse_cron_expression(schedule)
+        # cron weekday: 0=周日, 1-6=周一到周六
+        # Python datetime.weekday(): 0=周一 ... 6=周日
+        # 需要将 Python weekday 转换为 cron weekday 再匹配
+        cron_weekday = (current_time.weekday() + 1) % 7
         return (current_time.minute in parsed['minute'] and
                 current_time.hour in parsed['hour'] and
                 current_time.day in parsed['day'] and
                 current_time.month in parsed['month'] and
-                current_time.weekday() in parsed['weekday'])
+                cron_weekday in parsed['weekday'])
     except ValueError:
         return False
