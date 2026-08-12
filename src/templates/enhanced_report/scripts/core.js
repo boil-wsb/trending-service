@@ -506,10 +506,21 @@
 
             // 计算每个数据源前10项的热度总和并排序
             const sourceWithHeat = Object.entries(sources).map(([source, items]) => {
-                const top10Items = items.slice(0, 10);
-                const totalHeat = top10Items.reduce((sum, item) => sum + (item.hot_score || 0), 0);
-                return { source, items, totalHeat };
-            }).sort((a, b) => b.totalHeat - a.totalHeat);
+                const top10Items = Array.isArray(items) ? items.slice(0, 10) : [];
+                const totalHeat = top10Items.reduce((sum, item) => {
+                    const score = Number(item.hot_score) || 0;
+                    return sum + score;
+                }, 0);
+                return { source, items, totalHeat: Number(totalHeat) || 0 };
+            }).sort((a, b) => {
+                const diff = Number(b.totalHeat) - Number(a.totalHeat);
+                if (diff !== 0) return diff;
+                // totalHeat 相同时，按数据量降序
+                return (b.items?.length || 0) - (a.items?.length || 0);
+            });
+
+            // 调试日志：输出排序结果
+            console.log('[renderOverview] 排序结果:', sourceWithHeat.map((s, i) => `#${i + 1} ${s.source}(heat=${s.totalHeat}, count=${s.items?.length || 0})`).join(' | '));
 
             let html = '';
             for (const { source, items } of sourceWithHeat) {

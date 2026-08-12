@@ -228,7 +228,7 @@ class IndexDAO:
         codes = [idx.code for idx in indices]
 
         # 查询每个指数最近 8 个交易日的收盘价
-        # 使用窗口函数一次性获取所有数据
+        # 按 source 匹配，避免不同数据源价格尺度不一致导致涨跌幅异常
         try:
             # 先获取最近 8 个交易日
             date_rows = self.db.fetch_all('''
@@ -238,46 +238,84 @@ class IndexDAO:
             kline_dates = [r['date'] for r in date_rows]
 
             if len(kline_dates) >= 4:
-                # 批量查询所有指数在这些日期的收盘价
                 # date_3d_ago 是第 4 个日期（索引 3），date_7d_ago 是第 8 个日期（索引 7）
                 date_3d_ago = kline_dates[3]
                 date_7d_ago = kline_dates[7] if len(kline_dates) >= 8 else None
 
-                # 查询 3 日前的收盘价
                 placeholders = ','.join('?' * len(codes))
+
+                # 查询 3 日前的收盘价（带 source，构建 (code, source) -> close 映射）
                 prices_3d = {}
                 if date_3d_ago:
                     rows_3d = self.db.fetch_all(
-                        f'SELECT code, close FROM index_kline WHERE date = ? AND code IN ({placeholders})',
+                        f'SELECT code, close, source FROM index_kline WHERE date = ? AND code IN ({placeholders})',
                         (date_3d_ago, *codes)
                     )
                     for r in rows_3d:
-                        prices_3d[r['code']] = r['close']
+                        prices_3d[(r['code'], r['source'])] = r['close']
 
                 # 查询 7 日前的收盘价
                 prices_7d = {}
                 if date_7d_ago:
                     rows_7d = self.db.fetch_all(
-                        f'SELECT code, close FROM index_kline WHERE date = ? AND code IN ({placeholders})',
+                        f'SELECT code, close, source FROM index_kline WHERE date = ? AND code IN ({placeholders})',
                         (date_7d_ago, *codes)
                     )
                     for r in rows_7d:
-                        prices_7d[r['code']] = r['close']
+                        prices_7d[(r['code'], r['source'])] = r['close']
 
-                # 计算涨跌幅
+                # 按 (code, source) 匹配计算涨跌幅，确保同一数据源价格对比
                 for idx in indices:
-                    # 3日涨跌幅
-                    close_3d = prices_3d.get(idx.code)
+                    close_3d = prices_3d.get((idx.code, idx.source))
                     if close_3d and close_3d > 0:
                         idx.change_pct_3d = round((idx.price - close_3d) / close_3d * 100, 2)
                     else:
                         idx.change_pct_3d = None
 
-                    # 7日涨跌幅
-                    close_7d = prices_7d.get(idx.code)
+                    close_7d = prices_7d.get((idx.code, idx.source))
                     if close_7d and close_7d > 0:
                         idx.change_pct_7d = round((idx.price - close_7d) / close_7d * 100, 2)
                     else:
+                        idx.change_pct_7d = None
+
+                # K 线未匹配到的 code（如概念板块 em 源无 ths K 线），从 index_data 补缺
+                missing_3d = [idx for idx in indices if idx.change_pct_3d is None and date_3d_ago]
+                missing_7d = [idx for idx in indices if idx.change_pct_7d is None and date_7d_ago]
+                if missing_3d or missing_7d:
+                    if missing_3d:
+                        mc = [idx.code for idx in missing_3d]
+                        ph = ','.join('?' * len(mc))
+                        rows = self.db.fetch_all(
+                            f'SELECT code, price, source FROM index_data WHERE fetched_date = ? AND code IN ({ph})',
+                            (date_3d_ago, *mc)
+                        )
+                        data_3d = {(r['code'], r['source']): r['price'] for r in rows}
+                    else:
+                        data_3d = {}
+                    if missing_7d:
+                        mc = [idx.code for idx in missing_7d]
+                        ph = ','.join('?' * len(mc))
+                        rows = self.db.fetch_all(
+                            f'SELECT code, price, source FROM index_data WHERE fetched_date = ? AND code IN ({ph})',
+                            (date_7d_ago, *mc)
+                        )
+                        data_7d = {(r['code'], r['source']): r['price'] for r in rows}
+                    else:
+                        data_7d = {}
+                    for idx in missing_3d:
+                        p = data_3d.get((idx.code, idx.source))
+                        if p and p > 0:
+                            idx.change_pct_3d = round((idx.price - p) / p * 100, 2)
+                    for idx in missing_7d:
+                        p = data_7d.get((idx.code, idx.source))
+                        if p and p > 0:
+                            idx.change_pct_7d = round((idx.price - p) / p * 100, 2)
+
+                # 合理性检查：|涨跌幅| > 30% 视为数据源不匹配，置 null
+                for idx in indices:
+                    if idx.change_pct_3d is not None and abs(idx.change_pct_3d) > 30:
+                        idx.change_pct_3d = None
+                    if idx.change_pct_7d is not None and abs(idx.change_pct_7d) > 30:
                         idx.change_pct_7d = None
 
                 # 先排序后 limit（按今日涨跌幅降序）
@@ -301,37 +339,44 @@ class IndexDAO:
         date_3d_ago = dates[3]
         date_7d_ago = dates[7] if len(dates) >= 8 else None
 
-        # 批量查询 3 日前的价格
+        # 批量查询 3 日前的价格（带 source，构建 (code, source) -> price 映射）
         prices_3d = {}
         rows_3d = self.db.fetch_all('''
-            SELECT code, price FROM index_data
+            SELECT code, price, source FROM index_data
             WHERE fetched_date = ? AND category = 'industry'
         ''', (date_3d_ago,))
         for r in rows_3d:
-            prices_3d[r['code']] = r['price']
+            prices_3d[(r['code'], r['source'])] = r['price']
 
         # 批量查询 7 日前的价格
         prices_7d = {}
         if date_7d_ago:
             rows_7d = self.db.fetch_all('''
-                SELECT code, price FROM index_data
+                SELECT code, price, source FROM index_data
                 WHERE fetched_date = ? AND category = 'industry'
             ''', (date_7d_ago,))
             for r in rows_7d:
-                prices_7d[r['code']] = r['price']
+                prices_7d[(r['code'], r['source'])] = r['price']
 
-        # 计算涨跌幅
+        # 按 (code, source) 匹配计算涨跌幅
         for idx in indices:
-            price_3d = prices_3d.get(idx.code)
+            price_3d = prices_3d.get((idx.code, idx.source))
             if price_3d and price_3d > 0:
                 idx.change_pct_3d = round((idx.price - price_3d) / price_3d * 100, 2)
             else:
                 idx.change_pct_3d = None
 
-            price_7d = prices_7d.get(idx.code)
+            price_7d = prices_7d.get((idx.code, idx.source))
             if price_7d and price_7d > 0:
                 idx.change_pct_7d = round((idx.price - price_7d) / price_7d * 100, 2)
             else:
+                idx.change_pct_7d = None
+
+        # 合理性检查：|涨跌幅| > 30% 视为数据源不匹配，置 null
+        for idx in indices:
+            if idx.change_pct_3d is not None and abs(idx.change_pct_3d) > 30:
+                idx.change_pct_3d = None
+            if idx.change_pct_7d is not None and abs(idx.change_pct_7d) > 30:
                 idx.change_pct_7d = None
 
         # 先排序后 limit（按今日涨跌幅降序）
