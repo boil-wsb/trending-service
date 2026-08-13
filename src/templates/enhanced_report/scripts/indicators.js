@@ -30,14 +30,78 @@
         // ===== 三图联动：K线/成交量/指标 副图 tooltip 同步 =====
         let _syncTooltipLock = false;  // 防止递归触发
 
+        // 时间戳(ms) -> 'YYYY-MM-DD'（与主图 toTs 的 Date.UTC 对应，统一用 UTC 部分）
+        function _tsToDateStr(ts) {
+            const d = new Date(ts);
+            if (isNaN(d.getTime())) return null;
+            const y = d.getUTCFullYear();
+            const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+            const dd = String(d.getUTCDate()).padStart(2, '0');
+            return `${y}-${m}-${dd}`;
+        }
+
         /**
-         * 同步三个图表的 tooltip 高亮
-         * @param {Chart} sourceChart  触发源图表
-         * @param {number} dataIndex   数据索引
-         * @param {object} eventPos    源图表的鼠标位置（可选，用于计算目标图表的 tooltip 位置）
+         * 从图表 hover 事件提取当前日期字符串（统一同步基准，替代不可靠的 dataIndex）。
+         * 主图（timeseries 轴 + 混合长度 dataset）：dataIndex 不可靠，必须用鼠标 x 像素
+         * 反查时间戳；副图（category 轴）：index 与 labels 一一对应，可直接取 label。
          */
-        function syncChartsTooltip(sourceChart, dataIndex, eventPos) {
-            if (_syncTooltipLock) return;
+        function _getHoverDate(chart, event) {
+            if (!chart || !event || !chart.scales || !chart.scales.x) return null;
+            const xType = chart.scales.x.type;
+            if (xType === 'timeseries' || xType === 'time') {
+                // 主图 K线：用鼠标 x 像素反查时间戳（getElementsAtEventForMode 的 index 不可靠）
+                const ts = chart.scales.x.getValueForPixel(event.x);
+                // 对齐到最近的交易日数据点，避免鼠标落在周末/节假日间隙时找不到精确日期
+                const candleDs = (chart.data.datasets || []).find(d => d.type === 'candlestick');
+                if (candleDs && candleDs.data && candleDs.data.length) {
+                    let best = null, bestDiff = Infinity;
+                    for (let i = 0; i < candleDs.data.length; i++) {
+                        const p = candleDs.data[i];
+                        if (!p) continue;
+                        const diff = Math.abs(p.x - ts);
+                        if (diff < bestDiff) { bestDiff = diff; best = p.x; }
+                    }
+                    if (best != null) return _tsToDateStr(best);
+                }
+                return _tsToDateStr(ts);
+            }
+            // 副图 category 轴：index 可靠
+            const els = chart.getElementsAtEventForMode(event, 'index', { intersect: false }, false);
+            if (els && els.length > 0 && chart.data.labels) {
+                return chart.data.labels[els[0].index];
+            }
+            return null;
+        }
+
+        /**
+         * 在目标图表中按日期字符串查找数据索引。
+         * 主图/副图的 labels 均为切片后日期数组，与 candlestick 数据一一对应，indexOf 即可。
+         */
+        function _findIndexByDate(chart, dateStr) {
+            if (!chart || !dateStr) return -1;
+            const labels = chart.data.labels;
+            if (labels && labels.length) {
+                const idx = labels.indexOf(dateStr);
+                if (idx >= 0) return idx;
+            }
+            // 后备：candlestick 数据按时间戳匹配
+            const candleDs = (chart.data.datasets || []).find(d => d.type === 'candlestick');
+            if (candleDs && candleDs.data) {
+                for (let i = 0; i < candleDs.data.length; i++) {
+                    if (candleDs.data[i] && _tsToDateStr(candleDs.data[i].x) === dateStr) return i;
+                }
+            }
+            return -1;
+        }
+
+        /**
+         * 同步三个图表的 tooltip 高亮（按日期值对齐，而非 dataIndex）
+         * @param {Chart} sourceChart  触发源图表
+         * @param {string} dateStr     当前 hover 的日期 'YYYY-MM-DD'
+         * @param {object} eventPos    源图表的鼠标位置（可选）
+         */
+        function syncChartsTooltip(sourceChart, dateStr, eventPos) {
+            if (_syncTooltipLock || !dateStr) return;
             _syncTooltipLock = true;
             // 用 requestAnimationFrame 延迟同步，让源图表的原生 tooltip 先完成更新与渲染，
             // 避免同步调用 c.update('none') 阻塞 event 处理导致源图表 tooltip opacity 为 0。
@@ -46,6 +110,9 @@
                     const charts = [klineChart, volumeChart, indicatorChart];
                     charts.forEach(c => {
                         if (!c || c === sourceChart) return;
+                        // 按日期在目标图表中定位 index（解决混合长度 dataset 下 dataIndex 错位）
+                        const dataIndex = _findIndexByDate(c, dateStr);
+                        if (dataIndex < 0) return;  // 该图表无此日期，跳过
                         // 找到第一个非隐藏 dataset 来设置 active element
                         let dsIdx = 0;
                         for (let i = 0; i < c.data.datasets.length; i++) {
@@ -53,8 +120,7 @@
                             if (meta && !meta.hidden) { dsIdx = i; break; }
                         }
                         // 主图（klineChart）tooltip callback 依赖 _lastHoverX 定位，
-                        // 副图联动时需根据 dataIndex 更新 _lastHoverX，否则主图 tooltip
-                        // 会用旧的鼠标位置显示错误数据。
+                        // 副图联动时需根据日期更新 _lastHoverX，否则主图 tooltip 显示错误数据。
                         if (c === klineChart && typeof _lastHoverX !== 'undefined') {
                             try {
                                 const candleDs = c.data.datasets.find(d => d.type === 'candlestick');
@@ -62,7 +128,7 @@
                                     _lastHoverX = c.scales.x.getPixelForValue(candleDs.data[dataIndex].x);
                                 }
                             } catch (e) {}
-                            // 主图有混合长度 dataset（金叉信号 scatter 仅 6 个点），
+                            // 主图有混合长度 dataset（金叉信号 scatter 仅几个点），
                             // setActiveElements 传入的 index 会对 scatter 越界，触发
                             // hoverBorderColor 解析 t.toString 错误。跳过 setActiveElements，
                             // 只用 tooltip.setActiveElements + render 触发 tooltip callback。
@@ -103,16 +169,17 @@
         const _clearTooltipHandler = () => clearChartsTooltip();
 
         /**
-         * 通用 onHover 处理：基于 index 模式获取数据索引并同步三图 tooltip
-         * 用 getElementsAtEventForMode 替代 elements 参数，确保即使 bar 较细也能获取 index
+         * 通用 onHover 处理：提取当前 hover 的日期并同步三图 tooltip。
+         * 主图（timeseries）用鼠标 x 像素反查日期；副图（category）用 index 查 labels。
+         * 不用 getElementsAtEventForMode 的 index 直接同步，因混合长度 dataset 下该 index 不可靠。
          * @param {Chart} chart   当前图表实例
          * @param {Event} event   鼠标事件
          */
         function handleChartHover(chart, event) {
             if (!chart || !event) return;
-            const els = chart.getElementsAtEventForMode(event, 'index', { intersect: false }, false);
-            if (els && els.length > 0) {
-                syncChartsTooltip(chart, els[0].index, { x: event.x, y: event.y });
+            const dateStr = _getHoverDate(chart, event);
+            if (dateStr) {
+                syncChartsTooltip(chart, dateStr, { x: event.x, y: event.y });
             }
         }
 
