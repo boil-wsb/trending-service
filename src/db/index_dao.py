@@ -2,12 +2,15 @@
 指数行情数据访问对象
 """
 
+import logging
 from datetime import datetime, date
 from typing import List, Optional, Dict
 from pathlib import Path
 
 from .database import Database
 from .models import IndexData
+
+logger = logging.getLogger(__name__)
 
 
 class IndexDAO:
@@ -584,9 +587,6 @@ class IndexDAO:
         if not klines:
             return 0
 
-        from datetime import datetime
-        import logging
-        logger = logging.getLogger(__name__)
         now = datetime.now().isoformat()
 
         upsert_sql = '''
@@ -655,9 +655,6 @@ class IndexDAO:
         if not records:
             return 0
 
-        import logging
-        from datetime import datetime
-        logger = logging.getLogger(__name__)
         now = datetime.now().isoformat()
 
         upsert_sql = '''
