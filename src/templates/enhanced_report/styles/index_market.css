@@ -769,7 +769,6 @@
             border-color: var(--accent-color, #4a90d9);
         }
         .fund-flow-chart-wrap {
-            height: 480px;
             width: 100%;
             margin-bottom: 20px;
         }
@@ -807,21 +806,22 @@
         .fund-flow-table tr:hover td { background: rgba(74,144,217,0.06); }
         body.dark-mode .fund-flow-table tr:hover td { background: rgba(74,144,217,0.12); }
 
-        /* 主力资金 HTML 条形图（参照 dashboard.html 样式） */
+        /* 主力资金 HTML 条形图（中轴双向蝴蝶图） */
         .fund-flow-chart-wrap {
             display: flex;
             flex-direction: column;
             gap: 6px;
             margin-bottom: 20px;
+            position: relative;
         }
         .fund-bar-row {
             display: flex;
             align-items: center;
-            gap: 8px;
             font-size: 13px;
         }
         .fund-bar-label {
             width: 70px;
+            margin-right: 8px;
             text-align: right;
             color: var(--text-secondary, #666);
             flex-shrink: 0;
@@ -833,32 +833,76 @@
         .fund-bar-track {
             flex: 1;
             height: 22px;
-            position: relative;
             display: flex;
             align-items: center;
         }
+        .fund-bar-half {
+            width: 50%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+        }
+        .fund-bar-left { justify-content: flex-end; }
+        .fund-bar-right { justify-content: flex-start; }
         .fund-bar-fill {
             height: 100%;
             border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            padding-right: 6px;
-            font-size: 11px;
-            font-weight: 600;
-            color: rgba(255,255,255,0.9);
             transition: width 0.6s ease;
             min-width: 2px;
+            flex-shrink: 0;
         }
+        .fund-bar-left .fund-bar-fill { border-radius: 4px 0 0 4px; }
+        .fund-bar-right .fund-bar-fill { border-radius: 0 4px 4px 0; }
         .bar-in { background: rgba(231,76,60,0.7); }
         .bar-out { background: rgba(39,174,96,0.5); }
-        .fund-bar-val {
-            width: 60px;
-            text-align: right;
-            font-variant-numeric: tabular-nums;
+        .fund-bar-tip {
+            font-size: 11px;
             font-weight: 600;
-            font-size: 12px;
+            font-variant-numeric: tabular-nums;
             flex-shrink: 0;
+        }
+        .fund-bar-left .fund-bar-tip { margin-right: 6px; }
+        .fund-bar-right .fund-bar-tip { margin-left: 6px; }
+        /* 数值嵌入条内时 */
+        .fund-bar-fill.has-tip { display: flex; align-items: center; }
+        .fund-bar-right .fund-bar-fill.has-tip { justify-content: flex-end; padding-right: 6px; }
+        .fund-bar-left .fund-bar-fill.has-tip { justify-content: flex-start; padding-left: 6px; }
+        .fund-bar-fill .fund-bar-tip { margin: 0; color: rgba(255,255,255,0.95); }
+        /* 行悬浮高亮（与明细表一致） */
+        .fund-bar-row:not(.fund-scale-row):hover {
+            background: rgba(74,144,217,0.06);
+            border-radius: 4px;
+        }
+        body.dark-mode .fund-bar-row:not(.fund-scale-row):hover {
+            background: rgba(74,144,217,0.12);
+        }
+        /* 中轴零线: label(70px+8px margin) + 剩余轨道的一半 */
+        .fund-bar-axis {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: calc(78px + (100% - 78px) / 2);
+            width: 1px;
+            background: rgba(0,0,0,0.25);
+            z-index: 1;
+            pointer-events: none;
+        }
+        body.dark-mode .fund-bar-axis { background: rgba(255,255,255,0.25); }
+        /* 顶部左右最大刻度行 */
+        .fund-scale-row {
+            height: 16px;
+            font-size: 11px;
+            color: var(--text-secondary, #999);
+            margin-bottom: 2px;
+        }
+        .fund-scale-row .fund-bar-track { height: auto; }
+        .fund-scale-left {
+            justify-content: flex-end;
+            padding-right: 6px;
+        }
+        .fund-scale-right {
+            justify-content: flex-start;
+            padding-left: 6px;
         }
 
         /* 涨跌颜色 */
@@ -911,6 +955,31 @@
             color: #fff;
             background: rgba(133, 193, 233, 0.85);
         }
+        .crossover-badge.macd-deriv-golden {
+            color: #fff;
+            background: rgba(142, 68, 173, 0.85);
+        }
+        /* 死叉徽章（绿色系） */
+        .crossover-badge.macd-death {
+            color: #fff;
+            background: rgba(39, 174, 96, 0.85);
+        }
+        .crossover-badge.macd-near-death {
+            color: #fff;
+            background: rgba(46, 204, 113, 0.85);
+        }
+        .crossover-badge.ma-death {
+            color: #fff;
+            background: rgba(22, 160, 133, 0.85);
+        }
+        .crossover-badge.ma-near-death {
+            color: #fff;
+            background: rgba(26, 188, 156, 0.85);
+        }
+        .crossover-badge.macd-deriv-death {
+            color: #fff;
+            background: rgba(39, 174, 96, 0.85);
+        }
         .crossover-text {
             font-size: 11px;
             font-weight: 600;
@@ -920,6 +989,12 @@
         .crossover-text.macd-near { color: #e67e22; }
         .crossover-text.ma-golden { color: #3498db; }
         .crossover-text.ma-near { color: #85c1e9; }
+        .crossover-text.macd-deriv-golden { color: #8e44ad; }
+        .crossover-text.macd-death { color: #27ae60; }
+        .crossover-text.macd-near-death { color: #2ecc71; }
+        .crossover-text.ma-death { color: #16a085; }
+        .crossover-text.ma-near-death { color: #1abc9c; }
+        .crossover-text.macd-deriv-death { color: #27ae60; }
         .crossover-none { color: #aaa; font-size: 11px; }
         /* 趋势状态样式（五分法） */
         .crossover-text.trend-strong-bull { color: #c0392b; font-weight: 700; }
@@ -933,6 +1008,12 @@
         body.dark-mode .crossover-text.macd-near { color: #ffa502; }
         body.dark-mode .crossover-text.ma-golden { color: #54a0ff; }
         body.dark-mode .crossover-text.ma-near { color: #74b9ff; }
+        body.dark-mode .crossover-text.macd-deriv-golden { color: #b07cc6; }
+        body.dark-mode .crossover-text.macd-death { color: #2ed573; }
+        body.dark-mode .crossover-text.macd-near-death { color: #7bed9f; }
+        body.dark-mode .crossover-text.ma-death { color: #1abc9c; }
+        body.dark-mode .crossover-text.ma-near-death { color: #55efc4; }
+        body.dark-mode .crossover-text.macd-deriv-death { color: #2ed573; }
         body.dark-mode .crossover-none { color: #555; }
         body.dark-mode .crossover-text.trend-strong-bull { color: #ff4757; }
         body.dark-mode .crossover-text.trend-weak-bull   { color: #ff6b6b; }

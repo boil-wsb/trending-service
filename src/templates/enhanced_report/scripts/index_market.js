@@ -82,7 +82,7 @@
             return `${sign}${change.toFixed(2)} (${sign}${changePct.toFixed(2)}%)`;
         }
 
-        // 格式化金叉徽章（用于市场指数卡片）
+        // 格式化金叉/死叉徽章（用于市场指数卡片）
         function formatCrossoverBadge(crossover) {
             if (!crossover) return '';
             const badges = [];
@@ -90,16 +90,29 @@
                 badges.push('<span class="crossover-badge macd-golden" title="MACD金叉：DIF上穿DEA">MACD金叉</span>');
             } else if (crossover.macd === 'near_golden') {
                 badges.push('<span class="crossover-badge macd-near" title="MACD即将金叉：DIF接近DEA">MACD即将金叉</span>');
+            } else if (crossover.macd === 'death') {
+                badges.push('<span class="crossover-badge macd-death" title="MACD死叉：DIF下穿DEA">MACD死叉</span>');
+            } else if (crossover.macd === 'near_death') {
+                badges.push('<span class="crossover-badge macd-near-death" title="MACD即将死叉：DIF接近DEA且下行">MACD即将死叉</span>');
             }
             if (crossover.ma === 'golden') {
                 badges.push('<span class="crossover-badge ma-golden" title="MA金叉：MA5上穿MA10">MA金叉</span>');
             } else if (crossover.ma === 'near_golden') {
                 badges.push('<span class="crossover-badge ma-near" title="MA即将金叉：MA5接近MA10">MA即将金叉</span>');
+            } else if (crossover.ma === 'death') {
+                badges.push('<span class="crossover-badge ma-death" title="MA死叉：MA5下穿MA10">MA死叉</span>');
+            } else if (crossover.ma === 'near_death') {
+                badges.push('<span class="crossover-badge ma-near-death" title="MA即将死叉：MA5接近MA10且下行">MA即将死叉</span>');
+            }
+            if (crossover.macd_deriv === 'golden') {
+                badges.push('<span class="crossover-badge macd-deriv-golden" title="DIF\'/DEA\'导数金叉：DIF导数上穿DEA导数">DIF\'金叉</span>');
+            } else if (crossover.macd_deriv === 'death') {
+                badges.push('<span class="crossover-badge macd-deriv-death" title="DIF\'/DEA\'导数死叉：DIF导数下穿DEA导数">DIF\'死叉</span>');
             }
             return badges.length ? `<div class="crossover-badges">${badges.join('')}</div>` : '';
         }
 
-        // 格式化金叉文本（用于行业指数表格）—— 合并金叉信号 + 趋势状态
+        // 格式化金叉/死叉文本（用于行业指数表格）—— 合并信号 + 趋势状态
         function formatCrossoverText(crossover) {
             if (!crossover) return '<span class="crossover-none">-</span>';
             const texts = [];
@@ -127,16 +140,29 @@
                     texts.push(`<span class="crossover-text ${info.cls}${extraCls}" title="${title}">${info.text}</span>`);
                 }
             }
-            // 金叉信号
+            // 金叉/死叉信号
             if (crossover.macd === 'golden') {
                 texts.push('<span class="crossover-text macd-golden" title="DIF上穿DEA">MACD金叉</span>');
             } else if (crossover.macd === 'near_golden') {
                 texts.push('<span class="crossover-text macd-near" title="DIF接近DEA">MACD即将金叉</span>');
+            } else if (crossover.macd === 'death') {
+                texts.push('<span class="crossover-text macd-death" title="DIF下穿DEA">MACD死叉</span>');
+            } else if (crossover.macd === 'near_death') {
+                texts.push('<span class="crossover-text macd-near-death" title="DIF接近DEA且下行">MACD即将死叉</span>');
             }
             if (crossover.ma === 'golden') {
                 texts.push('<span class="crossover-text ma-golden" title="MA5上穿MA10">MA金叉</span>');
             } else if (crossover.ma === 'near_golden') {
                 texts.push('<span class="crossover-text ma-near" title="MA5接近MA10">MA即将金叉</span>');
+            } else if (crossover.ma === 'death') {
+                texts.push('<span class="crossover-text ma-death" title="MA5下穿MA10">MA死叉</span>');
+            } else if (crossover.ma === 'near_death') {
+                texts.push('<span class="crossover-text ma-near-death" title="MA5接近MA10且下行">MA即将死叉</span>');
+            }
+            if (crossover.macd_deriv === 'golden') {
+                texts.push('<span class="crossover-text macd-deriv-golden" title="DIF\'/DEA\'导数金叉：DIF导数上穿DEA导数">DIF\'金叉</span>');
+            } else if (crossover.macd_deriv === 'death') {
+                texts.push('<span class="crossover-text macd-deriv-death" title="DIF\'/DEA\'导数死叉：DIF导数下穿DEA导数">DIF\'死叉</span>');
             }
             return texts.length ? texts.join('<br>') : '<span class="crossover-none">-</span>';
         }
@@ -1305,17 +1331,19 @@
                 filtered = filtered.filter(idx => {
                     const co = idx.crossover;
                     if (badgeValue === 'none') {
-                        // 无标识：无趋势、无金叉、无即将金叉
+                        // 无标识：无趋势、无金叉/死叉、无即将金叉/死叉、无导数信号
                         const hasTrend = co && co.trend && co.trend.trend;
-                        const hasMacd = co && (co.macd === 'golden' || co.macd === 'near_golden');
-                        const hasMa = co && (co.ma === 'golden' || co.ma === 'near_golden');
-                        return !hasTrend && !hasMacd && !hasMa;
+                        const hasMacd = co && ['golden', 'near_golden', 'death', 'near_death'].includes(co.macd);
+                        const hasMa = co && ['golden', 'near_golden', 'death', 'near_death'].includes(co.ma);
+                        const hasDeriv = co && (co.macd_deriv === 'golden' || co.macd_deriv === 'death');
+                        return !hasTrend && !hasMacd && !hasMa && !hasDeriv;
                     }
                     const [type, val] = badgeValue.split(':');
                     if (!co) return false;
                     if (type === 'trend') return co.trend && co.trend.trend === val;
                     if (type === 'macd') return co.macd === val;
                     if (type === 'ma') return co.ma === val;
+                    if (type === 'macd_deriv') return co.macd_deriv === val;
                     return false;
                 });
             }
@@ -1337,11 +1365,11 @@
             const followedSet = new Set(getFollowedIndices());
 
             // 排序（三级优先级：关注状态 > 金叉标识置顶 > 正常排序）
-            // 仅 MACD金叉 / MA金叉 视为金叉置顶；其他标识（趋势/即将金叉）按正常排序
+            // 仅 MACD金叉 / MA金叉 / DIF'导数金叉 视为金叉置顶；其他标识（趋势/即将金叉）按正常排序
             // 用户主动点击列头排序时（industrySortField !== 'followed'）跳过金叉置顶，避免干扰指定字段排序
             const isGolden = (co) => {
                 if (!co) return false;
-                return co.macd === 'golden' || co.ma === 'golden';
+                return co.macd === 'golden' || co.ma === 'golden' || co.macd_deriv === 'golden';
             };
             const isDefaultSort = industrySortField === 'followed';
             const sorted = [...filtered].sort((a, b) => {
@@ -1624,9 +1652,10 @@
                 for (const sig of f.crossovers) {
                     if (sig === 'none') {
                         const hasTrend = co && co.trend && co.trend.trend;
-                        const hasMacd = co && (co.macd === 'golden' || co.macd === 'near_golden');
-                        const hasMa = co && (co.ma === 'golden' || co.ma === 'near_golden');
-                        if (!hasTrend && !hasMacd && !hasMa) { matched = true; break; }
+                        const hasMacd = co && ['golden', 'near_golden', 'death', 'near_death'].includes(co.macd);
+                        const hasMa = co && ['golden', 'near_golden', 'death', 'near_death'].includes(co.ma);
+                        const hasDeriv = co && (co.macd_deriv === 'golden' || co.macd_deriv === 'death');
+                        if (!hasTrend && !hasMacd && !hasMa && !hasDeriv) { matched = true; break; }
                     } else if (sig === 'macd:golden') {
                         if (co && co.macd === 'golden') { matched = true; break; }
                     } else if (sig === 'ma:golden') {
@@ -1635,6 +1664,18 @@
                         if (co && co.macd === 'near_golden') { matched = true; break; }
                     } else if (sig === 'ma:near_golden') {
                         if (co && co.ma === 'near_golden') { matched = true; break; }
+                    } else if (sig === 'macd_deriv:golden') {
+                        if (co && co.macd_deriv === 'golden') { matched = true; break; }
+                    } else if (sig === 'macd:death') {
+                        if (co && co.macd === 'death') { matched = true; break; }
+                    } else if (sig === 'ma:death') {
+                        if (co && co.ma === 'death') { matched = true; break; }
+                    } else if (sig === 'macd:near_death') {
+                        if (co && co.macd === 'near_death') { matched = true; break; }
+                    } else if (sig === 'ma:near_death') {
+                        if (co && co.ma === 'near_death') { matched = true; break; }
+                    } else if (sig === 'macd_deriv:death') {
+                        if (co && co.macd_deriv === 'death') { matched = true; break; }
                     }
                 }
                 if (!matched) return false;
@@ -2050,7 +2091,9 @@
                     if (indContainer) {
                         indContainer.style.display = (currentIndicator === 'boll' || currentIndicator === 'ma') ? 'none' : 'block';
                     }
-                    renderIndicatorChart(klines);
+                    // 指标副图用完整历史数据（含预热期）计算，内部按 displayDays 切片显示，
+                    // 保证 DIF/DEA 等 EMA 递归指标与后端金叉检测使用的完整数据一致
+                    renderIndicatorChart(allKlines);
                 }
             } catch (err) {
                 console.error('加载K线数据失败:', err);
@@ -2150,30 +2193,38 @@
                 return out;
             };
 
-            // 金叉标记点：构建散点数据（仅包含金叉日，不含 null）
+            // 金叉/死叉标记点：构建散点数据（仅包含信号日，不含 null）
             // candlestick 不支持 pointStyle 数组，故拆出独立 scatter dataset。
             // parsing:false 下 data 与 pointStyle/pointRadius 等数组必须按索引对齐且不含 null。
-            // 只保留显示窗口内的金叉点
+            // 只保留显示窗口内的信号点
             const windowStart = labels[0];
             const cpArr = (allCrossoverPoints || []).filter(p => p.date >= windowStart);
             const crossoverPointData = [];
             const crossoverPointStyles = [];
+            const crossoverPointRotations = [];
             const crossoverPointRadii = [];
             const crossoverPointBgColors = [];
             const crossoverPointBorderColors = [];
             for (let i = 0; i < closes.length; i++) {
                 const pt = cpArr.find(p => p.date === labels[i]);
                 if (pt && closes[i] != null) {
+                    const isDeath = String(pt.type).endsWith('_death');
                     crossoverPointData.push({ x: tsArr[i], y: closes[i] });
-                    crossoverPointStyles.push('triangle');
+                    // 死叉用倒三角（旋转 180°），金叉用正三角/菱形
+                    crossoverPointStyles.push(isDeath ? 'triangle' : (pt.type === 'macd_deriv' ? 'rectRot' : 'triangle'));
+                    crossoverPointRotations.push(isDeath ? 180 : 0);
                     crossoverPointRadii.push(9);
                     crossoverPointBgColors.push(
                         pt.type === 'macd' ? tc.riseAlpha(0.95) :
-                        pt.type === 'ma' ? 'rgba(52, 152, 219, 0.95)' : 'transparent'
+                        pt.type === 'ma' ? 'rgba(52, 152, 219, 0.95)' :
+                        pt.type === 'macd_deriv' ? 'rgba(142, 68, 173, 0.95)' :
+                        isDeath ? 'rgba(39, 174, 96, 0.95)' : 'transparent'
                     );
                     crossoverPointBorderColors.push(
                         pt.type === 'macd' ? tc.macdCross :
-                        pt.type === 'ma' ? tc.maCross : 'transparent'
+                        pt.type === 'ma' ? tc.maCross :
+                        pt.type === 'macd_deriv' ? '#8e44ad' :
+                        isDeath ? '#27ae60' : 'transparent'
                     );
                 }
             }
@@ -2336,6 +2387,7 @@
                     label: '金叉信号',
                     data: crossoverPointData,
                     pointStyle: crossoverPointStyles,
+                    pointRotation: crossoverPointRotations,
                     pointRadius: crossoverPointRadii,
                     pointHoverRadius: 12,
                     pointBackgroundColor: crossoverPointBgColors,
@@ -2443,20 +2495,30 @@
                                     const k = klines[idx];
                                     const label = context.dataset.label;
                                     const dsType = context.dataset.type;
-                                    // candlestick：显示 OHLC + 涨跌幅 + 金叉提示
+                                    // candlestick：显示 OHLC + 涨跌幅 + 金叉/死叉提示
                                     if (dsType === 'candlestick') {
                                         const cp = cpArr.find(p => p.date === labels[idx]);
                                         let extra = `  涨跌幅: ${k.change_pct}%`;
                                         if (cp) {
-                                            extra += cp.type === 'macd' ? '  ⬆MACD金叉' : '  ⬆MA金叉';
+                                            extra += cp.type === 'macd' ? '  ⬆MACD金叉' :
+                                                     cp.type === 'ma' ? '  ⬆MA金叉' :
+                                                     cp.type === 'macd_deriv' ? '  ⬆DIF\'金叉' :
+                                                     cp.type === 'macd_death' ? '  ⬇MACD死叉' :
+                                                     cp.type === 'ma_death' ? '  ⬇MA死叉' :
+                                                     '  ⬇DIF\'死叉';
                                         }
                                         return `K线  开:${k.open.toFixed(2)}  高:${k.high.toFixed(2)}  低:${k.low.toFixed(2)}  收:${k.close.toFixed(2)}${extra}`;
                                     }
-                                    // 金叉信号散点
+                                    // 金叉/死叉信号散点
                                     if (dsType === 'scatter') {
                                         const cp = cpArr.find(p => p.date === labels[idx]);
                                         if (cp) {
-                                            return cp.type === 'macd' ? '⬆ MACD金叉' : '⬆ MA金叉';
+                                            return cp.type === 'macd' ? '⬆ MACD金叉' :
+                                                   cp.type === 'ma' ? '⬆ MA金叉' :
+                                                   cp.type === 'macd_deriv' ? '⬆ DIF\'金叉' :
+                                                   cp.type === 'macd_death' ? '⬇ MACD死叉' :
+                                                   cp.type === 'ma_death' ? '⬇ MA死叉' :
+                                                   '⬇ DIF\'死叉';
                                         }
                                         return null;
                                     }

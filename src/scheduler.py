@@ -636,6 +636,10 @@ class TrendingTaskScheduler(TaskScheduler):
 
         仅在 A 股开盘时间内执行（9:30-11:30, 13:00-15:00，周一至周五）。
         非开盘时间直接跳过，避免无效请求。
+
+        每次成功拉取后，除保存实时快照（index_data）外，还把当日成功记录
+        写为当日 K 线（index_kline，跳过无 OHLC 的概念板块），实现盘中
+        实时 K 线；16:30/18:00 正式 K 线缓存按 (code, date, source) 覆盖。
         """
         if not self._is_trading_hours():
             self.logger.info("⏭️  当前非 A 股开盘时间，跳过指数行情数据获取")
@@ -644,17 +648,31 @@ class TrendingTaskScheduler(TaskScheduler):
         try:
             self.logger.info("📈 开始获取指数行情数据...")
             from src.fetchers.index import IndexFetcher
+            from src.db.index_dao import IndexDAO
             from src.config import DATABASE
 
             fetcher = IndexFetcher(logger=self.logger)
-            count = fetcher.save_to_db(DATABASE['path'])
-            self.logger.info(f"✅ 指数行情数据获取完成: {count} 条")
+            indices = fetcher.fetch()
+            if not indices:
+                self.logger.warning("未获取到指数数据")
+                return
+
+            dao = IndexDAO(DATABASE['path'])
+            saved = dao.save_indices(indices)
+            self.logger.info(f"✅ 指数行情数据获取完成: {saved} 条")
+
+            # 盘中：把当日成功拉取的指数记录写为当日 K 线（跳过无 OHLC 的概念板块），
+            # 16:30/18:00 正式 K 线到达后按 code+date+source 覆盖
+            try:
+                today_kline_count = fetcher.update_today_klines(indices, DATABASE['path'])
+                if today_kline_count:
+                    self.logger.info(f"🕐 盘中当日 K 线已更新: {today_kline_count} 条")
+            except Exception as e:
+                self.logger.error(f"❌ 更新盘中当日 K 线失败: {e}")
 
             # 刷新金叉信号内存缓存（后台预计算，避免影响 API 响应时间）
             try:
                 from src.utils.crossover import refresh_all_crossovers
-                from src.db.index_dao import IndexDAO
-                dao = IndexDAO(DATABASE['path'])
                 refresh_all_crossovers(dao, logger=self.logger)
             except Exception as e:
                 self.logger.error(f"❌ 刷新金叉信号缓存失败: {e}")

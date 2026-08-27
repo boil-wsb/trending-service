@@ -637,6 +637,79 @@ class IndexDAO:
 
         return len(batch)
 
+    def save_today_klines_batch(self, records: List[Dict]) -> int:
+        """
+        批量保存当日 K 线（多条 code / 多 source，单连接 executemany）
+
+        用于盘中把指数实时快照写为当日 K 线（UPSERT code+date+source）：
+        - 盘中每次定时拉取指数行情成功后调用，逐步用最新快照覆盖当日 K 线
+        - 与正式 K 线（16:30/18:00 缓存）共用 (code, date, source) 唯一键，
+          保证正式 K 线到达时自然覆盖盘中临时记录，不会残留脏数据
+
+        Args:
+            records: 每条含 code/source/date/open/close/high/low/volume/amount/change/change_pct
+
+        Returns:
+            写入的数据条数
+        """
+        if not records:
+            return 0
+
+        import logging
+        from datetime import datetime
+        logger = logging.getLogger(__name__)
+        now = datetime.now().isoformat()
+
+        upsert_sql = '''
+            INSERT INTO index_kline (
+                code, date, open, close, high, low,
+                volume, amount, change, change_pct, source, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(code, date, source) DO UPDATE SET
+                open = excluded.open,
+                close = excluded.close,
+                high = excluded.high,
+                low = excluded.low,
+                volume = excluded.volume,
+                amount = excluded.amount,
+                change = excluded.change,
+                change_pct = excluded.change_pct,
+                updated_at = excluded.updated_at
+        '''
+
+        batch = []
+        for r in records:
+            try:
+                code = str(r.get('code', ''))
+                date_str = str(r.get('date', ''))
+                source = str(r.get('source', ''))
+                if not code or not date_str or not source:
+                    continue
+                batch.append((
+                    code, date_str,
+                    float(r.get('open', 0) or 0),
+                    float(r.get('close', 0) or 0),
+                    float(r.get('high', 0) or 0),
+                    float(r.get('low', 0) or 0),
+                    int(float(r.get('volume', 0) or 0)),
+                    float(r.get('amount', 0) or 0),
+                    float(r.get('change', 0) or 0),
+                    float(r.get('change_pct', 0) or 0),
+                    source, now
+                ))
+            except (ValueError, KeyError, TypeError) as e:
+                logger.warning(f"跳过无效当日K线数据: {e}")
+                continue
+
+        if not batch:
+            return 0
+
+        # 单连接批量事务：connect/close 仅 1 次，避免高频连接触发段错误
+        with self.db.transaction() as conn:
+            conn.executemany(upsert_sql, batch)
+
+        return len(batch)
+
     def get_klines(self, code: str, days: int = 30, source: str = 'tx') -> List[Dict]:
         """
         从数据库获取指数 K 线缓存数据

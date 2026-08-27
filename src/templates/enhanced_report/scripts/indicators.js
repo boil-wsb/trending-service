@@ -65,10 +65,13 @@
                 }
                 return _tsToDateStr(ts);
             }
-            // 副图 category 轴：index 可靠
-            const els = chart.getElementsAtEventForMode(event, 'index', { intersect: false }, false);
-            if (els && els.length > 0 && chart.data.labels) {
-                return chart.data.labels[els[0].index];
+            // 副图 category 轴：混合长度 dataset（如 DIF'金叉 scatter 仅少量点）下，
+            // getElementsAtEventForMode 返回元素的 index 是 dataset 内索引，不可靠；
+            // 统一改用鼠标 x 像素反查 category 索引（与主图 timeseries 轴处理一致）。
+            const idx = Math.round(chart.scales.x.getValueForPixel(event.x));
+            const labels = chart.data.labels || [];
+            if (idx >= 0 && idx < labels.length) {
+                return labels[idx];
             }
             return null;
         }
@@ -185,7 +188,7 @@
 
         // 指标概念描述
         const INDICATOR_DESCRIPTIONS = {
-            macd: "MACD（移动平均收敛发散指标）：反映价格趋势的强弱和方向。DIF 上穿 DEA 为金叉（买入信号），下穿为死叉（卖出信号）。DIF'/DEA'（虚线）为对应一阶导数（中心差分），反映变化率：导数由负转正=趋势向上加速，由正转负=趋势向下加速。",
+            macd: "MACD（移动平均收敛发散指标）：反映价格趋势的强弱和方向。DIF 上穿 DEA 为金叉（买入信号），下穿为死叉（卖出信号）。DIF'/DEA'（虚线）为对应一阶导数（中心差分），反映变化率：导数由负转正=趋势向上加速，由正转负=趋势向下加速。DIF' 上穿 DEA' 为导数金叉（紫色菱形标记），比 MACD 金叉更灵敏，反映动量加速拐点。",
             rsi: 'RSI（相对强弱指标）：衡量价格超买超卖程度，0-100。RSI>70 超买，<30 超卖。',
             kdj: 'KDJ（随机指标）：反映价格位置相对高低。K>D 金叉买入，K<D 死叉卖出。J>100 超买，J<0 超卖。',
             boll: '布林带（Bollinger Bands）：反映价格波动范围。价格触及上轨可能回调，触及下轨可能反弹。',
@@ -401,8 +404,8 @@
                 indContainer.style.display = (ind === 'boll' || ind === 'ma') ? 'none' : 'block';
             }
             // 重新渲染指标图（副图指标才需要）
-            if (currentKlineData && ind !== 'boll' && ind !== 'ma') {
-                renderIndicatorChart(currentKlineData);
+            if (allKlineData && ind !== 'boll' && ind !== 'ma') {
+                renderIndicatorChart(allKlineData);
             }
         }
 
@@ -419,7 +422,7 @@
                 return;
             }
 
-            const labels = klines.map(k => k.date);
+            const labelsAll = klines.map(k => k.date);
             const closes = klines.map(k => k.close);
             const ctx = canvas.getContext('2d');
             let datasets = [];
@@ -487,6 +490,73 @@
                         order: 5
                     }
                 ];
+                // DIF'/DEA' 导数金叉标记：DIF 导数上穿 DEA 导数（紫色菱形，叠加在 0 轴）
+                // 使用等长对象数组（非交叉日 {x,y:null}）而非 null 元素：
+                // 多个含 null 元素的 scatter 会触发 Chart.js ScatterController 解析 null.x 错误，
+                // 导致整个副图渲染失败（图例/内容消失）；对象数组保持 dataIndex 与 category 对齐。
+                const derivCrossData = labelsAll.map(d => ({ x: d, y: null }));
+                for (let i = 1; i < difDiff.length; i++) {
+                    if (difDiff[i] != null && deaDiff[i] != null &&
+                        difDiff[i - 1] != null && deaDiff[i - 1] != null) {
+                        if (difDiff[i] > deaDiff[i] && difDiff[i - 1] <= deaDiff[i - 1]) {
+                            derivCrossData[i] = { x: labelsAll[i], y: 0 };
+                        }
+                    }
+                }
+                if (derivCrossData.some(v => v && v.y === 0)) {
+                    datasets.push({
+                        type: 'scatter',
+                        label: "DIF'金叉",
+                        data: derivCrossData,
+                        pointStyle: 'rectRot',
+                        pointRadius: 5,
+                        pointBackgroundColor: 'rgba(142, 68, 173, 0.95)',
+                        pointBorderColor: '#8e44ad',
+                        order: 0
+                    });
+                }
+                // MACD 死叉标记：DIF 下穿 DEA（绿色倒三角，叠加在 0 轴）
+                const macdDeathData = labelsAll.map(d => ({ x: d, y: null }));
+                for (let i = 1; i < macd.length; i++) {
+                    if (dif[i] < dea[i] && dif[i - 1] >= dea[i - 1]) {
+                        macdDeathData[i] = { x: labelsAll[i], y: 0 };
+                    }
+                }
+                if (macdDeathData.some(v => v && v.y === 0)) {
+                    datasets.push({
+                        type: 'scatter',
+                        label: 'MACD死叉',
+                        data: macdDeathData,
+                        pointStyle: 'triangle',
+                        pointRotation: 180,
+                        pointRadius: 5,
+                        pointBackgroundColor: 'rgba(39, 174, 96, 0.95)',
+                        pointBorderColor: '#27ae60',
+                        order: 0
+                    });
+                }
+                // DIF'/DEA' 导数死叉标记：DIF 导数下穿 DEA 导数（绿色菱形）
+                const derivDeathData = labelsAll.map(d => ({ x: d, y: null }));
+                for (let i = 1; i < difDiff.length; i++) {
+                    if (difDiff[i] != null && deaDiff[i] != null &&
+                        difDiff[i - 1] != null && deaDiff[i - 1] != null) {
+                        if (difDiff[i] < deaDiff[i] && difDiff[i - 1] >= deaDiff[i - 1]) {
+                            derivDeathData[i] = { x: labelsAll[i], y: 0 };
+                        }
+                    }
+                }
+                if (derivDeathData.some(v => v && v.y === 0)) {
+                    datasets.push({
+                        type: 'scatter',
+                        label: "DIF'死叉",
+                        data: derivDeathData,
+                        pointStyle: 'rectRot',
+                        pointRadius: 5,
+                        pointBackgroundColor: 'rgba(39, 174, 96, 0.95)',
+                        pointBorderColor: '#27ae60',
+                        order: 0
+                    });
+                }
             } else if (currentIndicator === 'rsi') {
                 const rsi = calculateRSI(closes, 14);
                 datasets = [
@@ -629,6 +699,22 @@
                 });
             }
 
+            // 显示窗口切片：指标基于完整历史（含预热期）计算，保证 DIF/DEA 等 EMA 递归
+            // 指标与后端金叉检测使用的完整数据一致；仅渲染最后 currentDisplayDays 天。
+            const start = Math.max(0, klines.length - currentDisplayDays);
+            const labels = labelsAll.slice(start);
+            datasets = datasets.map(ds => {
+                const d = { ...ds };
+                if (Array.isArray(d.data)) d.data = d.data.slice(start);
+                // 与 data 等长的样式配置数组（如 MACD 柱的 backgroundColor/borderColor）必须同步切片，
+                // 否则颜色数组仍是完整长度，与切片后的柱子索引错位，导致颜色与数值不匹配。
+                for (const key of ['backgroundColor', 'borderColor', 'pointBackgroundColor',
+                                   'pointBorderColor', 'pointStyle', 'pointRadius']) {
+                    if (Array.isArray(d[key])) d[key] = d[key].slice(start);
+                }
+                return d;
+            });
+
             indicatorChart = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -656,9 +742,12 @@
                                     return `${items[0].label} (${dateToWeekday(items[0].label)})`;
                                 },
                                 label: function(context) {
+                                    const label = context.dataset.label || '';
+                                    if (label === "DIF'金叉") return '⬆ DIF\'金叉';
+                                    if (label === 'MACD死叉') return '⬇ MACD死叉';
+                                    if (label === "DIF'死叉") return '⬇ DIF\'死叉';
                                     const val = context.parsed.y;
                                     if (val === null || val === undefined) return null;
-                                    const label = context.dataset.label || '';
                                     if (label.startsWith('参考线')) return null;
                                     return `${label}: ${val.toFixed(3)}`;
                                 }

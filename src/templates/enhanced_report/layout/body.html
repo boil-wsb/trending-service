@@ -185,11 +185,17 @@
                                 <option value="trend:weak_bear">弱空头</option>
                                 <option value="trend:strong_bear">强空头</option>
                             </optgroup>
-                            <optgroup label="金叉信号">
+                            <optgroup label="金叉/死叉信号">
                                 <option value="macd:golden">MACD金叉</option>
                                 <option value="macd:near_golden">MACD即将金叉</option>
                                 <option value="ma:golden">MA金叉</option>
                                 <option value="ma:near_golden">MA即将金叉</option>
+                                <option value="macd_deriv:golden">DIF'金叉</option>
+                                <option value="macd:death">MACD死叉</option>
+                                <option value="macd:near_death">MACD即将死叉</option>
+                                <option value="ma:death">MA死叉</option>
+                                <option value="ma:near_death">MA即将死叉</option>
+                                <option value="macd_deriv:death">DIF'死叉</option>
                             </optgroup>
                             <option value="none">无标识</option>
                         </select>
@@ -222,12 +228,18 @@
                             </div>
                         </div>
                         <div class="screener-row">
-                            <span class="screener-label">金叉信号</span>
+                            <span class="screener-label">金叉/死叉</span>
                             <div class="screener-cb-group">
                                 <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="macd:golden" onchange="applyScreener()"><span class="crossover-text macd-golden">MACD金叉</span></label>
                                 <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="ma:golden" onchange="applyScreener()"><span class="crossover-text ma-golden">MA金叉</span></label>
                                 <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="macd:near_golden" onchange="applyScreener()"><span class="crossover-text macd-near">MACD即将金叉</span></label>
                                 <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="ma:near_golden" onchange="applyScreener()"><span class="crossover-text ma-near">MA即将金叉</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="macd_deriv:golden" onchange="applyScreener()"><span class="crossover-text macd-deriv-golden">DIF'金叉</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="macd:death" onchange="applyScreener()"><span class="crossover-text macd-death">MACD死叉</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="ma:death" onchange="applyScreener()"><span class="crossover-text ma-death">MA死叉</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="macd:near_death" onchange="applyScreener()"><span class="crossover-text macd-near-death">MACD即将死叉</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="ma:near_death" onchange="applyScreener()"><span class="crossover-text ma-near-death">MA即将死叉</span></label>
+                                <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="macd_deriv:death" onchange="applyScreener()"><span class="crossover-text macd-deriv-death">DIF'死叉</span></label>
                                 <label class="screener-cb"><input type="checkbox" class="screener-crossover-cb" value="none" onchange="applyScreener()"><span class="crossover-none">无标识</span></label>
                             </div>
                         </div>

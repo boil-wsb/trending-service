@@ -1,7 +1,11 @@
 // ========= 主力资金 =========
 
-// ── 主力资金净流入排行（双向条形图）───────────────────
+// ── 主力资金净流入排行（中轴双向蝴蝶图）───────────────────
 let fundFlowChart = null;
+
+// 背离信号: 1=健康上涨 2=出货 3=吸筹 4=弱势
+const FUND_SIG_MAP = { 1: '✅健康', 2: '⚠️出货', 3: '📥吸筹', 4: '❌弱势' };
+const FUND_SIG_CLS = { 1: 'val-up', 2: 'val-down', 3: 'val-up', 4: 'val-down' };
 
 function switchFundFlow(indicator) {
     // 更新按钮状态
@@ -26,34 +30,58 @@ function renderFundFlowChart(items) {
     if (!canvas || !items.length) return;
     if (fundFlowChart) fundFlowChart.destroy();
 
-    // 取前12名，按净流入排序
-    const sorted = [...items].sort((a, b) =>
-        Math.abs(b.main_in_flow || 0) - Math.abs(a.main_in_flow || 0)
-    ).slice(0, 12).reverse();  // reverse 使最大在最上方
+    // 蝴蝶图数据: 流入Top8 + 流出Top8; 流入在上(降序), 流出在下(按绝对值降序)
+    const inflow = items.filter(d => (d.main_in_flow || 0) >= 0)
+        .sort((a, b) => (b.main_in_flow || 0) - (a.main_in_flow || 0)).slice(0, 8);
+    const outflow = items.filter(d => (d.main_in_flow || 0) < 0)
+        .sort((a, b) => (a.main_in_flow || 0) - (b.main_in_flow || 0)).slice(0, 8);
+    const sorted = [...inflow, ...outflow];
 
+    // 左右共用同一比例尺, ×1.2 留白保证外端标签不溢出
     const maxVal = Math.max(...sorted.map(d => Math.abs(d.main_in_flow || 0) / 100000000)) * 1.2;
 
-    // 用 HTML 条形图代替 Chart.js（参照 dashboard.html 样式）
+    // 用 HTML 中轴双向条形图(蝴蝶图): 流入向右延伸, 流出向左延伸
     const chartWrap = document.getElementById('fund-flow-chart-wrap');
     if (chartWrap) {
         const tc = ChartPresets.getThemeColors();
-        chartWrap.innerHTML = sorted.map(d => {
+        const rows = sorted.map(d => {
             const val = (d.main_in_flow || 0) / 100000000;
-            const pct = (Math.abs(val) / maxVal * 100).toFixed(1);
+            const pct = Math.min(Math.abs(val) / maxVal * 100, 100);
             const isIn = val >= 0;
-            const cls = isIn ? 'val-up' : 'val-down';
-            const bg = isIn ? tc.riseAlpha(0.7) : tc.fallAlpha(0.5);
-            return `<div class="fund-bar-row">
+            const tip = `${isIn ? '+' : ''}${val.toFixed(1)}`;
+            const cp = d.change_pct;
+            // hover 明细提示（沿用项目原生 title 惯例）
+            const title = [
+                d.name,
+                `主力净流入: ${tip}亿`,
+                `涨跌幅: ${cp != null ? (cp >= 0 ? '+' : '') + cp.toFixed(2) + '%' : '--'}`,
+                `流入比: ${d.inflow_ratio != null ? d.inflow_ratio.toFixed(1) + '%' : '--'}`,
+                `信号: ${FUND_SIG_MAP[d.divergence || 4] || '--'}`
+            ].join('\n');
+            const bar = `<div class="fund-bar-fill ${isIn ? 'bar-in' : 'bar-out'}" style="
+                width:${pct.toFixed(1)}%;
+                background:${isIn ? tc.riseAlpha(0.7) : tc.fallAlpha(0.5)};
+            "></div>`;
+            const tipHtml = `<span class="fund-bar-tip ${isIn ? 'val-up' : 'val-down'}">${tip}</span>`;
+            return `<div class="fund-bar-row" title="${title}">
                 <div class="fund-bar-label">${d.name}</div>
                 <div class="fund-bar-track">
-                    <div class="fund-bar-fill ${isIn ? 'bar-in' : 'bar-out'}" style="
-                        width:${pct}%;
-                        background:${bg};
-                    ">${Math.abs(val) >= 1 ? (isIn ? '+' : '') + val.toFixed(1) : ''}</div>
+                    <div class="fund-bar-half fund-bar-left">${isIn ? '' : tipHtml + bar}</div>
+                    <div class="fund-bar-half fund-bar-right">${isIn ? bar + tipHtml : ''}</div>
                 </div>
-                <div class="fund-bar-val ${cls}">${val >= 0 ? '+' : ''}${val.toFixed(1)}</div>
             </div>`;
         }).join('');
+        // 中轴旁左右最大刻度提示
+        const scaleRow = `<div class="fund-bar-row fund-scale-row">
+            <div class="fund-bar-label"></div>
+            <div class="fund-bar-track">
+                <div class="fund-bar-half fund-scale-left"><span>-${maxVal.toFixed(1)}亿</span></div>
+                <div class="fund-bar-half fund-scale-right"><span>+${maxVal.toFixed(1)}亿</span></div>
+            </div>
+        </div>`;
+        chartWrap.innerHTML = scaleRow + '<div class="fund-bar-axis"></div>' + rows;
+        layoutFundBarTips();
+        bindFundTipRelayout();
         return;  // 用 HTML 条形图，不需要 Chart.js
     }
 
@@ -103,6 +131,40 @@ function renderFundFlowChart(items) {
     });
 }
 
+// 条内/条外数值标签自适应: 条形足够宽(≥52px)时数值嵌入条内, 否则置于条形外端
+function layoutFundBarTips() {
+    const wrap = document.getElementById('fund-flow-chart-wrap');
+    if (!wrap) return;
+    wrap.querySelectorAll('.fund-bar-half').forEach(half => {
+        const fill = half.querySelector('.fund-bar-fill');
+        const tip = half.querySelector('.fund-bar-tip');
+        if (!fill || !tip) return;
+        // 用百分比×半轨宽度换算像素, 不受 width 过渡动画影响
+        const pct = parseFloat(fill.style.width) || 0;
+        const barPx = half.getBoundingClientRect().width * pct / 100;
+        const inside = barPx >= 52;
+        fill.classList.toggle('has-tip', inside);
+        if (inside && !fill.contains(tip)) {
+            fill.appendChild(tip);
+        } else if (!inside && fill.contains(tip)) {
+            if (half.classList.contains('fund-bar-right')) half.appendChild(tip);
+            else half.insertBefore(tip, fill);
+        }
+    });
+}
+
+// 窗口尺寸变化时重新布局数值标签（只绑定一次）
+let _fundTipRelayoutBound = false;
+function bindFundTipRelayout() {
+    if (_fundTipRelayoutBound) return;
+    _fundTipRelayoutBound = true;
+    let timer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(timer);
+        timer = setTimeout(layoutFundBarTips, 200);
+    });
+}
+
 function renderFundFlowTable(items) {
     const tbody = document.getElementById('fund-flow-tbody');
     if (!tbody) return;
@@ -128,9 +190,7 @@ function renderFundFlowTable(items) {
             const sign = v >= 0 ? '+' : '';
             return `<span class="${cls}">${sign}${v.toFixed(2)}%</span>`;
         };
-        // 背离信号: 1=健康上涨 2=出货 3=吸筹 4=弱势
-        const sigMap = { 1: '✅健康', 2: '⚠️出货', 3: '📥吸筹', 4: '❌弱势' };
-        const sigCls = { 1: 'val-up', 2: 'val-down', 3: 'val-up', 4: 'val-down' };
+        // 背离信号: 1=健康上涨 2=出货 3=吸筹 4=弱势（复用模块级 FUND_SIG_MAP/FUND_SIG_CLS）
         const sig = d.divergence || 4;
         return `<tr>
             <td>${i + 1}</td>
@@ -138,7 +198,7 @@ function renderFundFlowTable(items) {
             <td>${fmt(d.main_in_flow)}</td>
             <td>${pctFmt(d.change_pct)}</td>
             <td>${d.inflow_ratio != null ? d.inflow_ratio.toFixed(1) + '%' : '--'}</td>
-            <td><span class="${sigCls[sig]}">${sigMap[sig] || '--'}</span></td>
+            <td><span class="${FUND_SIG_CLS[sig]}">${FUND_SIG_MAP[sig] || '--'}</span></td>
         </tr>`;
     }).join('');
 }

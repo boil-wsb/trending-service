@@ -7,7 +7,7 @@
 
 import sys
 import math
-from typing import List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
 
@@ -1077,4 +1077,93 @@ class IndexFetcher:
         dao = IndexDAO(db_path)
         saved = dao.save_indices(indices)
         self.logger.info(f"指数数据保存完成: {saved} 条")
+        return saved
+
+    def update_today_klines(self, indices: List[IndexData], db_path,
+                            date: Optional[str] = None) -> int:
+        """将当日成功拉取的指数记录写为当日 K 线（盘中实时 K 线）
+
+        触发时机：每次定时拉取指数行情（fetch_index）成功后调用，
+        盘中逐步用最新快照 UPSERT 覆盖当日 K 线（code+date+source）。
+
+        范围：市场指数 + 申万行业指数（实时快照含完整 OHLC）；
+        概念板块（code 为中文名称，快照无 open/high/low）跳过。
+
+        K 线 source 与正式 K 线保持一致（市场指数→sina，申万行业→sw），
+        保证 16:30/18:00 正式 K 线缓存到达时按 (code, date, source) 覆盖盘中临时记录。
+
+        Args:
+            indices: 本次拉取成功的 IndexData 列表
+            db_path: 数据库路径
+            date: 目标 K 线日期（YYYY-MM-DD），默认当天。
+                  用于数据源缺失时用历史快照回补某交易日的 K 线。
+
+        Returns:
+            写入的当日 K 线条数
+        """
+        from src.db.index_dao import IndexDAO
+
+        today = date or datetime.now().strftime('%Y-%m-%d')
+        records: List[Dict] = []
+        skipped = 0
+
+        for idx in indices:
+            code = idx.code or ''
+            # 概念板块（code 非纯数字）快照无 open/high/low，跳过
+            if not code.isdigit():
+                skipped += 1
+                continue
+            # 无效价格跳过（数据源异常时避免写入脏 K 线）
+            if not idx.price or idx.price <= 0:
+                skipped += 1
+                continue
+            # source 与正式 K 线一致：市场指数→sina，申万行业(80开头6位)→sw
+            if idx.category == 'market':
+                source = 'sina'
+                # 量纲换算：沪市指数（非 399 开头）快照 volume 单位为"手"，
+                # 正式 K 线（新浪 daily）为"股"，×100 对齐；深市（399 开头）单位一致。
+                # 市场指数正式 amount 恒为 0（新浪 daily 无成交额），保持快照值。
+                if not code.startswith('399'):
+                    volume = int(idx.volume or 0) * 100
+                else:
+                    volume = int(idx.volume or 0)
+                amount = idx.amount or 0
+            elif code.startswith('80') and len(code) == 6:
+                source = 'sw'
+                # 量纲换算：申万快照（index_realtime_sw）的 volume/amount 是正式
+                # K 线（index_hist_sw）的约 100 倍，÷100 对齐，避免 K 线图成交量柱异常。
+                volume = int((idx.volume or 0) / 100)
+                amount = (idx.amount or 0) / 100
+            else:
+                skipped += 1
+                continue
+
+            # OHLC 归一化：缺失字段用最新价兜底，确保 high>=max(open,close)、low<=min(open,close)
+            open_ = idx.open if idx.open and idx.open > 0 else idx.price
+            high = max(idx.high if idx.high and idx.high > 0 else open_, open_, idx.price)
+            low = min(idx.low if idx.low and idx.low > 0 else idx.price, open_, idx.price)
+
+            records.append({
+                'code': code,
+                'source': source,
+                'date': today,
+                'open': round(open_, 2),
+                'close': round(idx.price, 2),
+                'high': round(high, 2),
+                'low': round(low, 2),
+                'volume': volume,
+                'amount': round(amount, 2),
+                'change': round(idx.change or 0, 2),
+                'change_pct': round(idx.change_pct or 0, 2),
+            })
+
+        if not records:
+            return 0
+
+        dao = IndexDAO(db_path)
+        saved = dao.save_today_klines_batch(records)
+        if saved:
+            self.logger.info(
+                f"盘中当日K线更新: {saved} 条 (跳过 {skipped} 条无OHLC/无效记录, date={today})"
+            )
         return saved

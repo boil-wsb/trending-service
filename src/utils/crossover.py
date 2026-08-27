@@ -63,23 +63,52 @@ def calculate_macd(closes: List[float]) -> Dict:
     return {'dif': dif, 'dea': dea, 'macd': macd}
 
 
+def calculate_derivative(data: List[float]) -> List[Optional[float]]:
+    """计算一阶导数（中心差分）：f'(i) = (f(i+1) - f(i-1)) / 2
+
+    首点无前值置 None，末点无后值用简单差分兜底 f'(n-1) = f(n-1) - f(n-2)。
+    与前端 indicators.js 的 calculateDerivative 保持一致。
+    """
+    n = len(data)
+    if n == 0:
+        return []
+    if n == 1:
+        return [None]
+    result: List[Optional[float]] = [None] * n
+    for i in range(1, n - 1):
+        if data[i - 1] is None or data[i + 1] is None:
+            result[i] = None
+        else:
+            result[i] = (data[i + 1] - data[i - 1]) / 2
+    # 末点兜底：简单差分
+    if data[n - 1] is not None and data[n - 2] is not None:
+        result[n - 1] = data[n - 1] - data[n - 2]
+    return result
+
+
 def detect_crossover(closes: List[float]) -> Optional[Dict]:
-    """检测当前金叉状态
+    """检测当前金叉/死叉状态
 
     判定规则：
     - MACD 金叉：最后一天 DIF > DEA 且前一天 DIF <= DEA
+    - MACD 死叉：最后一天 DIF < DEA 且前一天 DIF >= DEA
     - MACD 即将金叉：DIF < DEA 但 |DIF-DEA| < price*1%，且 DIF 连续 2 日上行
-    - MA 金叉：最后一天 MA5 > MA10 且前一天 MA5 <= MA10
-    - MA 即将金叉：MA5 < MA10 但 |MA5-MA10| < price*1%，且 MA5 连续 2 日上行
+    - MACD 即将死叉：DIF > DEA 但 |DIF-DEA| < price*1%，且 DIF 连续 2 日下行
+    - DIF'/DEA' 导数金叉/死叉：最后一天导数上穿/下穿
+      （DIF/DEA 的斜率交叉，反映动量加速/减速拐点，比 MACD 金叉/死叉更灵敏）
+    - MA 金叉/死叉：最后一天 MA5 上穿/下穿 MA10
+    - MA 即将金叉/死叉：|MA5-MA10| < price*1%，且 MA5 连续 2 日上行/下行
 
     Args:
         closes: 收盘价列表（升序，至少 30 条）
 
     Returns:
         {
-            'macd': 'golden' | 'near_golden' | None,
-            'ma': 'golden' | 'near_golden' | None,
+            'macd': 'golden' | 'near_golden' | 'death' | 'near_death' | None,
+            'ma': 'golden' | 'near_golden' | 'death' | 'near_death' | None,
+            'macd_deriv': 'golden' | 'death' | None,
             'macd_detail': {'dif': float, 'dea': float, 'gap': float},
+            'macd_deriv_detail': {'dif_prime': float, 'dea_prime': float, 'gap': float},
             'ma_detail': {'ma5': float, 'ma10': float, 'gap': float}
         }
     """
@@ -95,7 +124,9 @@ def detect_crossover(closes: List[float]) -> Optional[Dict]:
     result = {
         'macd': None,
         'ma': None,
+        'macd_deriv': None,
         'macd_detail': {},
+        'macd_deriv_detail': {},
         'ma_detail': {}
     }
 
@@ -120,10 +151,33 @@ def detect_crossover(closes: List[float]) -> Optional[Dict]:
         # 金叉：今天 DIF > DEA 且昨天 DIF <= DEA
         if dif_today > dea_today and dif_yesterday <= dea_yesterday:
             result['macd'] = 'golden'
+        # 死叉：今天 DIF < DEA 且昨天 DIF >= DEA
+        elif dif_today < dea_today and dif_yesterday >= dea_yesterday:
+            result['macd'] = 'death'
         # 即将金叉：DIF < DEA 但差距 < 1%，且 DIF 连续 2 日上行
         elif dif_today < dea_today and macd_gap < threshold:
             if len(dif) >= 3 and dif[-1] > dif[-2] > dif[-3]:
                 result['macd'] = 'near_golden'
+        # 即将死叉：DIF > DEA 但差距 < 1%，且 DIF 连续 2 日下行
+        elif dif_today > dea_today and macd_gap < threshold:
+            if len(dif) >= 3 and dif[-1] < dif[-2] < dif[-3]:
+                result['macd'] = 'near_death'
+
+        # === DIF'/DEA' 导数金叉/死叉：DIF 导数上穿/下穿 DEA 导数 ===
+        dif_prime = calculate_derivative(dif)
+        dea_prime = calculate_derivative(dea)
+        if dif_prime[-1] is not None and dea_prime[-1] is not None and \
+           dif_prime[-2] is not None and dea_prime[-2] is not None:
+            deriv_gap = abs(dif_prime[-1] - dea_prime[-1])
+            result['macd_deriv_detail'] = {
+                'dif_prime': round(dif_prime[-1], 4),
+                'dea_prime': round(dea_prime[-1], 4),
+                'gap': round(deriv_gap, 4)
+            }
+            if dif_prime[-1] > dea_prime[-1] and dif_prime[-2] <= dea_prime[-2]:
+                result['macd_deriv'] = 'golden'
+            elif dif_prime[-1] < dea_prime[-1] and dif_prime[-2] >= dea_prime[-2]:
+                result['macd_deriv'] = 'death'
 
     # === MA 检测 ===
     ma5_list = calculate_ma(closes, 5)
@@ -146,24 +200,33 @@ def detect_crossover(closes: List[float]) -> Optional[Dict]:
         # 金叉：今天 MA5 > MA10 且昨天 MA5 <= MA10
         if ma5_today > ma10_today and ma5_yesterday <= ma10_yesterday:
             result['ma'] = 'golden'
+        # 死叉：今天 MA5 < MA10 且昨天 MA5 >= MA10
+        elif ma5_today < ma10_today and ma5_yesterday >= ma10_yesterday:
+            result['ma'] = 'death'
         # 即将金叉：MA5 < MA10 但差距 < 1%，且 MA5 连续 2 日上行
         elif ma5_today < ma10_today and ma_gap < threshold:
             if len(ma5_list) >= 3 and ma5_list[-1] is not None and \
                ma5_list[-2] is not None and ma5_list[-3] is not None and \
                ma5_list[-1] > ma5_list[-2] > ma5_list[-3]:
                 result['ma'] = 'near_golden'
+        # 即将死叉：MA5 > MA10 但差距 < 1%，且 MA5 连续 2 日下行
+        elif ma5_today > ma10_today and ma_gap < threshold:
+            if len(ma5_list) >= 3 and ma5_list[-1] is not None and \
+               ma5_list[-2] is not None and ma5_list[-3] is not None and \
+               ma5_list[-1] < ma5_list[-2] < ma5_list[-3]:
+                result['ma'] = 'near_death'
 
     # 如果没有任何信号，返回 None
-    if result['macd'] is None and result['ma'] is None:
+    if result['macd'] is None and result['ma'] is None and result['macd_deriv'] is None:
         return None
 
     return result
 
 
 def detect_crossover_history(closes: List[float], dates: List[str]) -> List[Dict]:
-    """检测所有历史金叉点
+    """检测所有历史金叉/死叉点
 
-    遍历整个 K 线序列，找出所有 MACD 和 MA 金叉发生的日期。
+    遍历整个 K 线序列，找出所有 MACD / MA / DIF'导数 的金叉与死叉日期。
 
     Args:
         closes: 收盘价列表（升序）
@@ -171,13 +234,14 @@ def detect_crossover_history(closes: List[float], dates: List[str]) -> List[Dict
 
     Returns:
         [{'date': '2026-06-20', 'type': 'macd', 'price': 3200.5}, ...]
+        type 取值：macd/ma/macd_deriv（金叉）、macd_death/ma_death/macd_deriv_death（死叉）
     """
     if len(closes) < 30 or len(closes) != len(dates):
         return []
 
     points = []
 
-    # MACD 历史金叉
+    # MACD 历史金叉/死叉
     macd_data = calculate_macd(closes)
     dif = macd_data['dif']
     dea = macd_data['dea']
@@ -188,8 +252,33 @@ def detect_crossover_history(closes: List[float], dates: List[str]) -> List[Dict
                 'type': 'macd',
                 'price': round(closes[i], 2)
             })
+        elif dif[i] < dea[i] and dif[i - 1] >= dea[i - 1]:
+            points.append({
+                'date': dates[i],
+                'type': 'macd_death',
+                'price': round(closes[i], 2)
+            })
 
-    # MA 历史金叉
+    # DIF'/DEA' 导数历史金叉/死叉（DIF 导数上穿/下穿 DEA 导数）
+    dif_prime = calculate_derivative(dif)
+    dea_prime = calculate_derivative(dea)
+    for i in range(1, len(dif_prime)):
+        if dif_prime[i] is not None and dea_prime[i] is not None and \
+           dif_prime[i - 1] is not None and dea_prime[i - 1] is not None:
+            if dif_prime[i] > dea_prime[i] and dif_prime[i - 1] <= dea_prime[i - 1]:
+                points.append({
+                    'date': dates[i],
+                    'type': 'macd_deriv',
+                    'price': round(closes[i], 2)
+                })
+            elif dif_prime[i] < dea_prime[i] and dif_prime[i - 1] >= dea_prime[i - 1]:
+                points.append({
+                    'date': dates[i],
+                    'type': 'macd_deriv_death',
+                    'price': round(closes[i], 2)
+                })
+
+    # MA 历史金叉/死叉
     ma5_list = calculate_ma(closes, 5)
     ma10_list = calculate_ma(closes, 10)
     for i in range(1, len(ma5_list)):
@@ -199,6 +288,12 @@ def detect_crossover_history(closes: List[float], dates: List[str]) -> List[Dict
                 points.append({
                     'date': dates[i],
                     'type': 'ma',
+                    'price': round(closes[i], 2)
+                })
+            elif ma5_list[i] < ma10_list[i] and ma5_list[i - 1] >= ma10_list[i - 1]:
+                points.append({
+                    'date': dates[i],
+                    'type': 'ma_death',
                     'price': round(closes[i], 2)
                 })
 
