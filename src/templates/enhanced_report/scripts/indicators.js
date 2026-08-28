@@ -798,8 +798,12 @@
 
             const labels = klines.map(k => k.date);
             const volumes = klines.map(k => k.volume || 0);
-            // 红绿色：收盘 >= 开盘为红，否则为绿
-            const colors = klines.map(k => k.close >= k.open ? 'rgba(231, 76, 60, 0.6)' : 'rgba(39, 174, 96, 0.6)');
+            // 红绿色按【相对昨收】（change_pct>=0 红涨/绿跌）判定，与 K 线标色一致；
+            // 颜色走 ChartPresets 读 CSS 变量（--color-rise/--color-fall），支持主题切换。
+            const tc = ChartPresets.getThemeColors();
+            const chgs = klines.map(k => (k.change_pct != null ? k.change_pct : (k.close >= k.open ? 1 : -1)) >= 0);
+            const colors = chgs.map(up => up ? tc.riseAlpha(0.6) : tc.fallAlpha(0.6));
+            const borderColors = chgs.map(up => up ? tc.riseAlpha(1) : tc.fallAlpha(1));
 
             volumeChart = new Chart(canvas.getContext('2d'), {
                 type: 'bar',
@@ -809,7 +813,7 @@
                         label: '成交量',
                         data: volumes,
                         backgroundColor: colors,
-                        borderColor: colors.map(c => c.replace('0.6', '1')),
+                        borderColor: borderColors,
                         borderWidth: 1
                     }]
                 },

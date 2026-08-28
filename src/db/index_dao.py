@@ -975,3 +975,32 @@ class IndexDAO:
             LIMIT ?
         ''', (days,))
         return [dict(r) for r in rows]
+
+    # ===== VIX / VXN 波动率指数 =====
+
+    def save_vix_vxn(self, records: list) -> int:
+        """批量保存 VIX/VXN 日频数据（date 唯一，覆盖更新）
+
+        Args:
+            records: [{'date': '2026-08-27', 'vix': 14.5, 'vxn': 22.3}, ...]
+
+        Returns:
+            写入/更新条数
+        """
+        if not records:
+            return 0
+        with self.db.transaction() as conn:
+            conn.executemany('''
+                INSERT OR REPLACE INTO vix_vxn (date, vix, vxn)
+                VALUES (?, ?, ?)
+            ''', [(r['date'], r.get('vix'), r.get('vxn')) for r in records])
+        return len(records)
+
+    def get_vix_vxn_history(self, days: int = 365) -> list:
+        """查询近 N 日 VIX/VXN 历史（升序，供折线图）"""
+        rows = self.db.fetch_all('''
+            SELECT date, vix, vxn FROM vix_vxn
+            ORDER BY date DESC
+            LIMIT ?
+        ''', (days,))
+        return [dict(r) for r in rows][::-1]

@@ -2242,7 +2242,12 @@
                     // 注意：FinancialController.overrides 设置 parsing:false，Chart.js 4.x
                     // 在 parsing:false 时 _parsed[i]=data[i]，timeseries 轴读取 _parsed[i].x，
                     // 因此必须用 x 字段而非 t 字段（t 字段仅在 parsing:true 时被自动解析）。
-                    data: klines.map(k => ({ x: toTs(k.date), o: k.open, h: k.high, l: k.low, c: k.close })),
+                    // 每根 K 线附带 prevClose（前一根收盘，窗口首根用完整数据的前一根），
+                    // 供 _patchKlineColor 按相对昨收标色（见 renderKlineChart 顶部）。
+                    data: klines.map((k, i) => ({
+                        x: toTs(k.date), o: k.open, h: k.high, l: k.low, c: k.close,
+                        prevClose: i > 0 ? klines[i - 1].close : (start > 0 ? allKlines[start - 1].close : k.close)
+                    })),
                     // 国内习惯：红涨绿跌（颜色读 CSS 变量，支持主题切换）
                     color: {
                         up: tc.rise,       // 收阳（上涨）实体颜色
@@ -2399,6 +2404,39 @@
                 });
             }
 
+            // 红涨绿跌按【相对昨收】覆盖 candlestick 标色（monkey-patch，仅执行一次）：
+            // chartjs-chart-financial 0.2.1 默认用 close vs open（阴阳）判色，不符合 A 股
+            // "红涨绿跌"（相对昨收）习惯，会把"高开低走但相对昨收仍涨"的 K 线误标为绿。
+            // candlestick 元素 options 为共享引用（per-point 数组不生效），因此改为重写
+            // CandlestickElement.draw：在绘制每根 K 线前依据 data[i].prevClose 临时设置该
+            // 元素颜色（up/down/unchanged 同色），随后立即调用原 draw 完成绘制；由于
+            // "设置+绘制"在同一调用内顺序完成，共享 options 不影响其他元素。
+            if (!window._patchKlineColor) {
+                window._patchKlineColor = true;
+                const CE = Chart.registry.getElement('candlestick');
+                if (CE) {
+                    const origDraw = CE.prototype.draw;
+                    CE.prototype.draw = function(ctx) {
+                        const c2 = this.$context;
+                        if (c2 && c2.chart) {
+                            const dsIndex = c2.datasetIndex;
+                            const idx = c2.index;
+                            if (dsIndex !== undefined && idx !== undefined) {
+                                const ds = c2.chart.data.datasets[dsIndex];
+                                const k = ds && ds.data[idx];
+                                if (k && k.prevClose !== undefined) {
+                                    const tc2 = ChartPresets.getThemeColors();
+                                    const col = k.c > k.prevClose ? tc2.rise : (k.c < k.prevClose ? tc2.fall : tc2.flat);
+                                    this.options.borderColors = { up: col, down: col, unchanged: col };
+                                    this.options.backgroundColors = { up: col, down: col, unchanged: col };
+                                }
+                            }
+                        }
+                        return origDraw.call(this, ctx);
+                    };
+                }
+            }
+
             const ctx = canvas.getContext('2d');
             _lastHoverX = null;  // 重置模块级变量（renderKlineChart 时清空）
             klineChart = new Chart(ctx, {
@@ -2418,6 +2456,8 @@
                         _lastHoverX = event.x;  // 记录鼠标 x 位置供 tooltip 使用
                         handleChartHover(klineChart, event);
                     },
+                    // 按【相对昨收】覆盖 candlestick 标色的自定义插件定义在函数内，
+                    // 通过 new Chart 顶层 plugins 数组注册（见下方 klineColorByPrevClose）。
                     plugins: {
                         legend: {
                             // 点击图例：隔离显示该线条（隐藏其他所有线条）
@@ -2590,6 +2630,8 @@
             } catch (err) {
                 console.error('情绪数据加载失败:', err);
             }
+            // 并行加载 VIX/VXN 波动率指数（近一年）
+            loadVixVxnData();
         }
 
         function renderSentimentDashboard(data) {
@@ -2693,5 +2735,99 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        // ========== VIX / VXN 波动率指数（恐慌指数） ==========
+        let vixVxnChart = null;
+
+        async function loadVixVxnData() {
+            try {
+                const data = await DataService.getVixVxn();
+                renderVixVxn(data);
+            } catch (err) {
+                console.error('VIX/VXN 数据加载失败:', err);
+            }
+        }
+
+        function renderVixVxn(data) {
+            const history = data.history || [];
+            const latest = data.latest;
+            const vixEl = document.getElementById('vix-value');
+            const vxnEl = document.getElementById('vxn-value');
+            const vixDesc = document.getElementById('vix-desc');
+            const vxnDesc = document.getElementById('vxn-desc');
+            if (!latest || !history.length) {
+                if (vixEl) vixEl.textContent = '--';
+                if (vxnEl) vxnEl.textContent = '--';
+                if (vixDesc) vixDesc.textContent = '暂无数据（每日 08:30 自动更新）';
+                if (vxnDesc) vxnDesc.textContent = '暂无数据（每日 08:30 自动更新）';
+                return;
+            }
+            // 当前值卡片
+            if (vixEl) vixEl.textContent = latest.vix != null ? latest.vix.toFixed(2) : '--';
+            if (vxnEl) vxnEl.textContent = latest.vxn != null ? latest.vxn.toFixed(2) : '--';
+            if (vixDesc) vixDesc.textContent = `截至 ${latest.date}`;
+            if (vxnDesc) vxnDesc.textContent = `截至 ${latest.date}`;
+            // 折线图
+            renderVixVxnChart(history);
+        }
+
+        function renderVixVxnChart(history) {
+            const canvas = document.getElementById('vix-vxn-chart');
+            if (!canvas || !history.length) return;
+            if (vixVxnChart) vixVxnChart.destroy();
+            const tc = ChartPresets.getThemeColors();
+            const labels = history.map(h => h.date);
+            // VIX 橙色、VXN 紫色（避免与 A 股红绿混淆）
+            vixVxnChart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'VIX',
+                            data: history.map(h => h.vix),
+                            borderColor: '#e67e22',
+                            backgroundColor: 'rgba(230, 126, 34, 0.10)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.2,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                        },
+                        {
+                            label: 'VXN',
+                            data: history.map(h => h.vxn),
+                            borderColor: '#8e44ad',
+                            backgroundColor: 'rgba(142, 68, 173, 0.10)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.2,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        x: { title: { display: true, text: '日期' }, ticks: { maxTicksLimit: 12 } },
+                        y: {
+                            title: { display: true, text: '波动率' },
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        legend: { display: true, position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: c => `${c.dataset.label}: ${c.parsed.y != null ? c.parsed.y.toFixed(2) : '--'}`
+                            }
+                        }
+                    }
+                }
+            });
         }
 

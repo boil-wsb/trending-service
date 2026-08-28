@@ -160,6 +160,18 @@ class Database:
             )
         ''')
 
+        # VIX / VXN 波动率指数表（恐慌指数，近一年日频）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS vix_vxn (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                vix REAL DEFAULT NULL,
+                vxn REAL DEFAULT NULL,
+                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(date)
+            )
+        ''')
+
         conn.commit()
     
     def _create_indexes(self, conn: sqlite3.Connection):

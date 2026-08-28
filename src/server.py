@@ -900,6 +900,28 @@ class TrendingServer:
                 resp, status = handle_api_error(e, self.logger)
                 return jsonify(resp), status
 
+        @app.route('/api/index/vix-vxn')
+        def api_index_vix_vxn():
+            """VIX/VXN 波动率指数（近一年，从库读，供情绪板块卡片与折线图）"""
+            try:
+                from src.db.index_dao import IndexDAO
+
+                dao = IndexDAO(DATABASE['path'])
+                history = dao.get_vix_vxn_history(365)
+                latest = history[-1] if history else None
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'history': history,
+                        'latest': latest,
+                        'count': len(history),
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"获取 VIX/VXN 数据失败: {e}")
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
+
         @app.route('/api/northbound')
         def api_northbound():
             """北向资金每日净流入数据（60s 缓存）"""

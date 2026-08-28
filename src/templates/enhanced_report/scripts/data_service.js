@@ -296,6 +296,12 @@ const DataService = (function () {
                 () => _request('/api/index/sentiment'), useCache);
         },
 
+        /** 获取 VIX/VXN 波动率指数（近一年，从库读，日频数据缓存 60s） */
+        getVixVxn(useCache) {
+            return _withCache('vix_vxn', CACHE_TTL.sentiment,
+                () => _request('/api/index/vix-vxn'), useCache);
+        },
+
         /** 获取北向资金每日净流入（沪深港通，60s 缓存） */
         getNorthbound(days, useCache) {
             const d = days || 30;

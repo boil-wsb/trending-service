@@ -563,55 +563,64 @@ def refresh_all_crossovers(dao, logger=None) -> int:
         drawdown_count = 0
         for idx in all_indices:
             code = idx.code
-            # 根据 code 判断 K 线数据源（统一走 normalize_symbol 解析）
-            sym = normalize_symbol(code)
-            kline_source = to_kline_source(sym)
+            try:
+                # 根据 code 判断 K 线数据源（统一走 normalize_symbol 解析）
+                sym = normalize_symbol(code)
+                kline_source = to_kline_source(sym)
 
-            klines = dao.get_klines(code, days=60, source=kline_source)
-            closes = None
-            # klines_available 标记是否有完整 K 线（含 high/low，可用于 ADX 计算）
-            klines_available = False
-            if klines and len(klines) >= 10:
-                closes = [k['close'] for k in klines]
-                klines_available = True
-            else:
-                # K 线缓存不足，回退到 index_data 表历史快照（仅有 price，无 high/low）
-                history = dao.get_index_by_code(code, limit=60)
-                if history and len(history) >= 10:
-                    # index_data 按 fetched_at 降序，需反转为升序
-                    history = list(reversed(history))
-                    closes = [h.price for h in history]
+                klines = dao.get_klines(code, days=60, source=kline_source)
+                closes = None
+                # klines_available 标记是否有完整 K 线（含 high/low，可用于 ADX 计算）
+                klines_available = False
+                if klines and len(klines) >= 10:
+                    closes = [k['close'] for k in klines]
+                    klines_available = True
+                else:
+                    # K 线缓存不足，回退到 index_data 表历史快照（仅有 price，无 high/low）
+                    history = dao.get_index_by_code(code, limit=60)
+                    if history and len(history) >= 10:
+                        # index_data 按 fetched_at 降序，需反转为升序
+                        history = list(reversed(history))
+                        closes = [h.price for h in history]
 
-            if closes and len(closes) >= 10:
-                crossover = detect_crossover(closes)
-                trend = detect_trend(closes, klines=klines if klines_available else None)
+                if closes and len(closes) >= 10:
+                    crossover = detect_crossover(closes)
+                    trend = detect_trend(closes, klines=klines if klines_available else None)
 
-                # 有金叉信号或趋势数据任一非空则缓存
-                if crossover is not None or trend is not None:
-                    entry = crossover if crossover is not None else {}
-                    if trend is not None:
-                        entry['trend'] = trend
-                        trend_count += 1
-                    new_cache[code] = entry
+                    # 有金叉信号或趋势数据任一非空则缓存
+                    if crossover is not None or trend is not None:
+                        entry = crossover if crossover is not None else {}
+                        if trend is not None:
+                            entry['trend'] = trend
+                            trend_count += 1
+                        new_cache[code] = entry
 
-            # 计算距高点回撤（用更长 K 线，约 1 年）
-            long_klines = dao.get_klines(code, days=400, source=kline_source)
-            if long_klines and len(long_klines) >= 10:
-                # 找最高收盘价
-                high_item = max(long_klines, key=lambda k: k['close'])
-                high_close = high_item['close']
-                high_date = high_item['date']
-                cur_close = long_klines[-1]['close']
-                if high_close > 0 and cur_close > 0:
-                    drawdown_pct = (high_close - cur_close) / high_close * 100.0
-                    days_since_high = sum(1 for k in long_klines if k['date'] > high_date)
-                    new_drawdown_cache[code] = {
-                        'drawdown_pct': round(drawdown_pct, 2),
-                        'high_price': round(high_close, 2),
-                        'high_date': high_date,
-                        'days_since_high': days_since_high,
-                    }
-                    drawdown_count += 1
+                # 计算距高点回撤（用更长 K 线，约 1 年）
+                long_klines = dao.get_klines(code, days=400, source=kline_source)
+                if long_klines and len(long_klines) >= 10:
+                    # 找最高收盘价
+                    high_item = max(long_klines, key=lambda k: k['close'])
+                    high_close = high_item['close']
+                    high_date = high_item['date']
+                    cur_close = long_klines[-1]['close']
+                    if high_close > 0 and cur_close > 0:
+                        drawdown_pct = (high_close - cur_close) / high_close * 100.0
+                        days_since_high = sum(1 for k in long_klines if k['date'] > high_date)
+                        new_drawdown_cache[code] = {
+                            'drawdown_pct': round(drawdown_pct, 2),
+                            'high_price': round(high_close, 2),
+                            'high_date': high_date,
+                            'days_since_high': days_since_high,
+                        }
+                        drawdown_count += 1
+            except Exception as e:
+                # 单指数失败（如个别脏 K 线 OHLC 缺失导致 ADX 计算异常）只跳过该指数，
+                # 绝不拖垮整个缓存刷新，否则所有指数回撤/趋势/金叉列都会为空
+                if logger:
+                    logger.warning(
+                        f"跳过指数信号计算失败 code={code} name={idx.name}: {e}"
+                    )
+                continue
 
         with _cache_lock:
             _crossover_cache.clear()

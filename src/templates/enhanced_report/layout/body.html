@@ -560,6 +560,25 @@
                                 </div>
                             </div>
                         </div>
+                        <!-- VIX/VXN 波动率指数（恐慌指数，近一年）：当前值卡片 + 双线折线图 -->
+                        <div class="sentiment-vix-section">
+                            <h4>🌊 波动率指数 VIX / VXN（恐慌指数，近一年）</h4>
+                            <div class="vix-cards-row">
+                                <div class="vix-card">
+                                    <div class="vix-card-label">VIX（标普500 波动率）</div>
+                                    <div class="vix-card-value" id="vix-value">--</div>
+                                    <div class="vix-card-desc" id="vix-desc">加载中...</div>
+                                </div>
+                                <div class="vix-card">
+                                    <div class="vix-card-label">VXN（纳斯达克100 波动率）</div>
+                                    <div class="vix-card-value" id="vxn-value">--</div>
+                                    <div class="vix-card-desc" id="vxn-desc">加载中...</div>
+                                </div>
+                            </div>
+                            <div style="height:280px;position:relative;">
+                                <canvas id="vix-vxn-chart"></canvas>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -281,6 +281,14 @@ class TrendingTaskScheduler(TaskScheduler):
             enabled=True
         )
 
+        # VIX/VXN 波动率指数：每日 08:30（美股收盘后数据已稳定），覆盖更新近一年时序
+        self.add_task(
+            name='fetch_vix_vxn',
+            schedule='30 8 * * *',
+            task_func=self._fetch_vix_vxn_data,
+            enabled=True
+        )
+
         self.add_task(
             name='cleanup_old_data',
             schedule='0 3 * * *',
@@ -291,6 +299,10 @@ class TrendingTaskScheduler(TaskScheduler):
         # 启动时异步回填近 30 日 sentiment 历史数据（一次性，daemon 线程）
         self._sentiment_backfill_started = False
         Thread(target=self._backfill_sentiment_on_startup, daemon=True).start()
+
+        # 启动时异步回填近一年 VIX/VXN 历史数据（一次性，daemon 线程）
+        self._vix_backfill_started = False
+        Thread(target=self._backfill_vix_on_startup, daemon=True).start()
 
     def _run_scheduler(self):
         self.logger.info("调度器开始运行（集成重试机制）...")
@@ -747,3 +759,30 @@ class TrendingTaskScheduler(TaskScheduler):
             )
         except Exception as e:
             self.logger.error(f"❌ 启动时回填 sentiment 历史失败: {e}")
+
+    def _fetch_vix_vxn_data(self):
+        """获取 VIX/VXN 波动率指数并保存（每日 08:30，美股收盘后数据已稳定）
+
+        作用：积累近一年恐慌指数时序，供情绪板块的 VIX/VXN 卡片与折线图展示。
+        Yahoo 源间歇失败，fetcher 内部已做交替重试。
+        """
+        try:
+            self.logger.info("🌡️ 开始获取 VIX/VXN 波动率指数...")
+            from src.fetchers.vix import backfill_vix_vxn
+            result = backfill_vix_vxn(days=365, db_path=DATABASE['path'], logger_=self.logger)
+            self.logger.info(f"✅ VIX/VXN 已保存: total={result['total']} saved={result['saved']}")
+        except Exception as e:
+            self.logger.error(f"❌ 获取 VIX/VXN 失败: {e}")
+
+    def _backfill_vix_on_startup(self):
+        """服务启动时异步回填近一年 VIX/VXN 历史数据（一次性）"""
+        if self._vix_backfill_started:
+            return
+        self._vix_backfill_started = True
+        try:
+            self.logger.info("🔄 启动时回填近一年 VIX/VXN 历史数据...")
+            from src.fetchers.vix import backfill_vix_vxn
+            result = backfill_vix_vxn(days=365, db_path=DATABASE['path'], logger_=self.logger)
+            self.logger.info(f"✅ VIX/VXN 历史回填结束: total={result['total']} saved={result['saved']}")
+        except Exception as e:
+            self.logger.error(f"❌ 启动时回填 VIX/VXN 历史失败: {e}")
