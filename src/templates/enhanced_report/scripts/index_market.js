@@ -2455,6 +2455,36 @@
                     onHover: (event, elements) => {
                         _lastHoverX = event.x;  // 记录鼠标 x 位置供 tooltip 使用
                         handleChartHover(klineChart, event);
+                        // 修复 tooltip 锚点漂移（历史多次反馈未根治）：
+                        // 主图为混合长度 dataset（金叉/死叉 scatter 仅信号日，远少于 60 根 K 线），
+                        // index mode 的 getNearestItems 会选中与鼠标 1px 内重合的散点，返回其稀疏索引
+                        // （如 scatter 的第 17 个点=08-26），随后 index mode 对所有 dataset 取该索引，
+                        // 使 tooltip active 锚定到其他月份（如 07-02），导致 tooltip 框/marker 位置
+                        // 漂移，而内容 callback 用 _lastHoverX 反查又是正确的，出现"内容对、位置漂移"。
+                        // 方案：延迟到 Chart.js 引擎处理完事件后，用鼠标 x 反查最近 K 线索引，
+                        // 强制 tooltip.setActiveElements 锚定到该 K 线。只设 tooltip.active、
+                        // 不调 chart.setActiveElements，避免混合长度下对 scatter 越界触发
+                        // hoverBorderColor 解析 t.toString 错误（与 syncChartsTooltip 主图分支同策略）。
+                        setTimeout(() => {
+                            try {
+                                const candleDs = klineChart.data.datasets[0];
+                                if (candleDs && candleDs.type === 'candlestick' && candleDs.data.length) {
+                                    const ts = klineChart.scales.x.getValueForPixel(event.x);
+                                    let best = 0, bestDiff = Infinity;
+                                    for (let i = 0; i < candleDs.data.length; i++) {
+                                        const p = candleDs.data[i];
+                                        if (!p) continue;
+                                        const d = Math.abs(p.x - ts);
+                                        if (d < bestDiff) { bestDiff = d; best = i; }
+                                    }
+                                    klineChart.tooltip.setActiveElements(
+                                        [{ datasetIndex: 0, index: best }],
+                                        { x: event.x, y: event.y }
+                                    );
+                                    klineChart.render();
+                                }
+                            } catch (e) {}
+                        }, 0);
                     },
                     // 按【相对昨收】覆盖 candlestick 标色的自定义插件定义在函数内，
                     // 通过 new Chart 顶层 plugins 数组注册（见下方 klineColorByPrevClose）。

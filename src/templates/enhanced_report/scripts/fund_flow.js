@@ -20,8 +20,24 @@ async function loadFundFlow(indicator) {
         const data = await DataService.getFundFlow(indicator);
         renderFundFlowChart(data.items || []);
         renderFundFlowTable(data.items || []);
+        window._fundFlowLoaded = true;   // 仅成功才置位，失败允许重试
     } catch (err) {
         console.error('主力资金加载失败:', err);
+        window._fundFlowLoaded = false;  // 失败不置位，切走切回/切周期可自动重试
+        renderFundFlowError();
+    }
+}
+
+// 加载失败时显示友好提示（避免整块空白无任何反馈）
+function renderFundFlowError() {
+    const wrap = document.getElementById('fund-flow-chart-wrap');
+    const tbody = document.getElementById('fund-flow-tbody');
+    const tip = '⚠️ 主力资金数据源暂时不可用（可能为非交易时段或接口波动），点击上方「今日/5日/10日」按钮即可重试';
+    if (wrap) {
+        wrap.innerHTML = `<div class="index-loading" style="padding:32px;">${tip}</div>`;
+    }
+    if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="6" class="index-loading">⚠️ 数据源暂时不可用</td></tr>';
     }
 }
 
@@ -216,7 +232,6 @@ function switchIndexSubView(subview) {
     if (subview === 'fund-flow' && !window._fundFlowLoaded) {
         loadFundFlow('今日');
         loadNorthbound();
-        window._fundFlowLoaded = true;
     }
     if (subview === 'heatmap' && !window._heatmapLoaded) {
         loadHeatmapData();
@@ -235,7 +250,6 @@ function onTabShown(view) {
         const subview = activeSub ? activeSub.dataset.subview : 'market';
         if (subview === 'fund-flow' && !window._fundFlowLoaded) {
             loadFundFlow('今日');
-            window._fundFlowLoaded = true;
         }
         if (subview === 'heatmap' && !window._heatmapLoaded) {
             loadHeatmapData();

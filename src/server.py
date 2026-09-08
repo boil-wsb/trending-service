@@ -64,6 +64,9 @@ class TTLCache:
 # 全局缓存实例
 _api_cache = TTLCache()
 
+# 主力资金最后成功结果回退缓存（AKShare 外部免费接口易波动/限流，偶发失败时兜底返回最近成功数据）
+_fund_flow_fallback = {}  # {indicator: {'result': Response}}
+
 # 全局 API 响应时间记录器（线程安全，保留最近 1000 条）
 # 每条记录: {endpoint, method, duration_ms, timestamp}
 _MAX_RESPONSE_RECORDS = 1000
@@ -832,7 +835,7 @@ class TrendingServer:
 
         @app.route('/api/index/fund-flow')
         def api_index_fund_flow():
-            """主力资金行业净流入排行（双向条形图数据源）"""
+            """主力资金行业净流入排行（双向条形图数据源，60s 缓存 + AKShare 失败回退）"""
             try:
                 from src.fetchers.fund_flow import fetch_sector_fund_flow
                 from flask import request
@@ -841,15 +844,26 @@ class TrendingServer:
                 if indicator not in ('今日', '5日', '10日'):
                     indicator = '今日'
 
-                data = fetch_sector_fund_flow(indicator=indicator)
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'indicator': indicator,
-                        'items': data,
-                        'count': len(data),
-                    }
-                })
+                cache_key = f"fund-flow:{indicator}"
+                cached = _api_cache.get(cache_key)
+                if cached is not None:
+                    # 缓存数据结构而非 Response 对象，避免复用 Response 时 werkzeug 重新处理慢
+                    return jsonify({'success': True, 'data': cached})
+
+                try:
+                    data = fetch_sector_fund_flow(indicator=indicator)
+                except Exception as e:
+                    # AKShare 实时接口偶发失败：回退最近一次成功数据，避免前端整块空白
+                    self.logger.warning(f"获取主力资金排行失败，回退最近成功缓存: {e}")
+                    fb = _fund_flow_fallback.get(indicator)
+                    if fb is not None:
+                        return jsonify({'success': True, 'data': fb['data']})
+                    raise
+
+                payload = {'indicator': indicator, 'items': data, 'count': len(data)}
+                _fund_flow_fallback[indicator] = {'data': payload}
+                _api_cache.set(cache_key, payload, ttl=60)
+                return jsonify({'success': True, 'data': payload})
             except Exception as e:
                 self.logger.error(f"获取主力资金排行失败: {e}")
                 resp, status = handle_api_error(e, self.logger)
