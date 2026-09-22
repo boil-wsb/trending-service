@@ -1120,6 +1120,15 @@
             padding: 4px;
         }
 
+        .llm-ranking-source {
+            display: inline-flex;
+            gap: 4px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 10px;
+            padding: 3px;
+        }
+
         .llm-ranking-tab {
             border: none;
             background: transparent;

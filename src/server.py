@@ -5,6 +5,7 @@ HTTP服务器模块
 
 import sys
 import threading
+import queue
 import time
 import json
 import hashlib
@@ -981,8 +982,6 @@ class TrendingServer:
             """AI 模型排名 TOP N（llm-stats.com，1h 缓存保护免费配额 250 次/天）"""
             try:
                 from src.fetchers.llm_ranking import fetch_llm_rankings
-                import threading as _threading
-                import queue as _queue
 
                 limit = request.args.get('limit', 15, type=int) or 15
                 limit = max(5, min(limit, 30))
@@ -1001,8 +1000,8 @@ class TrendingServer:
                     except Exception as ex:
                         q.put({'error': str(ex)})
 
-                q = _queue.Queue()
-                t = _threading.Thread(target=_worker, args=(q,))
+                q = queue.Queue()
+                t = threading.Thread(target=_worker, args=(q,))
                 t.daemon = True
                 t.start()
                 t.join(timeout=20)
@@ -1028,6 +1027,59 @@ class TrendingServer:
                 return result
             except Exception as e:
                 self.logger.error(f"获取 AI 模型排名失败: {e}")
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
+
+        @app.route('/api/aa/rankings')
+        def api_aa_rankings():
+            """AI 模型排名 TOP N（Artificial Analysis，1h 缓存保护免费配额 100 次/天）"""
+            try:
+                from src.fetchers.aa_ranking import fetch_aa_rankings
+
+                limit = request.args.get('limit', 15, type=int) or 15
+                limit = max(5, min(limit, 30))
+                category = request.args.get('category', 'general', type=str) or 'general'
+
+                # 内存缓存（1 小时 TTL）
+                cache_key = f"aa_rankings:{category}:{limit}"
+                cached = _api_cache.get(cache_key)
+                if cached is not None:
+                    return cached
+
+                # 线程 + 队列超时保护，避免外部 API 卡住请求
+                def _worker(q):
+                    try:
+                        q.put(fetch_aa_rankings(limit=limit, category=category))
+                    except Exception as ex:
+                        q.put({'error': str(ex)})
+
+                q = queue.Queue()
+                t = threading.Thread(target=_worker, args=(q,))
+                t.daemon = True
+                t.start()
+                t.join(timeout=25)
+
+                if t.is_alive():
+                    self.logger.warning("aa_rankings: 外部 API 超时，返回空数据")
+                    return jsonify({
+                        'success': True,
+                        'data': {'models': [], 'unavailable_reason': '外部 API 超时', 'timeout': True}
+                    })
+
+                payload = q.get_nowait() if not q.empty() else {}
+                if 'error' in payload:
+                    self.logger.error(f"aa_rankings error: {payload['error']}")
+                    return jsonify({'success': False, 'error': payload['error']}), 500
+
+                result = jsonify({'success': True, 'data': payload})
+                # 成功结果缓存 1h（保护配额，拉一次全量=4 次调用）；失败/空结果短缓存 60s
+                if payload.get('models'):
+                    _api_cache.set(cache_key, result, ttl=3600)
+                else:
+                    _api_cache.set(cache_key, result, ttl=60)
+                return result
+            except Exception as e:
+                self.logger.error(f"获取 AA 模型排名失败: {e}")
                 resp, status = handle_api_error(e, self.logger)
                 return jsonify(resp), status
 

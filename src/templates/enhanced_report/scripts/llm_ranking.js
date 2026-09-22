@@ -1,29 +1,46 @@
-// ========= AI 模型排名（llm-stats.com）=========
+// ========= AI 模型排名（数据源可切换：llm-stats.com | Artificial Analysis）=========
 
 let llmRankingChart = null;
-// 当前类别 / 当前方向（vertical 竖柱 | horizontal 横条）/ 当前展示条数
+// 当前数据源（llm | aa）/ 当前类别 / 当前方向 / 当前展示条数
+let llmSource = 'aa';
 let llmCurrentCategory = 'general';
 let llmCurrentOrientation = 'vertical';
 let llmCurrentLimit = 15;
-const llmRankingCache = {};     // key: `${category}:${limit}`
+const llmRankingCache = {};     // key: `${source}:${category}:${limit}`
 const llmRankingPending = {};   // in-flight 去重：相同 key 并发请求复用同一 Promise
-// 全部类别一次性并行预取，切换标签零延迟
-const LLM_CATEGORIES = ['general', 'code', 'reasoning', 'math'];
 const LLM_LIMITS = [15, 30];
 const llmPrefetchedLimits = new Set();
 const LLM_CHANGE_PANEL_MS = 10000;  // 排名变动提示自动消失时长
 
-// ── 获取单类别数据（缓存 + in-flight 去重）──────────────────────
-function getLlmCategoryData(category, limit) {
+// 数据源配置：端点、类别（[key, 标签]）
+const RANKING_SOURCES = {
+    llm: {
+        endpoint: '/api/llm/rankings',
+        categories: [
+            ['general', '综合'], ['code', '代码'],
+            ['reasoning', '推理'], ['math', '数学'],
+        ],
+    },
+    aa: {
+        endpoint: '/api/aa/rankings',
+        categories: [
+            ['general', '综合'], ['code', '代码'], ['agentic', '智能体'],
+        ],
+    },
+};
+
+// ── 获取单类别数据（缓存 + in-flight 去重，key 带数据源前缀）──────────────────────
+function getRankingSourceData(source, category, limit) {
     limit = limit || llmCurrentLimit;
-    const key = category + ':' + limit;
+    const src = RANKING_SOURCES[source] || RANKING_SOURCES.llm;
+    const key = source + ':' + category + ':' + limit;
     if (llmRankingCache[key]) {
         return Promise.resolve(llmRankingCache[key]);
     }
     if (llmRankingPending[key]) {
         return llmRankingPending[key];
     }
-    llmRankingPending[key] = fetch(`/api/llm/rankings?limit=${limit}&category=${encodeURIComponent(category)}`)
+    llmRankingPending[key] = fetch(src.endpoint + `?limit=${limit}&category=${encodeURIComponent(category)}`)
         .then(r => r.json())
         .then(json => {
             if (!json.success) throw new Error(json.error || '接口返回失败');
@@ -34,6 +51,24 @@ function getLlmCategoryData(category, limit) {
     return llmRankingPending[key];
 }
 
+// ── 轴标签截断：AA 模型名极长，取主名并限长；llm 原样 ──────────────────────
+function shortModelName(model) {
+    if (llmSource !== 'aa') return model.name;
+    const main = (model.name || '').split(' (')[0] || model.name;
+    return main.length > 24 ? main.slice(0, 24) + '…' : main;
+}
+
+// ── 重建类别 tab（两数据源类别数不同，随源动态生成）──────────────────────
+function rebuildCategoryTabs() {
+    const container = document.getElementById('llm-ranking-tabs');
+    if (!container) return;
+    const src = RANKING_SOURCES[llmSource];
+    container.innerHTML = src.categories.map(([cat, label]) =>
+        `<button class="llm-ranking-tab${cat === llmCurrentCategory ? ' active' : ''}" ` +
+        `data-category="${cat}" onclick="switchLlmCategory('${cat}')">${label}</button>`
+    ).join('');
+}
+
 // ── 等待 Chart.js 加载后拉取并渲染排名 ──────────────────────
 function loadLlmRanking(category) {
     if (typeof Chart === 'undefined') {
@@ -42,7 +77,7 @@ function loadLlmRanking(category) {
     }
     category = category || llmCurrentCategory;
     llmCurrentCategory = category;
-    getLlmCategoryData(category, llmCurrentLimit)
+    getRankingSourceData(llmSource, category, llmCurrentLimit)
         .then(data => {
             if (category === llmCurrentCategory) {
                 renderLlmRanking(category, data);
@@ -54,13 +89,29 @@ function loadLlmRanking(category) {
         });
 }
 
-// ── 一次性并行预取全部类别（页面加载时调用，切换标签零延迟）──────────────────────
+// ── 一次性并行预取当前源的全部类别（切源后零延迟）──────────────────────
 function prefetchAllLlmCategories() {
-    if (llmPrefetchedLimits.has(llmCurrentLimit)) return;
-    llmPrefetchedLimits.add(llmCurrentLimit);
-    LLM_CATEGORIES.forEach(cat => getLlmCategoryData(cat, llmCurrentLimit).catch(
-        err => console.warn(`AI 排名类别 ${cat} 预取失败:`, err)
+    const preKey = llmSource + ':' + llmCurrentLimit;
+    if (llmPrefetchedLimits.has(preKey)) return;
+    llmPrefetchedLimits.add(preKey);
+    const src = RANKING_SOURCES[llmSource];
+    src.categories.forEach(([cat]) => getRankingSourceData(llmSource, cat, llmCurrentLimit).catch(
+        err => console.warn(`排名类别 ${cat} 预取失败:`, err)
     ));
+}
+
+// ── 数据源切换 ──────────────────────
+function switchLlmSource(source) {
+    if (!RANKING_SOURCES[source] || source === llmSource) return;
+    llmSource = source;
+    // 切换后类别重置为当前源的默认类（general 综合）
+    llmCurrentCategory = 'general';
+    document.querySelectorAll('#llm-ranking-source .llm-ranking-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.source === source);
+    });
+    rebuildCategoryTabs();
+    prefetchAllLlmCategories();
+    loadLlmRanking(llmCurrentCategory);
 }
 
 // ── Top N 条数切换 ──────────────────────
@@ -98,9 +149,9 @@ function switchLlmOrientation(orientation, btn) {
     loadLlmRanking(llmCurrentCategory);
 }
 
-// ── 排名变动对比（localStorage 记忆上次排名，按类别+条数区分基线）──────────────────────
+// ── 排名变动对比（localStorage 记忆上次排名，按源+类别+条数区分基线）──────────────────────
 function diffLlmRanks(category, models) {
-    const key = 'llm_rank_prev_' + category + '_' + llmCurrentLimit;
+    const key = 'llm_rank_prev_' + llmSource + '_' + category + '_' + llmCurrentLimit;
     let prev = null;
     try {
         prev = JSON.parse(localStorage.getItem(key) || 'null');
@@ -201,11 +252,67 @@ const llmScoreLabelPlugin = {
     }
 };
 
+// ── 按厂商品牌配色（国产优先红色；知名海外厂商用各自品牌色）──────────────────────
+// 色板：以匹配到的厂商 → [填充, 边框]
+const VENDOR_PALETTES = [
+    { match: ['openai', 'gpt', 'chatgpt'], fill: 'rgba(16, 185, 129, 0.85)',  border: 'rgba(6, 95, 70, 1)' },   // OpenAI 绿
+    { match: ['anthropic', 'claude'],     fill: 'rgba(217, 119, 6, 0.85)',  border: 'rgba(120, 53, 15, 1)' },  // Anthropic 橙
+    { match: ['google', 'gemini'],        fill: 'rgba(59, 130, 246, 0.85)', border: 'rgba(30, 64, 175, 1)' },  // Google 蓝
+    { match: ['meta', 'llama'],           fill: 'rgba(14, 165, 233, 0.85)', border: 'rgba(3, 105, 161, 1)' },  // Meta 天空蓝
+    { match: ['microsoft', 'phi'],        fill: 'rgba(99, 102, 241, 0.85)', border: 'rgba(67, 56, 202, 1)' },  // Microsoft 靛
+    { match: ['xai', 'grok'],             fill: 'rgba(236, 72, 153, 0.85)', border: 'rgba(157, 23, 77, 1)' },  // xAI 粉
+    { match: ['mistral'],                 fill: 'rgba(245, 158, 11, 0.9)',  border: 'rgba(146, 64, 14, 1)' },  // Mistral 琥珀
+    { match: ['amazon', 'cosmos'],        fill: 'rgba(52, 211, 153, 0.85)', border: 'rgba(6, 95, 70, 1)' },    // Amazon 翠绿
+    { match: ['ibm', 'nvidia', 'nemotron', 'nemo'], fill: 'rgba(148, 163, 184, 0.85)', border: 'rgba(71, 85, 105, 1)' }, // 灰蓝
+];
+const defaultFill = 'rgba(74, 144, 217, 0.85)';
+const defaultBorder = 'rgba(43, 108, 176, 1)';
+const domesticFill = 'rgba(229, 57, 53, 0.85)';
+const domesticBorder = 'rgba(183, 28, 28, 1)';
+
+function colorForModel(m) {
+    if (m.is_domestic) return { fill: domesticFill, border: domesticBorder };  // 国产优先红
+    const text = ((m.org_name || '') + ' ' + (m.name || '')).toLowerCase();
+    for (const p of VENDOR_PALETTES) {
+        if (p.match.some(kw => text.includes(kw))) return { fill: p.fill, border: p.border };
+    }
+    return { fill: defaultFill, border: defaultBorder };
+}
+
+// ── 分组分割线插件：横向视图每 5 名画一条细分隔线，提升梯队可读性 ──────────────────────
+const llmGroupDivider = {
+    id: 'llmGroupDivider',
+    afterDatasetsDraw(chart) {
+        const horizontal = chart.options.indexAxis === 'y';
+        if (!horizontal) return;
+        const xScale = chart.scales.x;
+        const meta = chart.getDatasetMeta(0);
+        if (!meta || !meta.data) return;
+        const { ctx } = chart;
+        const idx = chart.options.plugins.llmGroupDivider || {};
+        if (!idx.thicknesses) return;
+        // 每 5 名（即第 5、10、15...根条）之后画分隔线，仅当还有下一根条
+        for (let i = 4; i < idx.thicknesses.length; i += 5) {
+            const bar = meta.data[i];
+            if (!bar) continue;
+            ctx.save();
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(xScale.left, bar.y - idx.height / 2 - 3);
+            ctx.lineTo(xScale.right, bar.y - idx.height / 2 - 3);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+};
+
 // ── 渲染（竖柱：模型横向左→右 / 横条：模型纵向自上而下）──────────────────────
 function renderLlmRanking(category, data) {
     const models = (data && data.models) || [];
 
-    // 更新数据时间
+    // 更新数据时间（AA 无时间戳显示 --）
     const timeEl = document.getElementById('llm-ranking-time');
     if (timeEl) {
         timeEl.textContent = data.ranked_at
@@ -234,16 +341,15 @@ function renderLlmRanking(category, data) {
 
     // Windows 无国旗 emoji（🇨🇳 显示为"cn"），🚩 为普通 emoji 可正常渲染
     // 排名已由柱内白色徽标展示，轴标签不再重复 #N 前缀
-    const labels = sorted.map(m => (m.is_domestic ? '🚩' : '') + m.name);
+    const labels = sorted.map(m => (m.is_domestic ? '🚩' : '') + shortModelName(m));
     const scores = sorted.map(m => m.score);
 
-    // 🚩 国产红色系，其他蓝色系
-    const colors = sorted.map(m =>
-        m.is_domestic ? 'rgba(229, 57, 53, 0.85)' : 'rgba(74, 144, 217, 0.85)'
-    );
-    const borderColors = sorted.map(m =>
-        m.is_domestic ? 'rgba(183, 28, 28, 1)' : 'rgba(43, 108, 176, 1)'
-    );
+    // 按厂商品牌配色（国产优先红色）
+    const paletteMap = sorted.map(m => colorForModel(m));
+    const colors = paletteMap.map(p => p.fill);
+    const borderColors = paletteMap.map(p => p.border);
+    // Top 3 加粗描边高亮，凸显领先梯队（borderWidth 为 scriptable，可按点设数组）
+    const borderWidths = sorted.map(m => (m.rank <= 3 ? 2 : 1));
 
     // 容器高度：竖柱固定紧凑高度；横条按条数动态撑高
     const wrap = document.getElementById('llm-ranking-chart-wrap');
@@ -261,7 +367,7 @@ function renderLlmRanking(category, data) {
                 data: scores,
                 backgroundColor: colors,
                 borderColor: borderColors,
-                borderWidth: 1,
+                borderWidth: borderWidths,
                 borderRadius: 3,
                 maxBarThickness: horizontal ? 20 : 46,
                 categoryPercentage: 0.92,
@@ -275,12 +381,17 @@ function renderLlmRanking(category, data) {
             plugins: {
                 legend: { display: false },
                 llmScoreLabel: { color: isDark ? '#cbd5e1' : '#475569', ranks: sorted.map(m => m.rank) },
+                llmGroupDivider: { height: horizontal ? 20 : 0, thicknesses: scores },
                 tooltip: {
                     callbacks: {
                         afterLabel: ctx => {
                             const m = sorted[ctx.dataIndex];
                             if (!m) return '';
                             const parts = [`组织: ${m.org_name || m.org_id || '--'}`];
+                            // AA 模型名被轴标签截断，此处补全原名
+                            if (llmSource === 'aa' && m.name && m.name !== shortModelName(m)) {
+                                parts.push(`模型: ${m.name}`);
+                            }
                             if (m.open_weight) parts.push('开放权重: 是');
                             if (m.is_domestic) parts.push('🚩 国产大模型');
                             return parts;
@@ -311,7 +422,7 @@ function renderLlmRanking(category, data) {
                 },
             }
         },
-        plugins: [llmScoreLabelPlugin]
+        plugins: [llmScoreLabelPlugin, llmGroupDivider]
     });
 }
 
@@ -332,13 +443,23 @@ function hideLlmRankingPlaceholder() {
     if (canvas) canvas.style.display = '';
 }
 
-// ── 页面加载即拉取（标题区在首屏；并行预取全部类别）──────────────────────
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        prefetchAllLlmCategories();
-        loadLlmRanking(llmCurrentCategory);
+// ── 应用当前数据源的 UI 状态（源按钮 active）──────────────────────
+function applyLlmSourceUI() {
+    document.querySelectorAll('#llm-ranking-source .llm-ranking-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.source === llmSource);
     });
-} else {
+}
+
+// ── 页面加载即拉取（标题区在首屏；并行预取当前源全部类别）──────────────────────
+function initLlmRanking() {
+    applyLlmSourceUI();
+    rebuildCategoryTabs();
     prefetchAllLlmCategories();
     loadLlmRanking(llmCurrentCategory);
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initLlmRanking);
+} else {
+    initLlmRanking();
 }
