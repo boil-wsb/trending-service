@@ -196,6 +196,8 @@
             });
 
             // 重新计算关键词（基于筛选后的数据）
+            // 注意：日期范围接口返回的条目已按"一条帖子一条记录"去重，
+            // 因此这里的词频天然不会因同帖跨日重复而虚高。
             const filteredKeywords = {};
             Object.values(filteredSources).forEach(items => {
                 items.forEach(item => {
@@ -214,6 +216,40 @@
             };
         }
 
+        /**
+         * 统一的数据源+分类筛选入口
+         *
+         * 修复点：原 renderOverview 使用局部 sources 变量做筛选，而
+         * renderSourceDetail 使用 window.REPORT_DATA.sources，导致
+         * 日期切换（/api/data 整体替换 REPORT_DATA）后筛选行为不一致。
+         * 现所有渲染函数统一走此函数取数。
+         *
+         * @param {object} [data] 数据源，默认 window.REPORT_DATA
+         * @returns {{data: object, sources: object}} 筛选后的数据与数据源映射
+         */
+        function getFilteredView(data) {
+            const base = data || window.REPORT_DATA || {};
+            const byCategory = getFilteredDataByCategory(base);
+            let sources = byCategory.sources || {};
+
+            if (currentSource !== 'all') {
+                const filtered = {};
+                if (sources[currentSource]) {
+                    filtered[currentSource] = sources[currentSource];
+                }
+                sources = filtered;
+            }
+
+            return { data: byCategory, sources };
+        }
+
+        /** 统计筛选后数据源下的条目总数（去重后口径） */
+        function countItems(sources) {
+            return Object.values(sources || {}).reduce(
+                (sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0
+            );
+        }
+
         // 更新数据源筛选器可见性
         function updateSourceFilterVisibility() {
             const navSecondary = document.querySelector('.nav-secondary');
@@ -229,7 +265,10 @@
         function renderSourceDetail() {
             const container = document.getElementById('source-detail-content');
             const titleEl = document.getElementById('source-detail-title');
-            const sources = window.REPORT_DATA.sources || {};
+
+            // 统一筛选：分类 + 数据源
+            const view = getFilteredView();
+            const sources = view.sources;
             
             if (currentSource === 'all') {
                 // 显示所有数据源的详细列表
@@ -283,14 +322,16 @@
                         <div class="item-card">
                             <div class="item-card-header">
                                 <div class="item-card-rank">${index + 1}</div>
-                                <div class="item-card-score">${item.hot_score ? '🔥 ' + formatNumber(item.hot_score) : ''}</div>
+                                <div class="item-card-score">${renderHotScore(item)}</div>
                             </div>
                             <div class="item-card-body">
                                 <a href="${item.url}" target="_blank" class="item-card-title">${item.title}</a>
                                 <div class="item-card-meta">
                                     ${item.author ? `<span class="meta-tag">👤 ${item.author}</span>` : ''}
                                     ${item.category ? `<span class="meta-tag">🏷️ ${item.category}</span>` : ''}
+                                    ${renderSeenRange(item)}
                                 </div>
+                                ${renderDailyTrend(item)}
                                 ${renderDescription(item.description, sourceName, index)}
                                 ${item.keywords && item.keywords.length > 0 ? `<div class="item-card-keywords">${item.keywords.map(k => `<span class="item-keyword" onclick="filterByKeyword('${k.replace(/'/g, "\\'")}')" title="点击搜索包含此关键词的文章">${k}</span>`).join('')}</div>` : ''}
                             </div>
@@ -488,17 +529,11 @@
         // 渲染总览
         function renderOverview(data) {
             const container = document.getElementById('overview-content');
-            let sources = data.sources || {};
-            
-            // 应用数据源筛选
-            if (currentSource !== 'all') {
-                const filtered = {};
-                if (sources[currentSource]) {
-                    filtered[currentSource] = sources[currentSource];
-                }
-                sources = filtered;
-            }
-            
+
+            // 统一筛选：分类 + 数据源（修复日期切换后筛选失效问题）
+            const view = getFilteredView(data);
+            const sources = view.sources;
+
             if (Object.keys(sources).length === 0) {
                 container.innerHTML = '<div class="empty-state"><div class="emoji">📭</div><div>暂无数据</div></div>';
                 return;
@@ -541,10 +576,11 @@
                                             <a href="${item.url}" target="_blank">${item.title}</a>
                                             <div class="item-meta">
                                                 ${item.author ? `<span class="meta-tag">👤 ${item.author}</span>` : ''}
+                                                ${renderSeenRange(item)}
                                             </div>
                                         </div>
-                                        <div class="item-score">${item.hot_score ? '🔥 ' + formatNumber(item.hot_score) : ''}</div>
-                                        ${item.description ? `<div class="item-description">${item.description}</div>` : ''}
+                                        <div class="item-score">${renderHotScore(item)}</div>
+                                        ${renderDailyTrend(item)}
                                     </li>
                                 `).join('')}
                             </ul>
@@ -554,6 +590,53 @@
             }
             container.innerHTML = html;
             initDescriptionTooltip();
+        }
+
+        /**
+         * 渲染跨日出现区间标记，如「📅 09-16~09-18 · 3天」
+         * 仅当区间内出现多于 1 天才显示，避免单日数据噪音。
+         */
+        function renderSeenRange(item) {
+            const days = item.seen_days || 1;
+            if (days <= 1 || !item.first_seen_date) return '';
+            const fmt = (d) => (d || '').slice(5);  // YYYY-MM-DD -> MM-DD
+            const range = item.first_seen_date === item.last_seen_date
+                ? fmt(item.first_seen_date)
+                : `${fmt(item.first_seen_date)}~${fmt(item.last_seen_date)}`;
+            return `<span class="meta-tag meta-tag-range" title="该帖在所选区间内多次上榜，热度取峰值">📅 ${range} · ${days}天</span>`;
+        }
+
+        /**
+         * 渲染热度：显示区间峰值；若最新热度低于峰值，附加回落幅度
+         * 例：🔥 2.2k ↓5%
+         */
+        function renderHotScore(item) {
+            const peak = Number(item.hot_score) || 0;
+            if (!peak) return '';
+            const latest = Number(item.latest_hot_score);
+            let suffix = '';
+            if (!Number.isNaN(latest) && latest > 0 && latest < peak) {
+                const drop = Math.round((1 - latest / peak) * 100);
+                if (drop >= 5) suffix = ` <span class="score-drop">↓${drop}%</span>`;
+            }
+            return `🔥 ${formatNumber(peak)}${suffix}`;
+        }
+
+        /**
+         * 渲染每日热度迷你走势（跨日上榜时才展示）
+         * 数据来自后端 daily_trend：[{date, hot_score, comment_count}]
+         */
+        function renderDailyTrend(item) {
+            const trend = item.daily_trend;
+            if (!Array.isArray(trend) || trend.length <= 1) return '';
+            const max = Math.max(...trend.map(d => Number(d.hot_score) || 0), 1);
+            const bars = trend.map(d => {
+                const score = Number(d.hot_score) || 0;
+                const height = Math.max(3, Math.round(score / max * 18));
+                const label = `${d.date} · 热度 ${score} · 评论 ${d.comment_count || 0}`;
+                return `<span class="trend-bar" style="height:${height}px" title="${label}"></span>`;
+            }).join('');
+            return `<div class="item-daily-trend" title="每日热度走势（共 ${trend.length} 天在榜）">${bars}</div>`;
         }
 
         // 词云数据配置
@@ -1387,15 +1470,41 @@
             container.innerHTML = html;
         }
 
+        /**
+         * 更新页头统计数字
+         *
+         * 口径说明：
+         * - 页面首次加载（REPORT_DATA 来自全量报告）：用 db_stats 的全库统计
+         * - 用户选定日期范围后（REPORT_DATA 来自 /api/data）：改用该区间
+         *   去重后的条目数，否则页头数字与实际列表条数对不上
+         */
+        function updateHeaderStats(data) {
+            const dbStats = data.db_stats || {};
+            const sources = data.sources || {};
+            const isRangeMode = !!(data.start_date && data.end_date);
+
+            const totalEl = document.getElementById('total-items');
+            const sourcesEl = document.getElementById('total-sources');
+            if (totalEl) {
+                totalEl.textContent = formatNumber(
+                    isRangeMode
+                        ? countItems(sources)
+                        : (dbStats.total_count || data.total_items || 0)
+                );
+            }
+            if (sourcesEl) {
+                sourcesEl.textContent = Object.keys(sources).length
+                    || dbStats.sources_count
+                    || 0;
+            }
+        }
+
         // 初始化页面
         function init() {
             const data = window.REPORT_DATA;
 
-            // 设置统计数据 - 优先使用数据库全量统计
-            const dbStats = data.db_stats || {};
-            document.getElementById('total-items').textContent = formatNumber(dbStats.total_count || data.total_items || 0);
-            document.getElementById('total-sources').textContent =
-                dbStats.sources_count || (data.sources ? Object.keys(data.sources).length : 0);
+            // 设置统计数据
+            updateHeaderStats(data);
 
             // 渲染各部分内容
             renderOverview(data);
@@ -1522,23 +1631,93 @@
             applyBtn.disabled = true;
 
             try {
-                // 尝试从API加载数据（支持日期范围）
-                const data = await DataService.getDataByDateRange(startDate, endDate);
+                // 分页拉取区间数据：/api/data 单页有返回上限（服务端 limit 上限 5000），
+                // 长区间（如 9-1~9-22 去重后 6800+ 条）必须翻页，否则会静默丢数据。
+                const PAGE_SIZE = 1000;
+                const MAX_PAGES = 60;   // 安全上限：60000 条，防御服务端 has_more 异常
+                let offset = 0;
+                let page = 0;
+                let firstPayload = null;
+                let allItems = [];
+                let allSources = {};
+                let sourceCounts = {};
+                let hasMore = true;
+                let rawTruncated = false;
+
+                while (hasMore && page < MAX_PAGES) {
+                    const res = await DataService.getDataPage(startDate, endDate, offset, PAGE_SIZE);
+                    const payload = res.data || res;
+                    if (page === 0) firstPayload = payload;
+
+                    allItems = allItems.concat(payload.items || []);
+                    // sources 按源累积（服务端已按同一 offset/limit 裁剪，这里做并集）
+                    Object.entries(payload.sources || {}).forEach(([source, list]) => {
+                        if (!allSources[source]) allSources[source] = [];
+                        allSources[source] = allSources[source].concat(list || []);
+                    });
+                    Object.assign(sourceCounts, payload.source_counts || {});
+                    if (payload.raw_truncated) rawTruncated = true;
+
+                    hasMore = !!payload.has_more;
+                    offset += PAGE_SIZE;
+                    page += 1;
+                }
+
+                const payload = firstPayload || {};
+                const mergedSources = allSources;
+
+                // 单页时 items 直接用服务端结果；多页时用累积结果（已按热度全局排序）
+                if (page === 1) {
+                    allItems = payload.items || [];
+                } else {
+                    allItems.sort((a, b) => (b.hot_score || 0) - (a.hot_score || 0));
+                }
 
                 // 更新全局数据
-                window.REPORT_DATA = data;
+                // 注意：/api/data 只返回区间数据（sources/items），不含 keywords/db_stats/trends
+                // 因此不能整体替换 REPORT_DATA，否则词云与页头统计会丢失。
+                // 改为：保留原有全量报告字段，仅覆盖 sources/items 与日期标记。
+                const base = window.REPORT_DATA || {};
 
-                // 重新渲染页面
-                renderOverview(data);
-                renderKeywords(data);
-                renderGitHubWeekly(data);
+                // 基于区间（已去重）数据重算关键词，保证词云与列表口径一致
+                const rangeKeywords = {};
+                Object.values(mergedSources).forEach(list => {
+                    (list || []).forEach(item => {
+                        (item.keywords || []).forEach(kw => {
+                            rangeKeywords[kw] = (rangeKeywords[kw] || 0) + 1;
+                        });
+                    });
+                });
 
-                // 更新统计信息
-                const dbStats = data.db_stats || {};
-                document.getElementById('total-items').textContent = formatNumber(dbStats.total_count || data.total_items || 0);
-                document.getElementById('total-sources').textContent =
-                    dbStats.sources_count || (data.sources ? Object.keys(data.sources).length : 0);
-                showToast(`✅ 已加载 ${startDate} 至 ${endDate} 的数据`, 'success');
+                window.REPORT_DATA = Object.assign({}, base, {
+                    sources: mergedSources,
+                    items: allItems,
+                    total_items: payload.total_items || allItems.length,
+                    raw_total_items: payload.raw_total_items || 0,
+                    sources_count: payload.sources_count || Object.keys(mergedSources).length,
+                    keywords: rangeKeywords,
+                    start_date: payload.start_date,
+                    end_date: payload.end_date,
+                    date: payload.date
+                });
+
+                // 重新渲染页面（传合并后的数据，保留 db_stats/trends）
+                renderOverview(window.REPORT_DATA);
+                renderKeywords(window.REPORT_DATA);
+                renderGitHubWeekly(window.REPORT_DATA);
+
+                // 更新统计信息（区间模式走去重后口径）
+                updateHeaderStats(window.REPORT_DATA);
+
+                const dedupNote = payload.raw_total_items > payload.total_items
+                    ? `（原始 ${payload.raw_total_items} 条，去重后 ${payload.total_items} 条）`
+                    : '';
+                const pageNote = page > 1 ? `，${page} 页` : '';
+                showToast(`✅ 已加载 ${startDate} 至 ${endDate} 的数据${dedupNote}${pageNote}`, 'success');
+
+                if (rawTruncated) {
+                    showToast('⚠️ 区间数据量超出服务端单次抓取上限，已截断；请缩小日期范围', 'warning');
+                }
             } catch (error) {
                 console.error('加载日期范围数据失败:', error);
 

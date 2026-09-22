@@ -1,12 +1,16 @@
 """
 AI 模型排名 Fetcher — Artificial Analysis
 数据源：https://artificialanalysis.ai/api/v2/language/models/free（x-api-key 认证）
-说明：免费社区版配额 100 次/24h（每次全量拉取 = 4 页调用），调用方（server.py）需做内存缓存。
+说明：免费社区版配额 100 次/24h（每次全量拉取 = 最多 4 页调用），调用方（server.py）需做内存缓存。
 注意：AA 提供 3 个综合指数（综合/代码/智能体），无时间戳，无 open_weight 字段。
+
+限流容错：429 时按 Retry-After 退避重试，仍失败则保留已成功页的数据并标记
+partial/rate_limited（不再整体返回 None），由调用方决定回退到上次成功快照。
 """
 
 import logging
 import os
+import time
 from typing import List, Dict, Optional
 
 try:
@@ -22,6 +26,28 @@ _HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Accept': 'application/json',
 }
+
+# ── 限流保护（免费社区版配额 100 次/24h，每次全量拉取 = 最多 4 次调用）────────
+_MAX_RETRIES = 2          # 429/5xx 最大重试次数
+_MAX_RETRY_WAIT = 30      # 单次退避上限（秒），避免请求线程长时间阻塞
+_DEFAULT_RETRY_WAIT = 5   # 无 Retry-After 头时的基础退避
+
+
+def _retry_after_seconds(resp, attempt: int) -> float:
+    """解析 429 的 Retry-After 头；无则指数退避，并封顶 _MAX_RETRY_WAIT"""
+    try:
+        raw = resp.headers.get('Retry-After') if resp is not None else None
+        if raw:
+            return min(float(str(raw).strip()), _MAX_RETRY_WAIT)
+    except (TypeError, ValueError):
+        pass
+    return min(_DEFAULT_RETRY_WAIT * (2 ** attempt), _MAX_RETRY_WAIT)
+
+
+def datetime_now_iso() -> str:
+    """当前本地时间 ISO 字符串（秒精度），供前端展示数据拉取时间"""
+    from datetime import datetime
+    return datetime.now().isoformat(timespec='seconds')
 
 # 指数类别 → 响应字段映射（AA 仅提供这 3 个综合指数）
 CATEGORY_TO_INDEX = {
@@ -71,30 +97,68 @@ def _is_domestic(creator: str) -> bool:
     return creator in AA_DOMESTIC_CREATORS
 
 
-def _fetch_all_models(api_key: str) -> Optional[List[dict]]:
-    """拉取全量模型列表（AA 分页 page_size=200，循环直到 has_more=False，最多 4 页）
-    返回原始 data 列表；任一页失败则返回 None。"""
+def _fetch_all_models(api_key: str, max_pages: int = 4) -> tuple:
+    """拉取全量模型列表（AA 分页 page_size=200，跟随 has_more，最多 max_pages 页）
+
+    容错策略（免费配额 100 次/24h，易撞 429）：
+    - 某一页 429 时退避重试（最多 _MAX_RETRIES 次），仍失败则「保住已成功页」返回
+      已拿到的数据，而不是整体丢弃（旧逻辑任一页失败即 return None）。
+    - 任一分页失败但已有数据时，返回 (models, True) 标记 partial=True。
+
+    Returns:
+        (all_models, partial)：partial=True 表示结果不完整（触发重试/限流/异常）
+        无任何数据时返回 ([], True)
+    """
     all_models: List[dict] = []
     page = 1
     headers = dict(_HEADERS, **{'x-api-key': api_key})
+
     while True:
-        try:
-            r = requests.get(f"{_AA_BASE_URL}?page={page}", headers=headers, timeout=20)
-            r.raise_for_status()
-            data = r.json()
-        except Exception as e:
-            resp = getattr(e, 'response', None)
-            resp_info = f" status={resp.status_code}" if resp is not None else ''
-            logger.warning(f"AA 第{page}页拉取失败{resp_info} err={str(e)[:120]}")
-            return None
+        # 单页拉取 + 429/5xx 退避重试
+        data = None
+        last_err = ''
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                r = requests.get(f"{_AA_BASE_URL}?page={page}", headers=headers, timeout=20)
+                if r.status_code == 429:
+                    wait = _retry_after_seconds(r, attempt)
+                    last_err = f"status=429 wait={wait:.0f}s"
+                    logger.warning(f"AA 第{page}页限流(429)，{wait:.0f}s 后重试 "
+                                   f"({attempt + 1}/{_MAX_RETRIES + 1})")
+                    if attempt < _MAX_RETRIES:
+                        time.sleep(wait)
+                        continue
+                    break
+                r.raise_for_status()
+                data = r.json()
+                break
+            except Exception as e:
+                resp = getattr(e, 'response', None)
+                status = getattr(resp, 'status_code', None)
+                last_err = f"status={status}" if status else ''
+                # 4xx（非 429）属确定性错误，重试无意义；5xx/网络异常可重试
+                retriable = status is None or status >= 500
+                logger.warning(f"AA 第{page}页拉取失败 {last_err} err={str(e)[:120]}")
+                if not retriable or attempt >= _MAX_RETRIES:
+                    break
+                time.sleep(min(2 ** attempt, 5))
+
+        if data is None:
+            # 该页彻底失败：保住已拿到的数据，标记 partial
+            logger.warning(f"AA 第{page}页最终失败（{last_err}），"
+                           f"已获取 {len(all_models)} 条模型，返回部分结果")
+            return all_models, True
+
         all_models.extend(data.get('data') or [])
         pagination = data.get('pagination') or {}
         if not pagination.get('has_more'):
             break
         page += 1
-        if page > 5:  # 安全上限
+        if page > max_pages:  # 安全上限，与「最多 4 页」的说明保持一致
+            logger.warning(f"AA 分页已达安全上限 {max_pages} 页，停止拉取")
             break
-    return all_models
+
+    return all_models, False
 
 
 def fetch_aa_rankings(limit: int = 15, category: str = DEFAULT_CATEGORY) -> Dict:
@@ -121,6 +185,9 @@ def fetch_aa_rankings(limit: int = 15, category: str = DEFAULT_CATEGORY) -> Dict
         'category': category,
         'ranked_at': None,
         'unavailable_reason': None,
+        'partial': False,        # 结果是否不完整（分页中途失败/限流）
+        'rate_limited': False,   # 是否遭遇 429（前端据此提示"数据可能偏旧"）
+        'fetched_at': None,      # 本次数据拉取时间（ISO），供前端展示"更新于"
     }
 
     index_field = CATEGORY_TO_INDEX.get(category)
@@ -141,9 +208,10 @@ def fetch_aa_rankings(limit: int = 15, category: str = DEFAULT_CATEGORY) -> Dict
         result['unavailable_reason'] = 'requests 库未安装'
         return result
 
-    raw_models = _fetch_all_models(api_key)
-    if raw_models is None:
+    raw_models, partial = _fetch_all_models(api_key)
+    if partial and not raw_models:
         result['unavailable_reason'] = 'API 拉取失败'
+        result['rate_limited'] = True
         return result
 
     # 过滤有指数值的模型，按指数降序排序
@@ -201,6 +269,9 @@ def fetch_aa_rankings(limit: int = 15, category: str = DEFAULT_CATEGORY) -> Dict
         })
 
     result['models'] = models
+    result['partial'] = partial
+    result['rate_limited'] = bool(partial and result.get('rate_limited'))
+    result['fetched_at'] = datetime_now_iso()
     logger.info(f"AA 排名解析完成 category={category} total={len(models)} "
-                f"domestic={sum(1 for x in models if x['is_domestic'])}")
+                f"domestic={sum(1 for x in models if x['is_domestic'])} partial={partial}")
     return result

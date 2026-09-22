@@ -157,14 +157,30 @@ dist\TrendingServiceSetup.exe -install "D:\MYDATA\Include\trending-service"
 **Windows 服务方式（推荐）**：
 
 ```powershell
-Start-Service -Name TrendingService      # 启动
-Stop-Service -Name TrendingService        # 停止
-Restart-Service -Name TrendingService     # 重启
-Get-Service -Name TrendingService         # 状态
+Start-Service -Name TrendingService      # 启动（需管理员）
+Stop-Service -Name TrendingService        # 停止（需管理员）
+Restart-Service -Name TrendingService     # 重启（需管理员）
+Get-Service -Name TrendingService         # 状态（无需管理员）
 # 或使用安装器
 TrendingServiceSetup.exe -status          # 查看状态
 TrendingServiceSetup.exe -uninstall       # 卸载
 ```
+
+**普通 PowerShell 会话（无需/无法提权）提权重启服务**：
+
+非管理员会话中 `Stop-Service`/`Restart-Service` 会报 `Access denied`，需通过 UAC 提升到管理员子进程来重启：
+
+```powershell
+# 提权重启 TrendingService（弹 UAC 确认框）
+Start-Process powershell -Verb RunAs -Wait -ArgumentList \
+    '-NoProfile','-Command','Restart-Service -Name TrendingService -Force'
+# 等待几秒后确认状态
+Start-Sleep -Seconds 8
+Get-Service -Name TrendingService
+```
+
+> 后端代码（fetcher / server.py 路由）改动后必须重启服务才会加载新代码；
+> 前端 `src/templates/enhanced_report` 的 JS/HTML 改动**无需重启**，重新生成报告后刷新页面即可。
 
 **命令行方式（开发/调试）**：
 

@@ -908,6 +908,52 @@
             border: 1px solid #e1e4e8;
         }
 
+        /* 跨日上榜标记（同一帖子在日期区间内多次出现） */
+        .meta-tag-range {
+            background: #fff4e5;
+            color: #b26a00;
+            border-color: #ffd8a8;
+        }
+
+        /* 热度回落幅度 */
+        .score-drop {
+            font-size: 0.78em;
+            color: #16a34a;   /* 热度下降用绿色（与 A 股涨跌配色保持一致的中性提示色分开） */
+            margin-left: 2px;
+        }
+
+        /* 每日热度迷你走势条 */
+        .item-daily-trend {
+            display: flex;
+            align-items: flex-end;
+            gap: 2px;
+            height: 20px;
+            margin-top: 6px;
+        }
+
+        .item-daily-trend .trend-bar {
+            width: 5px;
+            min-height: 3px;
+            background: linear-gradient(to top, #58a6ff 0%, #a5d0ff 100%);
+            border-radius: 1px;
+            cursor: help;
+            transition: opacity 0.15s ease;
+        }
+
+        .item-daily-trend .trend-bar:hover {
+            opacity: 0.65;
+        }
+
+        body.dark-mode .meta-tag-range {
+            background: rgba(255, 170, 60, 0.16);
+            color: #ffc078;
+            border-color: rgba(255, 170, 60, 0.35);
+        }
+
+        body.dark-mode .item-daily-trend .trend-bar {
+            background: linear-gradient(to top, var(--dm-accent) 0%, rgba(var(--dm-accent-rgb), 0.4) 100%);
+        }
+
         .item-description {
             font-size: 0.85em;
             color: #444;
@@ -1294,6 +1340,25 @@
 
         body.dark-mode .llm-ranking-placeholder {
             color: #94a3b8;
+        }
+
+        /* 限流降级提示：显示最近一次成功缓存时的轻量说明条 */
+        .llm-stale-notice {
+            display: none;
+            margin: 0 0 8px;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #92400e;
+            background: #fef3c7;
+            border: 1px solid #fcd34d;
+        }
+
+        body.dark-mode .llm-stale-notice {
+            color: #fcd34d;
+            background: rgba(146, 64, 14, 0.22);
+            border-color: rgba(252, 211, 77, 0.45);
         }
 
         body.dark-mode .tabs {

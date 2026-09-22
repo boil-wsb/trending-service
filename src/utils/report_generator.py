@@ -148,30 +148,26 @@ class ReportGenerator:
             print(f"  💾 GitHub AI数据已保存: {github_ai_file}")
 
     def _group_by_source(self, items: List[TrendingItem]) -> Dict[str, List[Dict]]:
-        """按数据源分组，并按热度排序"""
+        """按数据源分组，跨日去重后按热度排序
+
+        报告中展示的是「今天」的数据，但采集频率为每 8 小时一次，
+        同一帖子可能在当天被抓到多次；再加上部分源（如 aihot）本身会
+        跨日重复推送，直接输出会产生重复条目。这里复用 server 层的
+        去重聚合逻辑，保证报告与 /api/data 口径一致。
+        """
         from collections import defaultdict
-        
+        from src.server import _merge_items_for_range
+
         by_source = defaultdict(list)
         for item in items:
-            item_dict = {
-                'id': item.id,
-                'title': item.title,
-                'url': item.url,
-                'author': item.author,
-                'description': item.description,
-                'hot_score': item.hot_score,
-                'category': item.category,
-                'keywords': item.keywords,
-                'fetched_at': item.fetched_at.isoformat() if item.fetched_at else None,
-                'extra': item.extra
-            }
-            by_source[item.source].append(item_dict)
-        
-        # 对每个数据源的数据按热度排序（降序）
-        for source in by_source:
-            by_source[source].sort(key=lambda x: x['hot_score'] or 0, reverse=True)
-        
-        return dict(by_source)
+            by_source[item.source].append(item)
+
+        result: Dict[str, List[Dict]] = {}
+        for source, source_items in by_source.items():
+            merged = _merge_items_for_range(source_items, None, None)
+            result[source] = merged
+
+        return result
 
     def _cluster_topics(self, items: List[TrendingItem]) -> Dict[str, List[Dict]]:
         """按数据源对数据进行话题聚类"""

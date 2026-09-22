@@ -345,6 +345,26 @@ const DataService = (function () {
             );
         },
 
+        /**
+         * 分页拉取某一页热点数据（服务端按「去重聚合后」的条目分页）
+         * 说明：/api/data 单页有返回上限，长区间需翻页；此处不加客户端缓存，
+         * 由调用方（loadDataForDateRange）决定是否累积。
+         * @param {string} startDate YYYY-MM-DD
+         * @param {string} endDate   YYYY-MM-DD
+         * @param {number} offset    去重后条目的偏移量
+         * @param {number} limit     单页条数
+         */
+        getDataPage(startDate, endDate, offset, limit) {
+            return _request('/api/data', {
+                params: {
+                    start_date: startDate,
+                    end_date: endDate,
+                    offset: offset || 0,
+                    limit: limit || 1000,
+                }
+            });
+        },
+
         /** 搜索 */
         search(query, source, limit, useCache) {
             return _withCache(

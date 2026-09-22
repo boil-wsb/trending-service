@@ -89,15 +89,56 @@ function loadLlmRanking(category) {
         });
 }
 
-// ── 一次性并行预取当前源的全部类别（切源后零延迟）──────────────────────
-function prefetchAllLlmCategories() {
+// ── 懒加载 + 空闲预取（关键：AA 免费配额仅 100 次/24h，一次全量 = 4 页调用）─────────
+// 旧实现首屏并行预取全部类别（3 类 × 4 页 = 12 次/页面加载），一天就能烧穿配额。
+// 现改为：首屏只拉当前类别（4 次），其余类别在 requestIdleCallback 空闲时逐个预取，
+// 且预取带节流间隔，避免瞬间并发打满配额。
+const LLM_IDLE_PREFETCH_DELAY = 3000;   // 首屏渲染完成后再等 3s 才启动空闲预取
+const LLM_IDLE_PREFETCH_GAP = 1500;     // 相邻类别预取之间的间隔
+
+/**
+ * 空闲预取剩余类别（不阻塞首屏）
+ * 已加载/在途的类别会自动跳过（getRankingSourceData 内部去重）。
+ */
+function scheduleIdlePrefetch() {
     const preKey = llmSource + ':' + llmCurrentLimit;
     if (llmPrefetchedLimits.has(preKey)) return;
     llmPrefetchedLimits.add(preKey);
+
     const src = RANKING_SOURCES[llmSource];
-    src.categories.forEach(([cat]) => getRankingSourceData(llmSource, cat, llmCurrentLimit).catch(
-        err => console.warn(`排名类别 ${cat} 预取失败:`, err)
-    ));
+    const current = llmCurrentCategory;
+    // 排除当前类别（首屏已在拉）与已缓存类别
+    const pending = src.categories
+        .map(([cat]) => cat)
+        .filter(cat => cat !== current && !llmRankingCache[llmSource + ':' + cat + ':' + llmCurrentLimit]);
+
+    if (!pending.length) return;
+
+    const runNext = (idx) => {
+        if (idx >= pending.length) return;
+        // 若期间用户切了源/条数，放弃本轮预取（新的一轮会重新调度）
+        if (llmSource !== src.__owner) return;
+        const cat = pending[idx];
+        getRankingSourceData(llmSource, cat, llmCurrentLimit)
+            .catch(err => console.warn(`排名类别 ${cat} 空闲预取失败:`, err))
+            .finally(() => {
+                // 逐个串行 + 间隔，避免并发冲击配额
+                setTimeout(() => runNext(idx + 1), LLM_IDLE_PREFETCH_GAP);
+            });
+    };
+
+    src.__owner = llmSource;   // 记录发起时的源，用于失效判断
+    const kick = () => setTimeout(() => runNext(0), LLM_IDLE_PREFETCH_DELAY);
+    if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(kick, { timeout: 5000 });
+    } else {
+        setTimeout(kick, LLM_IDLE_PREFETCH_DELAY);
+    }
+}
+
+// 兼容旧调用点：保留函数名，内部改为「空闲预取」语义（首屏不再并行拉全部类别）
+function prefetchAllLlmCategories() {
+    scheduleIdlePrefetch();
 }
 
 // ── 数据源切换 ──────────────────────
@@ -291,8 +332,12 @@ const llmGroupDivider = {
         const { ctx } = chart;
         const idx = chart.options.plugins.llmGroupDivider || {};
         if (!idx.thicknesses) return;
-        // 每 5 名（即第 5、10、15...根条）之后画分隔线，仅当还有下一根条
-        for (let i = 4; i < idx.thicknesses.length; i += 5) {
+        // 每 5 名之后画一条分隔线（即第 5、10、15... 名与下一名之间）。
+        // 必须判断 i + 1 < length：总条数为 5 的倍数时，最后一个分组后已无下一条，
+        // 再画会在图表底部留下一条多余的分隔线。
+        const total = idx.thicknesses.length;
+        for (let i = 4; i < total; i += 5) {
+            if (i + 1 >= total) break;   // 末组之后无下一根条，跳过
             const bar = meta.data[i];
             if (!bar) continue;
             ctx.save();
@@ -300,8 +345,8 @@ const llmGroupDivider = {
             ctx.lineWidth = 1;
             ctx.setLineDash([3, 3]);
             ctx.beginPath();
-            ctx.moveTo(xScale.left, bar.y - idx.height / 2 - 3);
-            ctx.lineTo(xScale.right, bar.y - idx.height / 2 - 3);
+            ctx.moveTo(xScale.left, bar.y + idx.height / 2 + 3);
+            ctx.lineTo(xScale.right, bar.y + idx.height / 2 + 3);
             ctx.stroke();
             ctx.restore();
         }
@@ -312,13 +357,25 @@ const llmGroupDivider = {
 function renderLlmRanking(category, data) {
     const models = (data && data.models) || [];
 
-    // 更新数据时间（AA 无时间戳显示 --）
+    // 数据时间：AA 无时间戳，退化为「本次拉取时间」；限流降级时标注 stale
     const timeEl = document.getElementById('llm-ranking-time');
     if (timeEl) {
-        timeEl.textContent = data.ranked_at
-            ? new Date(data.ranked_at).toLocaleString('zh-CN', { hour12: false })
-            : (data.unavailable_reason ? '不可用（' + data.unavailable_reason + '）' : '--');
+        let label = '--';
+        if (data.fetched_at) {
+            label = new Date(data.fetched_at).toLocaleString('zh-CN', { hour12: false });
+        } else if (data.ranked_at) {
+            label = new Date(data.ranked_at).toLocaleString('zh-CN', { hour12: false });
+        } else if (data.unavailable_reason) {
+            label = '不可用（' + data.unavailable_reason + '）';
+        }
+        timeEl.textContent = label;
+        timeEl.title = data.stale
+            ? `数据为最近一次成功拉取结果（${data.stale_reason || 'API 限流'}）`
+            : '';
     }
+
+    // 限流降级提示（非阻塞，不遮挡图表）
+    showLlmStaleNotice(data);
 
     if (!models.length) {
         const reason = (data && data.unavailable_reason) || '暂无数据';
@@ -443,6 +500,34 @@ function hideLlmRankingPlaceholder() {
     if (canvas) canvas.style.display = '';
 }
 
+// ── 限流降级提示条：显示缓存结果时给出轻量说明，不遮挡图表 ──────────────────
+function showLlmStaleNotice(data) {
+    // 惰性创建容器，挂在标题行下方
+    let el = document.getElementById('llm-ranking-stale-notice');
+    const anchor = document.getElementById('llm-ranking-chart-wrap');
+    if (!el && anchor && anchor.parentElement) {
+        el = document.createElement('div');
+        el.id = 'llm-ranking-stale-notice';
+        el.className = 'llm-stale-notice';
+        anchor.parentElement.insertBefore(el, anchor);
+    }
+    if (!el) return;
+
+    if (!data || !data.stale) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+    }
+
+    const when = data.fetched_at
+        ? new Date(data.fetched_at).toLocaleString('zh-CN', { hour12: false })
+        : '最近一次成功拉取';
+    const mins = data.cooldown_left ? Math.ceil(data.cooldown_left / 60) : 0;
+    el.textContent = `⚠️ API 限流，显示 ${when} 的缓存结果`
+        + (mins > 0 ? `，约 ${mins} 分钟后重试` : '');
+    el.style.display = 'block';
+}
+
 // ── 应用当前数据源的 UI 状态（源按钮 active）──────────────────────
 function applyLlmSourceUI() {
     document.querySelectorAll('#llm-ranking-source .llm-ranking-tab').forEach(b => {
@@ -450,12 +535,13 @@ function applyLlmSourceUI() {
     });
 }
 
-// ── 页面加载即拉取（标题区在首屏；并行预取当前源全部类别）──────────────────────
+// ── 页面加载即拉取（首屏只拉当前类别，其余类别空闲时懒预取）──────────────────────
 function initLlmRanking() {
     applyLlmSourceUI();
     rebuildCategoryTabs();
-    prefetchAllLlmCategories();
+    // 首屏只拉 general（4 次调用）；其余类别由 scheduleIdlePrefetch 空闲时逐个补齐
     loadLlmRanking(llmCurrentCategory);
+    scheduleIdlePrefetch();
 }
 
 if (document.readyState === 'loading') {

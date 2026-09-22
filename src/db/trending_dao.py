@@ -20,9 +20,16 @@ class TrendingDAO:
         """
         批量保存热点数据（单连接批量事务，已存在的会更新）
 
-        使用 upsert 逻辑（基于 source + title + fetched_date）：
-        - 如果记录不存在，则插入新记录
-        - 如果记录已存在（相同数据源、相同标题、相同日期），则更新热度等字段
+        使用 upsert 逻辑，去重键优先级：
+        1. source + hn_id + fetched_date —— HackerNews 等有稳定外部 ID 的源。
+           同一帖子在榜期间标题可能被作者编辑（历史数据中已出现
+           "Gemini 3.8 Flash" -> "Gemini 3.8 Flash and 3.8 Flash Cyber"），
+           以 title 为键会漏判，导致同一天留下两条记录。
+        2. source + title + fetched_date —— 无外部 ID 的源的兜底策略。
+
+        注意：这里的去重范围仍限定在「同一天」（fetched_date）。
+        同一帖子跨天在榜时仍会各存一份快照，这是有意的设计——
+        用于记录热度随时间的演变；跨日去重由查询层（/api/data）负责。
 
         关键修复：原实现在 for 循环内每条记录调用 self.db.fetch_one + self.db.execute，
         每次 2 次 connect/close，283 条热点数据 = 566 次高频连接操作，在 Windows 多线程下
@@ -43,6 +50,18 @@ class TrendingDAO:
         saved_count = 0
         updated_count = 0
 
+        def _extract_hn_id(extra) -> str:
+            """从 extra 中提取稳定外部 ID（当前仅 HN 有）"""
+            if isinstance(extra, str):
+                try:
+                    extra = json.loads(extra)
+                except (ValueError, TypeError):
+                    return ''
+            if not isinstance(extra, dict):
+                return ''
+            hn_id = extra.get('hn_id')
+            return str(hn_id) if hn_id else ''
+
         # 单连接批量事务：connect/close 仅 1 次，彻底避免高频连接导致的段错误
         with self.db.transaction() as conn:
             for item in items:
@@ -51,11 +70,21 @@ class TrendingDAO:
                     fetched_at = item.fetched_at or datetime.now()
                     fetched_date = fetched_at.date().isoformat()
 
-                    # 先尝试查找是否存在相同记录（基于 source + title + fetched_date）
-                    row = conn.execute(
-                        'SELECT id FROM trending_items WHERE source = ? AND title = ? AND fetched_date = ?',
-                        (item.source, item.title, fetched_date)
-                    ).fetchone()
+                    # 优先用 hn_id 去重，缺失时回退 title
+                    hn_id = _extract_hn_id(item.extra)
+                    if hn_id:
+                        row = conn.execute(
+                            'SELECT id FROM trending_items '
+                            'WHERE source = ? AND fetched_date = ? '
+                            "AND json_extract(extra, '$.hn_id') = ?",
+                            (item.source, fetched_date, hn_id)
+                        ).fetchone()
+                    else:
+                        row = conn.execute(
+                            'SELECT id FROM trending_items '
+                            'WHERE source = ? AND title = ? AND fetched_date = ?',
+                            (item.source, item.title, fetched_date)
+                        ).fetchone()
 
                     if row:
                         # 更新现有记录
@@ -135,7 +164,8 @@ class TrendingDAO:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         keyword: Optional[str] = None,
-        limit: int = 100
+        limit: int = 100,
+        offset: int = 0
     ) -> List[TrendingItem]:
         """
         查询热点数据
@@ -146,6 +176,7 @@ class TrendingDAO:
             end_date: 结束日期
             keyword: 关键词搜索
             limit: 返回数量限制
+            offset: 偏移量（分页用，配合 limit）
             
         Returns:
             热点数据列表
@@ -171,13 +202,16 @@ class TrendingDAO:
         
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         
+        # LIMIT ? OFFSET ?：offset 为 0 时不带 OFFSET，避免 SQLite 兼容问题
         sql = f'''
             SELECT * FROM trending_items
             WHERE {where_clause}
             ORDER BY fetched_at DESC
-            LIMIT ?
+            LIMIT ?{'' if not offset else ' OFFSET ?'}
         '''
         params.append(limit)
+        if offset:
+            params.append(offset)
         
         rows = self.db.fetch_all(sql, tuple(params))
         return [TrendingItem.from_dict(row) for row in rows]

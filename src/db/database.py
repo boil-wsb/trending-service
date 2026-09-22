@@ -191,6 +191,12 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_trending_fetched_at 
             ON trending_items(fetched_at)
         ''')
+        # 跨日去重查询加速：extra.hn_id 是同一帖子跨日最稳定的标识
+        # （历史数据已证实同 hn_id 会出现标题被编辑的情况，故 title 不可作为稳定键）
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_trending_hn_id
+            ON trending_items(json_extract(extra, '$.hn_id'))
+        ''')
         
         # 每日统计表索引
         cursor.execute('''

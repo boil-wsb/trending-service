@@ -25,6 +25,148 @@ from src.utils import get_logger
 from src.utils.symbol import normalize_symbol, to_kline_source
 from src.utils.api_error import ApiError, ErrorCode, handle_api_error, api_success
 
+# 模块级 logger：供模块级辅助函数（如 AA 冷却/快照工具）使用
+logger = get_logger('server')
+
+# ── /api/data 分页参数 ────────────────────────────────────────────────
+# 注意：limit 作用于「跨日去重聚合后」的条目；page_size 才是单页抓取的原始记录数。
+# 之所以区分：一次抓取要覆盖「原始条数 >> 去重条数」的场景（如 9-1~9-22 为 10000→6766），
+# 若还用同一个 limit 控制抓取量，长区间会先被截断再去重，导致静默丢数据。
+_DATA_DEFAULT_LIMIT = 500      # 去重后单页返回条数默认值
+_DATA_MAX_LIMIT = 5000         # 去重后单页返回条数上限
+_DATA_RAW_FETCH_SIZE = 20000   # 单页抓取原始记录数默认值
+_DATA_MAX_RAW_FETCH = 100000   # 单页抓取原始记录数上限
+
+
+def _dedupe_key_for_item(item) -> str:
+    """计算跨日去重键：同一帖子在日期范围内只应算一条
+
+    优先级：
+    1. extra.hn_id（HackerNews story id，跨日天然稳定）—— 形如 hn:{id}
+    2. source + 归一化 title（去空白/标点、小写）—— 形如 t:{source}:{title}
+    3. source + 归一化 url
+    4. 兜底：source + 原始 title（保证不同帖子不会被错误合并）
+
+    归一化 purpose：HN 标题常含 "Show HN:"、引号、破折号等，直接字符串比较
+    易因空白/标点差异漏判；归一化后可稳定匹配。
+    """
+    import re as _re
+
+    source = getattr(item, 'source', '') or ''
+    extra = getattr(item, 'extra', None) or {}
+    if isinstance(extra, str):
+        try:
+            import json as _json
+            extra = _json.loads(extra) or {}
+        except (ValueError, TypeError):
+            extra = {}
+
+    hn_id = extra.get('hn_id') if isinstance(extra, dict) else None
+    if hn_id:
+        return f"hn:{hn_id}"
+
+    title = getattr(item, 'title', '') or ''
+    if title:
+        norm = _re.sub(r'[^\w\u4e00-\u9fa5]+', ' ', title.lower()).strip()
+        if norm:
+            return f"t:{source}:{norm}"
+
+    url = getattr(item, 'url', '') or ''
+    if url:
+        norm_url = _re.sub(r'[?#].*$', '', url.strip().lower()).rstrip('/')
+        if norm_url:
+            return f"u:{source}:{norm_url}"
+
+    return f"raw:{source}:{title}"
+
+
+def _merge_items_for_range(items, start_date, end_date):
+    """将日期范围内的多条同帖记录聚合为一条（跨日去重）
+
+    对每个去重键保留：
+    - hot_score：区间内峰值热度（榜单热度口径，取峰值更符合"热点"语义）
+    - daily_trend：[{date, hot_score, comment_count, fetched_at}] 按日期升序，前端画迷你走势
+    - first_seen / last_seen：首次/末次出现时间
+    - seen_days：出现天数
+    - latest_hot_score：最近一次热度（供升降幅展示）
+
+    Args:
+        items: TrendingItem 列表（同一日期范围内）
+        start_date/end_date: 用于端点在无数据时兜底返回
+
+    Returns:
+        List[Dict]: 已去重聚合、且按峰值热度降序的条目列表
+    """
+    from collections import defaultdict
+
+    grouped = defaultdict(list)
+    for item in items:
+        grouped[_dedupe_key_for_item(item)].append(item)
+
+    merged = []
+    for _key, group in grouped.items():
+        # 按抓取时间升序，便于取首/末次与生成走势
+        group.sort(key=lambda it: it.fetched_at or datetime.min)
+
+        daily = {}
+        for it in group:
+            if not it.fetched_at:
+                continue
+            day = it.fetched_at.date().isoformat()
+            extra = it.extra if isinstance(it.extra, dict) else {}
+            score = float(it.hot_score) if it.hot_score is not None else 0.0
+            comments = extra.get('descendants', 0) or 0
+            prev = daily.get(day)
+            # 同一天多次抓取：保留当天最高热度与最多评论数
+            if prev is None:
+                daily[day] = {
+                    'date': day,
+                    'hot_score': round(score, 2),
+                    'comment_count': comments,
+                    'fetched_at': it.fetched_at.isoformat()
+                }
+            else:
+                if score > prev['hot_score']:
+                    prev['hot_score'] = round(score, 2)
+                    prev['fetched_at'] = it.fetched_at.isoformat()
+                if comments > prev['comment_count']:
+                    prev['comment_count'] = comments
+
+        daily_trend = [daily[d] for d in sorted(daily.keys())]
+        peak = max((d['hot_score'] for d in daily_trend), default=0.0)
+
+        # 代表记录：取峰值热度那一条（标题/链接/作者以它为准则最新）
+        peak_day = max(daily_trend, key=lambda d: d['hot_score'])['date'] if daily_trend else None
+        representative = next(
+            (it for it in group if it.fetched_at and it.fetched_at.date().isoformat() == peak_day),
+            group[-1]
+        )
+
+        merged.append({
+            'title': representative.title,
+            'url': representative.url,
+            'source': representative.source,
+            'hot_score': round(peak, 2),
+            'latest_hot_score': round(daily_trend[-1]['hot_score'], 2) if daily_trend else round(peak, 2),
+            'description': representative.description,
+            'author': representative.author,
+            'category': representative.category,
+            'keywords': representative.keywords,
+            'extra': representative.extra,
+            # ===== 跨日聚合字段 =====
+            'daily_trend': daily_trend,
+            'peak_hot_score': round(peak, 2),
+            'first_seen': group[0].fetched_at.isoformat() if group[0].fetched_at else None,
+            'last_seen': group[-1].fetched_at.isoformat() if group[-1].fetched_at else None,
+            'first_seen_date': group[0].fetched_at.date().isoformat() if group[0].fetched_at else None,
+            'last_seen_date': group[-1].fetched_at.date().isoformat() if group[-1].fetched_at else None,
+            'seen_days': len(daily_trend),
+            'record_count': len(group),
+        })
+
+    merged.sort(key=lambda x: x['hot_score'] or 0, reverse=True)
+    return merged
+
 
 class TTLCache:
     """简单的 TTL 内存缓存（线程安全）"""
@@ -61,9 +203,130 @@ class TTLCache:
             for k in keys_to_delete:
                 del self._store[k]
 
+    def clear_prefix_except(self, prefix, keep_prefix):
+        """清除指定前缀缓存，但保留 keep_prefix 前缀（用于保活降级快照）"""
+        with self._lock:
+            keys_to_delete = [
+                k for k in self._store
+                if k.startswith(prefix) and not k.startswith(keep_prefix)
+            ]
+            for k in keys_to_delete:
+                del self._store[k]
+
 
 # 全局缓存实例
 _api_cache = TTLCache()
+
+# ── Artificial Analysis 排名专用状态（免费配额 100 次/24h，必须严防烧配额）──────
+# 1) 快照缓存：只存「成功且完整」的结果，永不主动过期（TTL 30 天），
+#    限流/失败时回退展示，key = aa_snapshot:{category}:{limit}
+# 2) 冷却表：撞到 429 后在该类别上静默一段时间，不再发起真实请求
+#    key = category → {'until': ts, 'reason': str}
+_AA_SNAPSHOT_PREFIX = 'aa_snapshot:'
+_AA_SNAPSHOT_TTL = 30 * 24 * 3600      # 快照保留 30 天
+_AA_COOLDOWN_SECONDS = 1800            # 429 后冷却 30min（HTTP TTL 缓存仅 5min）
+_aa_cooldown = {}
+_aa_cooldown_lock = threading.Lock()
+# AA HTTP 结果缓存 TTL：成功 1h（配额保护）；失败/限流 5min（快速冷却，避免每请求都打 API）
+_AA_SUCCESS_TTL = 3600
+_AA_FAILURE_TTL = 300
+
+# ── AA 每日调用计数（硬闸门）────────────────────────────────────────
+# 免费配额 100 次/24h。此处按「自然日累计外部请求次数」设软上限：
+# 达到 _AA_DAILY_BUDGET 后不再发起任何外部请求，直接走快照，
+# 把剩余配额留给次日，避免像 2026-09-22 那样半天烧穿全天配额。
+_AA_DAILY_BUDGET = 80                  # 每日外部请求次数上限（留 20 次余量给真实业务）
+_AA_PAGES_PER_FETCH = 4                # 一次全量拉取最多消耗的调用次数（用于预扣记账）
+_aa_quota = {'date': '', 'count': 0}   # {'date': 'YYYY-MM-DD', 'count': int}
+_aa_quota_lock = threading.Lock()
+
+
+def _aa_quota_reset_if_new_day(now=None):
+    """跨自然日自动归零（进程不重启也要归零）"""
+    from datetime import datetime as _dt
+    today = (now or _dt.now()).strftime('%Y-%m-%d')
+    if _aa_quota['date'] != today:
+        logger.info(f"aa_rankings: 每日配额计数跨日归零 "
+                    f"{_aa_quota['date']} = {_aa_quota['count']} → {today} = 0")
+        _aa_quota['date'] = today
+        _aa_quota['count'] = 0
+
+
+def _aa_quota_check() -> tuple:
+    """返回 (是否仍有额度, 今日已用, 上限)
+
+    判断标准：剩余额度必须够一次完整拉取（_AA_PAGES_PER_FETCH 次）。
+    否则宁可走快照，也不发起「注定拉不完」的请求。
+    """
+    with _aa_quota_lock:
+        _aa_quota_reset_if_new_day()
+        return (_aa_quota['count'] + _AA_PAGES_PER_FETCH <= _AA_DAILY_BUDGET,
+                _aa_quota['count'], _AA_DAILY_BUDGET)
+
+
+def _aa_quota_consume(n: int = 1) -> int:
+    """消耗额度（在真实发起外部请求前调用），返回消耗后的今日计数"""
+    with _aa_quota_lock:
+        _aa_quota_reset_if_new_day()
+        _aa_quota['count'] += n
+        used = _aa_quota['count']
+        if used == _AA_DAILY_BUDGET:
+            logger.warning(f"aa_rankings: 今日配额已达上限 {_AA_DAILY_BUDGET} 次，"
+                           f"后续请求全部走快照降级")
+        return used
+
+
+def _aa_cooldown_check(category: str):
+    """返回 (是否冷却中, 剩余秒数, 原因)"""
+    with _aa_cooldown_lock:
+        entry = _aa_cooldown.get(category)
+        if not entry:
+            return False, 0, ''
+        left = entry['until'] - time.time()
+        if left <= 0:
+            del _aa_cooldown[category]
+            return False, 0, ''
+        return True, int(left), entry.get('reason', '')
+
+
+def _aa_cooldown_set(category: str, seconds: int, reason: str):
+    """设置冷却窗口（同类别的并发请求共享）"""
+    with _aa_cooldown_lock:
+        _aa_cooldown[category] = {'until': time.time() + seconds, 'reason': reason}
+    logger.warning(f"aa_rankings: category={category} 进入冷却 {seconds}s（{reason}）")
+
+
+def _aa_snapshot_get(category: str, limit: int):
+    """读取最近一次「成功且完整」的快照（dict 或 None）"""
+    return _api_cache.get(f"{_AA_SNAPSHOT_PREFIX}{category}:{limit}")
+
+
+def _aa_snapshot_set(category: str, limit: int, payload: dict):
+    """保存成功快照，供限流时降级展示"""
+    _api_cache.set(f"{_AA_SNAPSHOT_PREFIX}{category}:{limit}", payload, ttl=_AA_SNAPSHOT_TTL)
+
+
+def _aa_degraded_payload(snapshot: dict, cooldown_left: int, reason: str) -> dict:
+    """基于快照构造降级响应：保留排名数据 + 标注数据时间与限流提示
+
+    无快照（首次拉取即失败）时：models 为空并保留 unavailable_reason，
+    前端据此展示明确原因，而不是含糊的「暂无数据」。
+    """
+    models = list(snapshot.get('models') or []) if snapshot else []
+    payload = dict(snapshot) if snapshot else {}
+    payload['models'] = models
+    payload['stale'] = bool(models)
+    payload['rate_limited'] = True
+    payload['cooldown_left'] = cooldown_left
+    payload['stale_reason'] = reason
+    # 有数据时不报错（走 stale 提示条）；无数据时必须给出原因
+    payload['unavailable_reason'] = None if models else reason
+    # 统一附带配额用量，便于前端/运维观测
+    with _aa_quota_lock:
+        _aa_quota_reset_if_new_day()
+        payload['quota_used'] = _aa_quota['count']
+        payload['quota_max'] = _AA_DAILY_BUDGET
+    return payload
 
 # 主力资金最后成功结果回退缓存（AKShare 外部免费接口易波动/限流，偶发失败时兜底返回最近成功数据）
 _fund_flow_fallback = {}  # {indicator: {'result': Response}}
@@ -1032,21 +1295,65 @@ class TrendingServer:
 
         @app.route('/api/aa/rankings')
         def api_aa_rankings():
-            """AI 模型排名 TOP N（Artificial Analysis，1h 缓存保护免费配额 100 次/天）"""
+            """AI 模型排名 TOP N（Artificial Analysis）
+
+            免费配额仅 100 次/24h，每次全量拉取 = 最多 4 次调用，因此：
+            - 成功结果缓存 1h，失败/限流结果缓存 5min（避免每请求都打外部 API）
+            - 撞到 429 后按类别冷却 30min，冷却期内直接走快照
+            - 最终降级：返回最近一次成功快照 + 「数据更新于 / 限流提示」，不再空白报错
+            """
+            limit = request.args.get('limit', 15, type=int) or 15
+            limit = max(5, min(limit, 30))
+            category = request.args.get('category', 'general', type=str) or 'general'
+
+            # 非法的类别交给 fetcher 回退为 general，但快照 key 需与之一致
+            if category not in ('general', 'code', 'agentic'):
+                category = 'general'
+
+            cache_key = f"aa_rankings:{category}:{limit}"
+            cached = _api_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+            # 冷却期内不发起真实请求，直接回退快照
+            cooling, cooldown_left, cool_reason = _aa_cooldown_check(category)
+            if cooling:
+                snapshot = _aa_snapshot_get(category, limit)
+                payload = _aa_degraded_payload(snapshot, cooldown_left, cool_reason)
+                result = jsonify({'success': True, 'data': payload})
+                _api_cache.set(cache_key, result, ttl=min(cooldown_left, _AA_FAILURE_TTL))
+                return result
+
+            # 每日配额闸门：额度用尽则不发外部请求，直接走快照
+            quota_left, quota_used, quota_max = _aa_quota_check()
+            if not quota_left:
+                snapshot = _aa_snapshot_get(category, limit)
+                payload = _aa_degraded_payload(
+                    snapshot, 0, f'今日配额已用尽（{quota_used}/{quota_max}）'
+                )
+                self.logger.warning(
+                    f"aa_rankings: 今日配额已用尽 {quota_used}/{quota_max}，"
+                    f"category={category} 走快照降级"
+                )
+                result = jsonify({'success': True, 'data': payload})
+                _api_cache.set(cache_key, result, ttl=_AA_FAILURE_TTL)
+                return result
+
             try:
                 from src.fetchers.aa_ranking import fetch_aa_rankings
 
-                limit = request.args.get('limit', 15, type=int) or 15
-                limit = max(5, min(limit, 30))
-                category = request.args.get('category', 'general', type=str) or 'general'
-
-                # 内存缓存（1 小时 TTL）
-                cache_key = f"aa_rankings:{category}:{limit}"
-                cached = _api_cache.get(cache_key)
-                if cached is not None:
-                    return cached
+                # 消耗额度：在发起请求「之前」按上限 4 页预扣。
+                # 必须在请求前扣：失败/限流/空数据同样消耗了真实配额，
+                # 若只在成功路径记账，失败时计数偏低、闸门会失效（实际已打穿配额）。
+                quota_after = _aa_quota_consume(_AA_PAGES_PER_FETCH)
+                if quota_after > _AA_DAILY_BUDGET:
+                    self.logger.warning(
+                        f"aa_rankings: 本次请求后额度已超支 {quota_after}/{_AA_DAILY_BUDGET}，"
+                        f"后续将全部走快照"
+                    )
 
                 # 线程 + 队列超时保护，避免外部 API 卡住请求
+                # （含 429 退避重试，故超时放宽到 40s）
                 def _worker(q):
                     try:
                         q.put(fetch_aa_rankings(limit=limit, category=category))
@@ -1057,31 +1364,84 @@ class TrendingServer:
                 t = threading.Thread(target=_worker, args=(q,))
                 t.daemon = True
                 t.start()
-                t.join(timeout=25)
+                t.join(timeout=40)
 
                 if t.is_alive():
-                    self.logger.warning("aa_rankings: 外部 API 超时，返回空数据")
-                    return jsonify({
-                        'success': True,
-                        'data': {'models': [], 'unavailable_reason': '外部 API 超时', 'timeout': True}
-                    })
+                    self.logger.warning("aa_rankings: 外部 API 超时，回退快照")
+                    snapshot = _aa_snapshot_get(category, limit)
+                    payload = _aa_degraded_payload(snapshot, _AA_COOLDOWN_SECONDS, '外部 API 超时')
+                    _aa_cooldown_set(category, _AA_FAILURE_TTL, '外部 API 超时')
+                    result = jsonify({'success': True, 'data': payload})
+                    _api_cache.set(cache_key, result, ttl=_AA_FAILURE_TTL)
+                    return result
 
                 payload = q.get_nowait() if not q.empty() else {}
                 if 'error' in payload:
                     self.logger.error(f"aa_rankings error: {payload['error']}")
                     return jsonify({'success': False, 'error': payload['error']}), 500
 
-                result = jsonify({'success': True, 'data': payload})
-                # 成功结果缓存 1h（保护配额，拉一次全量=4 次调用）；失败/空结果短缓存 60s
+                # 附带配额使用情况，便于前端/运维观测
+                with _aa_quota_lock:
+                    payload['quota_used'] = _aa_quota['count']
+                    payload['quota_max'] = _AA_DAILY_BUDGET
+
                 if payload.get('models'):
-                    _api_cache.set(cache_key, result, ttl=3600)
+                    result = jsonify({'success': True, 'data': payload})
+                    if payload.get('partial') or payload.get('rate_limited'):
+                        # 部分成功：短缓存（等冷却结束再试），不覆盖完整快照
+                        _aa_cooldown_set(category, _AA_COOLDOWN_SECONDS, 'API 返回不完整')
+                        _api_cache.set(cache_key, result, ttl=_AA_FAILURE_TTL)
+                    else:
+                        # 完整成功：长缓存 1h + 写入快照
+                        _aa_snapshot_set(category, limit, payload)
+                        _api_cache.set(cache_key, result, ttl=_AA_SUCCESS_TTL)
+                    return result
+
+                # 无数据：进入冷却并回退快照
+                reason = payload.get('unavailable_reason') or 'API 拉取失败'
+                if payload.get('rate_limited'):
+                    _aa_cooldown_set(category, _AA_COOLDOWN_SECONDS, reason)
                 else:
-                    _api_cache.set(cache_key, result, ttl=60)
+                    _aa_cooldown_set(category, _AA_FAILURE_TTL, reason)
+                snapshot = _aa_snapshot_get(category, limit)
+                payload = _aa_degraded_payload(snapshot, _AA_COOLDOWN_SECONDS, reason)
+                result = jsonify({'success': True, 'data': payload})
+                _api_cache.set(cache_key, result, ttl=_AA_FAILURE_TTL)
                 return result
             except Exception as e:
                 self.logger.error(f"获取 AA 模型排名失败: {e}")
                 resp, status = handle_api_error(e, self.logger)
                 return jsonify(resp), status
+
+        @app.route('/api/aa/quota')
+        def api_aa_quota():
+            """AA 配额与冷却状态（运维观测用）"""
+            with _aa_quota_lock:
+                _aa_quota_reset_if_new_day()
+                used, budget, qdate = _aa_quota['count'], _AA_DAILY_BUDGET, _aa_quota['date']
+            with _aa_cooldown_lock:
+                now = time.time()
+                cooldowns = {
+                    c: {'left_seconds': int(v['until'] - now), 'reason': v.get('reason', '')}
+                    for c, v in _aa_cooldown.items() if v['until'] > now
+                }
+            snapshots = {}
+            for cat in ('general', 'code', 'agentic'):
+                for lim in (15, 30):
+                    snap = _aa_snapshot_get(cat, lim)
+                    if snap and snap.get('models'):
+                        snapshots[f'{cat}:{lim}'] = {
+                            'models': len(snap['models']),
+                            'fetched_at': snap.get('fetched_at'),
+                        }
+            return jsonify({'success': True, 'data': {
+                'date': qdate,
+                'quota_used': used,
+                'quota_max': budget,
+                'quota_left': max(0, budget - used),
+                'cooldowns': cooldowns,
+                'snapshots': snapshots,
+            }})
 
         # ========== 通用API路由 ==========
 
@@ -1141,6 +1501,9 @@ class TrendingServer:
                 - date: 单个日期 (YYYY-MM-DD)
                 - start_date: 开始日期 (YYYY-MM-DD)
                 - end_date: 结束日期 (YYYY-MM-DD)
+                - offset: 分页偏移（默认 0，作用于「去重后的条目」）
+                - limit: 单页条数（默认 500，最大 5000）
+                - page_size: 每页原始记录抓取量（默认 10000，最大 50000）
             """
             from datetime import datetime
             from src.db import TrendingDAO
@@ -1179,6 +1542,23 @@ class TrendingServer:
             if end_date > today:
                 return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, '不能查询未来日期', status_code=400).to_response()), 400
             
+            # 分页参数（作用于去重聚合后的条目，保证「一条帖子=一条记录」不被截断）
+            try:
+                offset = max(0, int(request.args.get('offset', 0)))
+            except (TypeError, ValueError):
+                offset = 0
+            try:
+                limit = int(request.args.get('limit', _DATA_DEFAULT_LIMIT))
+            except (TypeError, ValueError):
+                limit = _DATA_DEFAULT_LIMIT
+            limit = max(1, min(limit, _DATA_MAX_LIMIT))
+            # 单页原始记录抓取量：需覆盖「原始条数远大于去重条数」的场景
+            try:
+                page_size = int(request.args.get('page_size', _DATA_RAW_FETCH_SIZE))
+            except (TypeError, ValueError):
+                page_size = _DATA_RAW_FETCH_SIZE
+            page_size = max(_DATA_DEFAULT_LIMIT, min(page_size, _DATA_MAX_RAW_FETCH))
+            
             # 构建日期范围字符串
             if start_date == end_date:
                 date_range_str = start_date.isoformat()
@@ -1189,11 +1569,14 @@ class TrendingServer:
                 # 从数据库获取数据
                 dao = TrendingDAO(DATABASE['path'])
                 
-                # 获取指定日期范围的数据
+                # 原始记录总条数（用于判断 page_size 是否足够、是否真被截断）
+                raw_count = dao.get_count(start_date=start_date, end_date=end_date)
+                
+                # 单页抓取原始记录，再在内存做跨日去重聚合
                 items = dao.get_items(
                     start_date=start_date,
                     end_date=end_date,
-                    limit=10000
+                    limit=page_size
                 )
                 
                 # 如果没有数据，返回友好提示
@@ -1207,30 +1590,40 @@ class TrendingServer:
                             'items': [],
                             'sources': {},
                             'total_items': 0,
+                            'offset': offset,
+                            'limit': limit,
+                            'has_more': False,
                             'message': f'No data available for {date_range_str}'
                         }
                     })
                 
-                # 按数据源分组，并按热度排序
+                # 按数据源分组，跨日去重聚合（同一帖子在区间内只算一条）
                 sources = {}
                 for item in items:
-                    source = item.source
-                    if source not in sources:
-                        sources[source] = []
-                    sources[source].append({
-                        'title': item.title,
-                        'url': item.url,
-                        'hot_score': item.hot_score,
-                        'description': item.description,
-                        'author': item.author,
-                        'category': item.category,
-                        'keywords': item.keywords,
-                        'extra': item.extra
-                    })
+                    sources.setdefault(item.source, []).append(item)
                 
-                # 对每个数据源的数据按热度排序（降序）
+                # 每个数据源内部做跨日去重，并统计各源去重后条数
+                source_counts = {}
+                merged_items = []
+                for source, source_items in sources.items():
+                    merged = _merge_items_for_range(source_items, start_date, end_date)
+                    sources[source] = merged
+                    source_counts[source] = len(merged)
+                    merged_items.extend(merged)
+                
+                # 响应体 items 也去重（用于全局统计与列表渲染）
+                merged_items.sort(key=lambda x: x.get('hot_score', 0) or 0, reverse=True)
+                
+                deduped_total = len(merged_items)
+                # 全局分页：按热度统一排序后切片，保证跨源排序一致
+                page_items = merged_items[offset:offset + limit]
+                # 各源的 items 也按同一 offset/limit 口径裁剪，避免前端按源渲染时重复
                 for source in sources:
-                    sources[source].sort(key=lambda x: x.get('hot_score', 0) or 0, reverse=True)
+                    sources[source] = sources[source][offset:offset + limit]
+                
+                # 原始记录是否被 page_size 截断（去重前就已丢数据）
+                raw_truncated = raw_count > len(items)
+                has_more = (offset + limit) < deduped_total
                 
                 # 构建响应数据
                 response_data = {
@@ -1239,23 +1632,32 @@ class TrendingServer:
                         'date': date_range_str,
                         'start_date': start_date.isoformat(),
                         'end_date': end_date.isoformat(),
-                        'items': [{
-                            'title': item.title,
-                            'url': item.url,
-                            'source': item.source,
-                            'hot_score': item.hot_score,
-                            'description': item.description,
-                            'author': item.author,
-                            'category': item.category,
-                            'keywords': item.keywords,
-                            'extra': item.extra
-                        } for item in items],
+                        'items': page_items,
                         'sources': sources,
-                        'total_items': len(items),
+                        'source_counts': source_counts,
+                        # 去重聚合后的总条数（分页语义下的全量）
+                        'total_items': deduped_total,
+                        # 本次返回条数与区间信息
+                        'offset': offset,
+                        'limit': limit,
+                        'returned_items': len(page_items),
+                        'has_more': has_more,
+                        # 原始记录统计与截断标记
+                        'raw_total_items': len(items),
+                        'raw_count_in_db': raw_count,
+                        'raw_truncated': raw_truncated,
+                        'page_size': page_size,
                         'sources_count': len(sources),
                         'generated_at': datetime.now().isoformat()
                     }
                 }
+                
+                if raw_truncated:
+                    self.logger.warning(
+                        f"/api/data 原始记录被 page_size 截断: 区间 {date_range_str} "
+                        f"库内 {raw_count} 条 > 抓取 {page_size} 条；"
+                        f"请提高 page_size 或缩小日期范围"
+                    )
                 
                 response = jsonify(response_data)
                 response.headers.add('Access-Control-Allow-Origin', '*')
@@ -1265,6 +1667,7 @@ class TrendingServer:
                 self.logger.error(f"获取日期数据失败: {e}")
                 resp, status = handle_api_error(e, self.logger)
                 return jsonify(resp), status
+
 
         @app.route('/api/search')
         def api_search():
