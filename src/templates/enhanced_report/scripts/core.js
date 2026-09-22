@@ -1391,10 +1391,6 @@
         function init() {
             const data = window.REPORT_DATA;
 
-            // 设置生成时间
-            document.getElementById('generated-time').textContent =
-                data.generated_at ? new Date(data.generated_at).toLocaleString('zh-CN') : '--';
-
             // 设置统计数据 - 优先使用数据库全量统计
             const dbStats = data.db_stats || {};
             document.getElementById('total-items').textContent = formatNumber(dbStats.total_count || data.total_items || 0);

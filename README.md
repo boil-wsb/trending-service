@@ -1,5 +1,42 @@
 # Trending Service
 
+## 新机器一键部署（uv 方案，推荐）
+
+**发布 zip 包**（推荐，含 Chromium + uv.exe，目标机零前置）：
+
+```powershell
+# 1. 解压 zip 到目标目录
+# 2. 一键初始化（自动装 Python 3.12 + 秒级同步依赖 + 自动装 Chromium + 生成 .env）
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
+# 3. 编辑 .env 填入密钥（LLM_STATS_API_KEY 等）
+# 4. 测试运行
+venv\Scripts\python.exe -m src.main
+# 5. 注册 Windows 服务（见下方「快速安装」）
+```
+
+**从 GitHub 克隆**（无 vendor 大文件，需联网）：
+
+```powershell
+git clone <repo-url>
+cd trending-service
+# uv 一键部署（uv 自动装 Python 3.12，依赖走清华镜像；Chromium 缺失时脚本自动补装）
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
+```
+
+> 脚本未找到 uv.exe 时：`powershell -c "irm https://astral.sh/uv/install.ps1 | iex"` 安装后重试，
+> 或将 uv.exe 放到 `vendor\uv\uv.exe`。
+
+**传统方式**（手动装 Python 3.12 + `pip install -r requirements.txt` + `playwright install chromium`）仍然有效，见下方「安装步骤」。
+
+### 构建发布包
+
+```powershell
+# 打包源码 + Chromium + uv + uv.lock → dist/trending-service-YYYYMMDD.zip
+python scripts\build_release.py
+# 编译双击安装器（可选，一并打进 zip）
+powershell -ExecutionPolicy Bypass -File scripts\build_setup.ps1
+```
+
 ## 快速安装（Windows 服务）
 
 ### 一键安装/卸载（推荐）

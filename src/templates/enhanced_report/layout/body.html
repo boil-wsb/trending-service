@@ -1,7 +1,40 @@
     <div class="container">
         <div class="header">
-            <h1>🔥 每日热门数据报告</h1>
-            <p>生成时间: <span id="generated-time">--</span></p>
+            <div class="llm-ranking-header">
+                <h2 id="llm-ranking-title">🤖 AI 模型排名 TOP 15</h2>
+                <div class="llm-ranking-toolbar">
+                    <div class="llm-ranking-tabs" id="llm-ranking-tabs">
+                        <button class="llm-ranking-tab active" data-category="general" onclick="switchLlmCategory('general')">综合</button>
+                        <button class="llm-ranking-tab" data-category="code" onclick="switchLlmCategory('code')">代码</button>
+                        <button class="llm-ranking-tab" data-category="reasoning" onclick="switchLlmCategory('reasoning')">推理</button>
+                        <button class="llm-ranking-tab" data-category="math" onclick="switchLlmCategory('math')">数学</button>
+                    </div>
+                    <div class="llm-ranking-orient" id="llm-ranking-orient">
+                        <button class="llm-orient-btn active" data-orient="vertical" onclick="switchLlmOrientation('vertical', this)" title="竖向柱状图（模型横向排列）">▮ 竖向</button>
+                        <button class="llm-orient-btn" data-orient="horizontal" onclick="switchLlmOrientation('horizontal', this)" title="横向条形图（模型纵向排列）">▮ 横向</button>
+                    </div>
+                    <div class="llm-ranking-orient" id="llm-ranking-limit">
+                        <button class="llm-orient-btn active" data-limit="15" onclick="switchLlmLimit(15, this)" title="展示前 15 名">Top 15</button>
+                        <button class="llm-orient-btn" data-limit="30" onclick="switchLlmLimit(30, this)" title="展示前 30 名">Top 30</button>
+                    </div>
+                    <p class="llm-ranking-meta">
+                        数据来源: <a href="https://llm-stats.com" target="_blank" rel="noopener">llm-stats.com</a>
+                        · <span class="llm-domestic-badge">🚩 国产大模型</span>
+                        · 更新: <span id="llm-ranking-time">--</span>
+                    </p>
+                </div>
+                <div class="llm-ranking-chart-wrap" id="llm-ranking-chart-wrap">
+                    <canvas id="llm-ranking-canvas"></canvas>
+                    <div id="llm-ranking-placeholder" class="llm-ranking-placeholder" style="display:none;"></div>
+                    <div id="llm-ranking-changes" class="llm-ranking-changes" style="display:none;">
+                        <div class="llm-changes-header">
+                            📈 排名变动
+                            <button class="llm-changes-close" onclick="closeLlmChanges()" title="关闭">✕</button>
+                        </div>
+                        <div id="llm-changes-list" class="llm-changes-list"></div>
+                    </div>
+                </div>
+            </div>
             <div class="stats-bar">
                 <div class="stat-item">
                     <div class="stat-value" id="total-items">--</div>

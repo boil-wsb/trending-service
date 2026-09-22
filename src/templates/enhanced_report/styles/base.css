@@ -1089,6 +1089,204 @@
                         radial-gradient(circle at 80% 20%, rgba(59,130,246,0.18), transparent 40%);
         }
 
+        /* ========== AI 模型排名（llm-stats.com）========== */
+        .llm-ranking-header {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+
+        .llm-ranking-header h2 {
+            font-size: 1.6em;
+            margin-bottom: 8px;
+        }
+
+        .llm-ranking-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .llm-ranking-tabs {
+            display: inline-flex;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            padding: 4px;
+        }
+
+        .llm-ranking-tab {
+            border: none;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 13px;
+            padding: 4px 14px;
+            border-radius: 7px;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .llm-ranking-tab:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+        }
+
+        .llm-ranking-tab.active {
+            background: rgba(255, 255, 255, 0.95);
+            color: #1e293b;
+            font-weight: 700;
+        }
+
+        .llm-ranking-orient {
+            display: inline-flex;
+            gap: 4px;
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            padding: 3px;
+        }
+
+        .llm-orient-btn {
+            border: none;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 12px;
+            padding: 3px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .llm-orient-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+        }
+
+        .llm-orient-btn.active {
+            background: rgba(56, 189, 248, 0.9);
+            color: #0c2135;
+            font-weight: 700;
+        }
+
+        /* 排名变动提示小窗 */
+        .llm-ranking-changes {
+            position: absolute;
+            top: 10px;
+            right: 12px;
+            z-index: 5;
+            min-width: 220px;
+            max-width: 300px;
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(56, 189, 248, 0.5);
+            border-radius: 10px;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+        }
+
+        .llm-changes-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 10px;
+            background: rgba(56, 189, 248, 0.12);
+            font-size: 12px;
+            font-weight: 700;
+            color: #0369a1;
+        }
+
+        .llm-changes-close {
+            border: none;
+            background: transparent;
+            color: #64748b;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 0 2px;
+        }
+
+        .llm-changes-close:hover { color: #1e293b; }
+
+        .llm-changes-list {
+            padding: 6px 10px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .llm-chg-row {
+            font-size: 12px;
+            color: #334155;
+            padding: 2px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .llm-chg-type { color: #94a3b8; font-size: 11px; }
+        .llm-chg-up { color: #e53935; font-weight: 700; }
+        .llm-chg-down { color: #16a34a; font-weight: 700; }
+        .llm-chg-new { color: #38bdf8; font-weight: 700; font-size: 10px; }
+
+        body.dark-mode .llm-ranking-changes {
+            background: rgba(15, 23, 42, 0.96);
+            border-color: rgba(56, 189, 248, 0.35);
+        }
+
+        body.dark-mode .llm-changes-header { color: #7dd3fc; }
+        body.dark-mode .llm-chg-row { color: #cbd5e1; }
+
+        .llm-ranking-meta {
+            font-size: 0.85em;
+            opacity: 0.92;
+            margin: 0;
+        }
+
+        .llm-ranking-meta a {
+            color: #7dd3fc;
+            text-decoration: underline;
+        }
+
+        .llm-domestic-badge {
+            display: inline-block;
+            padding: 1px 8px;
+            border-radius: 10px;
+            background: rgba(229, 57, 53, 0.25);
+            border: 1px solid rgba(229, 57, 53, 0.55);
+            font-weight: 600;
+        }
+
+        .llm-ranking-chart-wrap {
+            position: relative;
+            height: 360px;
+            background: rgba(255, 255, 255, 0.96);
+            border-radius: 12px;
+            padding: 12px 14px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .llm-ranking-placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #888;
+            font-size: 14px;
+            text-align: center;
+            padding: 20px;
+        }
+
+        body.dark-mode .llm-ranking-chart-wrap {
+            background: rgba(15, 23, 42, 0.92);
+        }
+
+        body.dark-mode .llm-ranking-placeholder {
+            color: #94a3b8;
+        }
+
         body.dark-mode .tabs {
             background: var(--dm-bg-1);
             border-bottom-color: var(--dm-border);

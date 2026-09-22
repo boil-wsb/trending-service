@@ -87,3 +87,6 @@ docs/
 # Playwright 浏览器二进制（项目内绑定，方案 A+B）
 # 不进 git（体积约 350MB），但发布包应包含此目录以实现部署免下载
 vendor/playwright-browsers/
+
+# uv 工具链（不进 git，build_release.py 打包时纳入 zip）
+vendor/uv/

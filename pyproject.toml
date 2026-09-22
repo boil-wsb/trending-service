@@ -1,0 +1,36 @@
+[project]
+name = "trending-service"
+version = "1.0.0"
+description = "Trending Service - 热点采集与 A股行情分析服务"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+    "flask>=3.0.0",
+    "pyyaml>=6.0",
+    "colorlog>=6.7.0",
+    "scikit-learn>=1.3.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "joblib>=1.3.0",
+    "threadpoolctl>=3.0.0",
+    "jieba>=0.42.1",
+    "snownlp>=0.12.3",
+    "schedule>=1.2.0",
+    "python-dateutil>=2.8.2",
+    "playwright>=1.40.0",
+    "python-dotenv>=1.0.0",
+    "akshare>=1.12.0",
+]
+
+[tool.uv]
+# 部署约束说明：
+# - 虚拟环境目录固定为 venv/（Setup 安装器硬编码 venv/Scripts/pythonw.exe），
+#   由 deploy.ps1 通过 UV_PROJECT_ENVIRONMENT=venv 控制（uv 默认是 .venv）
+# - Python 3.12 由 uv 自动下载管理（uv python install 3.12），目标机无需预装
+
+[[tool.uv.index]]
+# 国内镜像（pypi.org 直连不稳定），目标部署机默认走此源
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
