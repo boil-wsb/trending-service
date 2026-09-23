@@ -196,6 +196,15 @@ class TTLCache:
         with self._lock:
             self._store.clear()
 
+    def keys(self, prefix=''):
+        """返回未过期的键列表（顺带清理已过期项）"""
+        now = time.time()
+        with self._lock:
+            expired = [k for k, v in self._store.items() if now > v['expire_at']]
+            for k in expired:
+                del self._store[k]
+            return [k for k in self._store if k.startswith(prefix)]
+
     def clear_prefix(self, prefix):
         """清除指定前缀的缓存"""
         with self._lock:
@@ -220,23 +229,35 @@ _api_cache = TTLCache()
 # ── Artificial Analysis 排名专用状态（免费配额 100 次/24h，必须严防烧配额）──────
 # 1) 快照缓存：只存「成功且完整」的结果，永不主动过期（TTL 30 天），
 #    限流/失败时回退展示，key = aa_snapshot:{category}:{limit}
-# 2) 冷却表：撞到 429 后在该类别上静默一段时间，不再发起真实请求
-#    key = category → {'until': ts, 'reason': str}
+# 2) 冷却表：撞到 429 后进入静默，不再发起真实请求
+#    ★ AA 的 100 次配额是 **Key 级别全局共享**（服务端返回 X-Ratelimit-Limit=100 /
+#      Remaining / Reset，与 category 无关）。因此只要任一类别撞 429，
+#      就说明整个 Key 的额度已耗尽 —— 冷却必须作用于**全局**，否则其他类别
+#      会继续白撞，把日志刷满 429 且毫无收益。
+#    key = '__global__'（历史按 category 的 key 仍兼容读取）
 _AA_SNAPSHOT_PREFIX = 'aa_snapshot:'
 _AA_SNAPSHOT_TTL = 30 * 24 * 3600      # 快照保留 30 天
-_AA_COOLDOWN_SECONDS = 1800            # 429 后冷却 30min（HTTP TTL 缓存仅 5min）
+_AA_COOLDOWN_SECONDS = 1800            # 默认冷却 30min（无 Retry-After 时使用）
+_AA_GLOBAL_COOLDOWN_KEY = '__global__'
 _aa_cooldown = {}
 _aa_cooldown_lock = threading.Lock()
-# AA HTTP 结果缓存 TTL：成功 1h（配额保护）；失败/限流 5min（快速冷却，避免每请求都打 API）
-_AA_SUCCESS_TTL = 3600
+# AA HTTP 结果缓存 TTL：按类别分级，general 热点更新更快（1h），code/agentic 相对稳定（4h）。
+# 免费档仅 100 次/24h，一次拉取=1 次调用（只取第一页），分级 + 持久化已大幅降低外部请求频率；
+# 失败/限流 5min（快速冷却，避免每请求都打 API）
 _AA_FAILURE_TTL = 300
+
+
+def _aa_success_ttl(category: str = '') -> int:
+    """AA 成功结果缓存 TTL（秒），按类别分级：general=1h，code/agentic=4h"""
+    _TTL_BY_CATEGORY = {'general': 3600, 'code': 14400, 'agentic': 14400}
+    return _TTL_BY_CATEGORY.get(category, 3600)
 
 # ── AA 每日调用计数（硬闸门）────────────────────────────────────────
 # 免费配额 100 次/24h。此处按「自然日累计外部请求次数」设软上限：
 # 达到 _AA_DAILY_BUDGET 后不再发起任何外部请求，直接走快照，
 # 把剩余配额留给次日，避免像 2026-09-22 那样半天烧穿全天配额。
 _AA_DAILY_BUDGET = 80                  # 每日外部请求次数上限（留 20 次余量给真实业务）
-_AA_PAGES_PER_FETCH = 4                # 一次全量拉取最多消耗的调用次数（用于预扣记账）
+_AA_PAGES_PER_FETCH = 1                # 只取第一页（约 200 条候选），单次拉取=1 次调用
 _aa_quota = {'date': '', 'count': 0}   # {'date': 'YYYY-MM-DD', 'count': int}
 _aa_quota_lock = threading.Lock()
 
@@ -276,34 +297,138 @@ def _aa_quota_consume(n: int = 1) -> int:
         return used
 
 
-def _aa_cooldown_check(category: str):
-    """返回 (是否冷却中, 剩余秒数, 原因)"""
+def _aa_cooldown_check(category: str = ''):
+    """返回 (是否冷却中, 剩余秒数, 原因)
+
+    冷却为 **Key 级全局**：配额是所有类别共享的，任一类别撞 429 即代表
+    全局额度耗尽。同时兼容读取历史遗留的按 category key（取剩余时间更长者）。
+    """
+    now = time.time()
+    best_left, best_reason = 0, ''
     with _aa_cooldown_lock:
-        entry = _aa_cooldown.get(category)
-        if not entry:
-            return False, 0, ''
-        left = entry['until'] - time.time()
-        if left <= 0:
-            del _aa_cooldown[category]
-            return False, 0, ''
-        return True, int(left), entry.get('reason', '')
+        for key in (_AA_GLOBAL_COOLDOWN_KEY, category):
+            if not key:
+                continue
+            entry = _aa_cooldown.get(key)
+            if not entry:
+                continue
+            left = entry['until'] - now
+            if left <= 0:
+                del _aa_cooldown[key]
+                continue
+            if left > best_left:
+                best_left, best_reason = left, entry.get('reason', '')
+    if best_left <= 0:
+        return False, 0, ''
+    return True, int(best_left), best_reason
 
 
-def _aa_cooldown_set(category: str, seconds: int, reason: str):
-    """设置冷却窗口（同类别的并发请求共享）"""
+def _aa_cooldown_set(seconds: int, reason: str, category: str = ''):
+    """设置 **Key 级全局** 冷却窗口（所有类别共享，避免白撞配额）
+
+    Args:
+        seconds: 冷却秒数（优先来自服务端 Retry-After）
+        reason: 冷却原因（用于日志与前端提示）
+        category: 触发限流的类别，仅用于日志记录
+    """
+    seconds = max(1, int(seconds))
+    until = time.time() + seconds
     with _aa_cooldown_lock:
-        _aa_cooldown[category] = {'until': time.time() + seconds, 'reason': reason}
-    logger.warning(f"aa_rankings: category={category} 进入冷却 {seconds}s（{reason}）")
+        cur = _aa_cooldown.get(_AA_GLOBAL_COOLDOWN_KEY)
+        # 已有更晚的冷却则不缩短（例如两个请求几乎同时撞 429）
+        if not cur or cur['until'] < until:
+            _aa_cooldown[_AA_GLOBAL_COOLDOWN_KEY] = {'until': until, 'reason': reason}
+    logger.warning(
+        f"aa_rankings: 进入【全局】冷却 {seconds}s（{reason}）"
+        f"{f'，触发类别={category}' if category else ''}；"
+        f"冷却期内所有类别均直接走快照，不再发起外部请求"
+    )
+
+
+def _aa_cooldown_from_response(payload: dict, category: str = '', default: int = 0) -> int:
+    """根据 fetcher 返回的限流信息决定冷却时长（秒）
+
+    优先级：Retry-After → (X-Ratelimit-Reset - now) → 默认值。
+    AA 的 Retry-After 可能长达数万秒（配额彻底耗尽时实测 25306s ≈ 7h），
+    这种量级必须尊重，否则冷却期一过就又去白撞一次。
+    """
+    retry_after = payload.get('retry_after')
+    if isinstance(retry_after, (int, float)) and retry_after > 0:
+        return int(retry_after)
+    reset_at = payload.get('ratelimit_reset')
+    if isinstance(reset_at, (int, float)) and reset_at > 0:
+        left = int(reset_at - time.time())
+        if left > 0:
+            return left
+    return int(default) if default else _AA_COOLDOWN_SECONDS
+
+
+_aa_ranking_dao = None
+_aa_ranking_dao_lock = threading.Lock()
+
+
+def _aa_dao():
+    """懒加载 AA 排名快照 DAO（避免 import 时初始化 DB / 依赖 DATABASE）"""
+    global _aa_ranking_dao
+    if _aa_ranking_dao is None:
+        with _aa_ranking_dao_lock:
+            if _aa_ranking_dao is None:
+                from src.db.aa_ranking_dao import AARankingDAO
+                _aa_ranking_dao = AARankingDAO(DATABASE['path'])
+    return _aa_ranking_dao
 
 
 def _aa_snapshot_get(category: str, limit: int):
-    """读取最近一次「成功且完整」的快照（dict 或 None）"""
-    return _api_cache.get(f"{_AA_SNAPSHOT_PREFIX}{category}:{limit}")
+    """读取最近一次快照（dict 或 None）
+
+    持久化设计：DB 持久缓存为权威源（跨重启、配额烧穿仍可见）；
+    内存 _api_cache 仅作进程内热缓存（避免每次请求都查 DB）。
+    读取顺序：内存精确 → DB 精确 → 内存跨类别 → DB 跨类别（同 limit 最新）。
+    """
+    # 1) 内存热缓存（精确 category:limit）
+    hit = _api_cache.get(f"{_AA_SNAPSHOT_PREFIX}{category}:{limit}")
+    if hit:
+        return hit
+    # 2) DB 精确
+    try:
+        db_hit = _aa_dao().get_snapshot(category, limit)
+        if db_hit:
+            return db_hit
+    except Exception as e:
+        logger.warning(f"AA 快照 DB 读取失败(精确): {e}")
+    # 3) 内存跨类别兜底（同 limit 取最新）
+    suffix = f":{limit}"
+    best = None
+    for key in _api_cache.keys(_AA_SNAPSHOT_PREFIX):
+        if not key.endswith(suffix):
+            continue
+        cand = _api_cache.get(key)
+        if not cand:
+            continue
+        if best is None or _snapshot_ts(cand) > _snapshot_ts(best):
+            best = cand
+    if best:
+        return best
+    # 4) DB 跨类别兜底（同 limit 最新）
+    try:
+        return _aa_dao().get_latest_by_limit(limit)
+    except Exception as e:
+        logger.warning(f"AA 快照 DB 读取失败(跨类别): {e}")
+    return None
+
+
+def _snapshot_ts(snapshot: dict) -> str:
+    """快照时间戳（用于跨类别兜底时取最新）"""
+    return str((snapshot or {}).get('fetched_at') or '')
 
 
 def _aa_snapshot_set(category: str, limit: int, payload: dict):
-    """保存成功快照，供限流时降级展示"""
+    """保存成功快照（内存热缓存 + DB 持久），供限流/配额烧穿时降级展示"""
     _api_cache.set(f"{_AA_SNAPSHOT_PREFIX}{category}:{limit}", payload, ttl=_AA_SNAPSHOT_TTL)
+    try:
+        _aa_dao().upsert_snapshot(category, limit, payload)
+    except Exception as e:
+        logger.warning(f"AA 快照 DB 写入失败: {e}")
 
 
 def _aa_degraded_payload(snapshot: dict, cooldown_left: int, reason: str) -> dict:
@@ -1369,8 +1494,8 @@ class TrendingServer:
                 if t.is_alive():
                     self.logger.warning("aa_rankings: 外部 API 超时，回退快照")
                     snapshot = _aa_snapshot_get(category, limit)
-                    payload = _aa_degraded_payload(snapshot, _AA_COOLDOWN_SECONDS, '外部 API 超时')
-                    _aa_cooldown_set(category, _AA_FAILURE_TTL, '外部 API 超时')
+                    payload = _aa_degraded_payload(snapshot, _AA_FAILURE_TTL, '外部 API 超时')
+                    _aa_cooldown_set(_AA_FAILURE_TTL, '外部 API 超时', category)
                     result = jsonify({'success': True, 'data': payload})
                     _api_cache.set(cache_key, result, ttl=_AA_FAILURE_TTL)
                     return result
@@ -1385,26 +1510,41 @@ class TrendingServer:
                     payload['quota_used'] = _aa_quota['count']
                     payload['quota_max'] = _AA_DAILY_BUDGET
 
+                # 冷却时长：优先尊重服务端 Retry-After / X-Ratelimit-Reset
+                # （配额彻底耗尽时可达数万秒，绝不能退化成 30min 后又去白撞）
+                cooldown = _aa_cooldown_from_response(payload, category, _AA_COOLDOWN_SECONDS)
+                if payload.get('rate_limited'):
+                    self.logger.warning(
+                        f"aa_rankings: 命中限流 category={category} "
+                        f"retry_after={payload.get('retry_after')} "
+                        f"remaining={payload.get('ratelimit_remaining')} "
+                        f"reset={payload.get('ratelimit_reset')} → 全局冷却 {cooldown}s"
+                    )
+
                 if payload.get('models'):
-                    result = jsonify({'success': True, 'data': payload})
+                    # 部分成功：先写入快照（避免限流期间降级时无数据可展示），
+                    # 再按限流情况进入冷却
                     if payload.get('partial') or payload.get('rate_limited'):
-                        # 部分成功：短缓存（等冷却结束再试），不覆盖完整快照
-                        _aa_cooldown_set(category, _AA_COOLDOWN_SECONDS, 'API 返回不完整')
+                        _aa_snapshot_set(category, limit, payload)
+                        _aa_cooldown_set(cooldown, 'API 返回不完整/限流', category)
+                        result = jsonify({'success': True, 'data': payload})
                         _api_cache.set(cache_key, result, ttl=_AA_FAILURE_TTL)
                     else:
-                        # 完整成功：长缓存 1h + 写入快照
+                        # 完整成功：按类别分级 TTL（general 1h / code·agentic 4h）+ 写入快照
                         _aa_snapshot_set(category, limit, payload)
-                        _api_cache.set(cache_key, result, ttl=_AA_SUCCESS_TTL)
+                        result = jsonify({'success': True, 'data': payload})
+                        _api_cache.set(cache_key, result, ttl=_aa_success_ttl(category))
                     return result
 
                 # 无数据：进入冷却并回退快照
                 reason = payload.get('unavailable_reason') or 'API 拉取失败'
                 if payload.get('rate_limited'):
-                    _aa_cooldown_set(category, _AA_COOLDOWN_SECONDS, reason)
+                    _aa_cooldown_set(cooldown, reason, category)
                 else:
-                    _aa_cooldown_set(category, _AA_FAILURE_TTL, reason)
+                    _aa_cooldown_set(_AA_FAILURE_TTL, reason, category)
                 snapshot = _aa_snapshot_get(category, limit)
-                payload = _aa_degraded_payload(snapshot, _AA_COOLDOWN_SECONDS, reason)
+                payload = _aa_degraded_payload(snapshot, cooldown, reason)
+                # 把限流元信息透传给前端（可展示"约 N 分钟后恢复"）
                 result = jsonify({'success': True, 'data': payload})
                 _api_cache.set(cache_key, result, ttl=_AA_FAILURE_TTL)
                 return result
@@ -1416,32 +1556,42 @@ class TrendingServer:
         @app.route('/api/aa/quota')
         def api_aa_quota():
             """AA 配额与冷却状态（运维观测用）"""
+            from datetime import datetime as _dt
             with _aa_quota_lock:
                 _aa_quota_reset_if_new_day()
                 used, budget, qdate = _aa_quota['count'], _AA_DAILY_BUDGET, _aa_quota['date']
+            cooling, left, reason = _aa_cooldown_check()
             with _aa_cooldown_lock:
                 now = time.time()
                 cooldowns = {
                     c: {'left_seconds': int(v['until'] - now), 'reason': v.get('reason', '')}
                     for c, v in _aa_cooldown.items() if v['until'] > now
                 }
-            snapshots = {}
+            data = {
+                'date': qdate,
+                # 本地计数（含预扣）
+                'quota_used': used,
+                'quota_max': budget,
+                'quota_left': max(0, budget - used),
+                # 全局冷却（Key 级）
+                'cooling': cooling,
+                'cooldown_left_seconds': left,
+                'cooldown_reason': reason,
+                'cooldowns': cooldowns,
+                'snapshots': {},
+            }
+            if cooling and left > 0:
+                reset_at = _dt.fromtimestamp(time.time() + left)
+                data['cooldown_until'] = reset_at.isoformat(timespec='seconds')
             for cat in ('general', 'code', 'agentic'):
                 for lim in (15, 30):
                     snap = _aa_snapshot_get(cat, lim)
                     if snap and snap.get('models'):
-                        snapshots[f'{cat}:{lim}'] = {
+                        data['snapshots'][f'{cat}:{lim}'] = {
                             'models': len(snap['models']),
                             'fetched_at': snap.get('fetched_at'),
                         }
-            return jsonify({'success': True, 'data': {
-                'date': qdate,
-                'quota_used': used,
-                'quota_max': budget,
-                'quota_left': max(0, budget - used),
-                'cooldowns': cooldowns,
-                'snapshots': snapshots,
-            }})
+            return jsonify({'success': True, 'data': data})
 
         # ========== 通用API路由 ==========
 

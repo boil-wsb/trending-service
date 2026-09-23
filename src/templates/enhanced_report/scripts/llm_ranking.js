@@ -30,6 +30,7 @@ const RANKING_SOURCES = {
 };
 
 // ── 获取单类别数据（缓存 + in-flight 去重，key 带数据源前缀）──────────────────────
+// 数据源降级：AA 因配额/限流无数据时，自动回退显示 llm-stats 数据，避免图表空白。
 function getRankingSourceData(source, category, limit) {
     limit = limit || llmCurrentLimit;
     const src = RANKING_SOURCES[source] || RANKING_SOURCES.llm;
@@ -42,10 +43,27 @@ function getRankingSourceData(source, category, limit) {
     }
     llmRankingPending[key] = fetch(src.endpoint + `?limit=${limit}&category=${encodeURIComponent(category)}`)
         .then(r => r.json())
-        .then(json => {
+        .then(async json => {
             if (!json.success) throw new Error(json.error || '接口返回失败');
-            llmRankingCache[key] = json.data;
-            return json.data;
+            let data = json.data;
+            // AA 无数据（配额耗尽/限流/success 但空）→ 自动回退 llm-stats，并打降级标记
+            if (source === 'aa' && (!data.models || data.models.length === 0)) {
+                const llmSrc = RANKING_SOURCES.llm;
+                const fallback = await fetch(llmSrc.endpoint + `?limit=${limit}&category=${encodeURIComponent(category)}`)
+                    .then(r => r.json())
+                    .catch(() => ({ success: false }));
+                if (fallback.success && fallback.data && fallback.data.models && fallback.data.models.length) {
+                    const fb = fallback.data;
+                    fb.fallback_from = 'aa';
+                    fb.fallback_reason = data.unavailable_reason || (data.rate_limited ? 'AA 限流' : 'AA 无数据');
+                    data = fb;
+                    // 回退成功后，把数据源 tab 也定位到 llm-stats，
+                    // 避免「显示 llm 数据但 tab 却停留在 AA」的不一致
+                    applyLlmFallbackSource(category);
+                }
+            }
+            llmRankingCache[key] = data;
+            return data;
         })
         .finally(() => { delete llmRankingPending[key]; });
     return llmRankingPending[key];
@@ -513,18 +531,34 @@ function showLlmStaleNotice(data) {
     }
     if (!el) return;
 
-    if (!data || !data.stale) {
+    if (!data || (!data.stale && !data.fallback_from)) {
         el.style.display = 'none';
         el.textContent = '';
+        return;
+    }
+
+    // 优先体现「回退到 llm-stats」
+    if (data.fallback_from) {
+        el.textContent = `⚠️ ${data.fallback_reason || 'AA 数据源不可用'}，当前显示 llm-stats 排名`;
+        el.style.display = 'block';
         return;
     }
 
     const when = data.fetched_at
         ? new Date(data.fetched_at).toLocaleString('zh-CN', { hour12: false })
         : '最近一次成功拉取';
-    const mins = data.cooldown_left ? Math.ceil(data.cooldown_left / 60) : 0;
-    el.textContent = `⚠️ API 限流，显示 ${when} 的缓存结果`
-        + (mins > 0 ? `，约 ${mins} 分钟后重试` : '');
+    // 冷却时长可能是数小时（配额耗尽时 AA 的 Retry-After 实测可达 7 小时），
+    // 因此按量级选择「分钟 / 小时」展示，避免出现「约 422 分钟后重试」这种难读文案。
+    const secs = data.cooldown_left || 0;
+    let waitText = '';
+    if (secs >= 3600) {
+        const h = Math.floor(secs / 3600);
+        const m = Math.round((secs % 3600) / 60);
+        waitText = `，约 ${h} 小时${m ? ' ' + m + ' 分钟' : ''}后恢复`;
+    } else if (secs > 0) {
+        waitText = `，约 ${Math.ceil(secs / 60)} 分钟后恢复`;
+    }
+    el.textContent = `⚠️ 数据源限流，显示 ${when} 的缓存结果${waitText}`;
     el.style.display = 'block';
 }
 
@@ -533,6 +567,24 @@ function applyLlmSourceUI() {
     document.querySelectorAll('#llm-ranking-source .llm-ranking-tab').forEach(b => {
         b.classList.toggle('active', b.dataset.source === llmSource);
     });
+}
+
+// ── AA 限流回退到 llm-stats 后，同步把数据源 tab 定位到 llm-stats ──────────────
+// 否则会出现「显示 llm-stats 排名但 tab 却停留在 AA」的不一致。
+function applyLlmFallbackSource(currentCategory) {
+    if (llmSource !== 'aa') return;   // 幂等：首个回退成功后 llmSource 已翻转，其余并发回退直接忽略
+    llmSource = 'llm';
+    applyLlmSourceUI();
+    const validInLlm = RANKING_SOURCES.llm.categories.some(([c]) => c === currentCategory);
+    if (validInLlm) {
+        // 当前类别 llm 也支持（general/code）：仅重建类别 tab 高亮，渲染交由调用方继续
+        rebuildCategoryTabs();
+    } else {
+        // llm 独有类别之外的 aa 独有类别（agentic）在 llm 无对应，重置到 general 并重拉
+        llmCurrentCategory = 'general';
+        rebuildCategoryTabs();
+        loadLlmRanking('general');
+    }
 }
 
 // ── 页面加载即拉取（首屏只拉当前类别，其余类别空闲时懒预取）──────────────────────

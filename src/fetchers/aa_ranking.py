@@ -29,18 +29,64 @@ _HEADERS = {
 
 # ── 限流保护（免费社区版配额 100 次/24h，每次全量拉取 = 最多 4 次调用）────────
 _MAX_RETRIES = 2          # 429/5xx 最大重试次数
-_MAX_RETRY_WAIT = 30      # 单次退避上限（秒），避免请求线程长时间阻塞
+_MAX_RETRY_WAIT = 30      # 短时限流的单次退避上限（秒），避免请求线程长时间阻塞
 _DEFAULT_RETRY_WAIT = 5   # 无 Retry-After 头时的基础退避
+# ★ 关键阈值：当 Retry-After 超过此值时，说明配额已彻底耗尽（AA 实测可达 25306s≈7h），
+#   此时「重试」毫无意义 —— 只会在配额为 0 的情况下反复白撞。
+#   正确做法：立即放弃重试，把 Retry-After 上抛，由 server.py 进入等长的全局冷却 + 快照降级。
+_LONG_COOLDOWN_THRESHOLD = 900   # 15 分钟：超过即视为「配额耗尽」而非「瞬时限流」
 
 
-def _retry_after_seconds(resp, attempt: int) -> float:
-    """解析 429 的 Retry-After 头；无则指数退避，并封顶 _MAX_RETRY_WAIT"""
+def _parse_retry_after(resp):
+    """原始解析 Retry-After（不封顶），返回 float 或 None"""
     try:
         raw = resp.headers.get('Retry-After') if resp is not None else None
         if raw:
-            return min(float(str(raw).strip()), _MAX_RETRY_WAIT)
-    except (TypeError, ValueError):
+            v = float(str(raw).strip())
+            return v if v > 0 else None
+    except (TypeError, ValueError, AttributeError):
         pass
+    return None
+
+
+def _extract_ratelimit_meta(resp) -> dict:
+    """提取限流相关响应头（AA 实测提供 X-Ratelimit-Limit/Remaining/Reset）
+
+    这些是判断「配额是否耗尽」的权威依据：
+    - X-Ratelimit-Remaining: 0  → 配额归零
+    - X-Ratelimit-Reset:  Unix 时间戳，配额重置时刻
+    """
+    meta = {}
+    if resp is None:
+        return meta
+    try:
+        h = resp.headers
+    except AttributeError:
+        return meta
+    for src, dst, cast in (
+        ('X-Ratelimit-Limit', 'ratelimit_limit', int),
+        ('X-Ratelimit-Remaining', 'ratelimit_remaining', int),
+        ('X-Ratelimit-Reset', 'ratelimit_reset', int),
+        ('Retry-After', 'retry_after', float),
+    ):
+        raw = h.get(src)
+        if raw is None:
+            continue
+        try:
+            meta[dst] = cast(str(raw).strip())
+        except (TypeError, ValueError):
+            continue
+    return meta
+
+
+def _retry_after_seconds(resp, attempt: int) -> float:
+    """短时限流的退避秒数（封顶 _MAX_RETRY_WAIT）
+
+    仅用于「可重试」的短时限流/5xx。配额耗尽（Retry-After 超阈值）不走此路径。
+    """
+    v = _parse_retry_after(resp)
+    if v is not None:
+        return min(v, _MAX_RETRY_WAIT)
     return min(_DEFAULT_RETRY_WAIT * (2 ** attempt), _MAX_RETRY_WAIT)
 
 
@@ -48,6 +94,7 @@ def datetime_now_iso() -> str:
     """当前本地时间 ISO 字符串（秒精度），供前端展示数据拉取时间"""
     from datetime import datetime
     return datetime.now().isoformat(timespec='seconds')
+
 
 # 指数类别 → 响应字段映射（AA 仅提供这 3 个综合指数）
 CATEGORY_TO_INDEX = {
@@ -100,18 +147,25 @@ def _is_domestic(creator: str) -> bool:
 def _fetch_all_models(api_key: str, max_pages: int = 4) -> tuple:
     """拉取全量模型列表（AA 分页 page_size=200，跟随 has_more，最多 max_pages 页）
 
-    容错策略（免费配额 100 次/24h，易撞 429）：
-    - 某一页 429 时退避重试（最多 _MAX_RETRIES 次），仍失败则「保住已成功页」返回
-      已拿到的数据，而不是整体丢弃（旧逻辑任一页失败即 return None）。
-    - 任一分页失败但已有数据时，返回 (models, True) 标记 partial=True。
+    容错策略（免费配额 100 次/24h，429 是常态）：
+    - **配额耗尽短路**：若 429 的 Retry-After 超过 _LONG_COOLDOWN_THRESHOLD，
+      说明额度已彻底用尽（实测可达 25306s≈7h）。此时**立即放弃、不再重试**，
+      把 Retry-After / X-Ratelimit-* 上抛给调用方进入等长的全局冷却。
+      旧实现「封顶 30s 后重试」在配额为 0 时纯属白撞。
+    - **短时限流**：Retry-After 较小时按退避重试（最多 _MAX_RETRIES 次）。
+    - **保住已成功页**：单页最终失败时保留已拿到的数据，不再整体丢弃。
 
     Returns:
-        (all_models, partial)：partial=True 表示结果不完整（触发重试/限流/异常）
-        无任何数据时返回 ([], True)
+        (all_models, partial, meta)
+        - all_models: 已成功获取的模型列表
+        - partial: True 表示结果不完整
+        - meta: 限流元信息 dict，可能含 retry_after / ratelimit_limit /
+                ratelimit_remaining / ratelimit_reset / rate_limited
     """
     all_models: List[dict] = []
     page = 1
     headers = dict(_HEADERS, **{'x-api-key': api_key})
+    meta: Dict = {}
 
     while True:
         # 单页拉取 + 429/5xx 退避重试
@@ -121,14 +175,30 @@ def _fetch_all_models(api_key: str, max_pages: int = 4) -> tuple:
             try:
                 r = requests.get(f"{_AA_BASE_URL}?page={page}", headers=headers, timeout=20)
                 if r.status_code == 429:
+                    rl = _extract_ratelimit_meta(r)
+                    raw_wait = _parse_retry_after(r)
+                    # ★ 配额耗尽：不做无意义重试，直接短路上抛限流信息
+                    if raw_wait is not None and raw_wait > _LONG_COOLDOWN_THRESHOLD:
+                        meta.update(rl)
+                        meta['rate_limited'] = True
+                        meta.setdefault('retry_after', raw_wait)
+                        logger.warning(
+                            f"AA 第{page}页 429 且 Retry-After={raw_wait:.0f}s "
+                            f"（>{_LONG_COOLDOWN_THRESHOLD}s），判定为配额耗尽，"
+                            f"放弃重试；remaining={rl.get('ratelimit_remaining')} "
+                            f"reset={rl.get('ratelimit_reset')}"
+                        )
+                        return all_models, True, meta
                     wait = _retry_after_seconds(r, attempt)
                     last_err = f"status=429 wait={wait:.0f}s"
                     logger.warning(f"AA 第{page}页限流(429)，{wait:.0f}s 后重试 "
                                    f"({attempt + 1}/{_MAX_RETRIES + 1})")
-                    if attempt < _MAX_RETRIES:
-                        time.sleep(wait)
-                        continue
-                    break
+                    if attempt >= _MAX_RETRIES:
+                        meta.update(rl)
+                        meta['rate_limited'] = True
+                        break
+                    time.sleep(wait)
+                    continue
                 r.raise_for_status()
                 data = r.json()
                 break
@@ -147,7 +217,7 @@ def _fetch_all_models(api_key: str, max_pages: int = 4) -> tuple:
             # 该页彻底失败：保住已拿到的数据，标记 partial
             logger.warning(f"AA 第{page}页最终失败（{last_err}），"
                            f"已获取 {len(all_models)} 条模型，返回部分结果")
-            return all_models, True
+            return all_models, True, meta
 
         all_models.extend(data.get('data') or [])
         pagination = data.get('pagination') or {}
@@ -158,7 +228,7 @@ def _fetch_all_models(api_key: str, max_pages: int = 4) -> tuple:
             logger.warning(f"AA 分页已达安全上限 {max_pages} 页，停止拉取")
             break
 
-    return all_models, False
+    return all_models, False, meta
 
 
 def fetch_aa_rankings(limit: int = 15, category: str = DEFAULT_CATEGORY) -> Dict:
@@ -208,10 +278,23 @@ def fetch_aa_rankings(limit: int = 15, category: str = DEFAULT_CATEGORY) -> Dict
         result['unavailable_reason'] = 'requests 库未安装'
         return result
 
-    raw_models, partial = _fetch_all_models(api_key)
-    if partial and not raw_models:
-        result['unavailable_reason'] = 'API 拉取失败'
+    # 只取第一页（约 200 条候选，排序后取 TOP 条数足够；调用次数 4→1，大幅省配额）
+    raw_models, partial, meta = _fetch_all_models(api_key, max_pages=1)
+    # 限流元信息上抛（供 server.py 决定全局冷却时长）
+    for k in ('retry_after', 'ratelimit_limit', 'ratelimit_remaining', 'ratelimit_reset'):
+        if meta.get(k) is not None:
+            result[k] = meta[k]
+    if meta.get('rate_limited'):
         result['rate_limited'] = True
+
+    if partial and not raw_models:
+        # 区分「配额耗尽」与「一般拉取失败」，让前端提示更准确
+        result['unavailable_reason'] = (
+            'API 配额已耗尽（限流）' if meta.get('rate_limited') else 'API 拉取失败'
+        )
+        result['partial'] = True
+        if meta.get('rate_limited'):
+            result['rate_limited'] = True
         return result
 
     # 过滤有指数值的模型，按指数降序排序
@@ -239,7 +322,15 @@ def fetch_aa_rankings(limit: int = 15, category: str = DEFAULT_CATEGORY) -> Dict
         })
 
     if not scored:
-        result['unavailable_reason'] = 'API 返回空数据'
+        # 分页中途失败时（partial=True）虽已有原始数据但可能全部缺该指数字段，
+        # 必须把 partial / rate_limited 一并上抛，否则调用方会把「部分失败」误判为「完整成功但无数据」
+        result['unavailable_reason'] = (
+            'API 配额已耗尽（限流）' if meta.get('rate_limited')
+            else ('API 拉取不完整，且无匹配数据' if partial else 'API 返回空数据')
+        )
+        result['partial'] = bool(partial)
+        if partial:
+            result['rate_limited'] = True
         return result
 
     # 按分数降序
@@ -270,8 +361,10 @@ def fetch_aa_rankings(limit: int = 15, category: str = DEFAULT_CATEGORY) -> Dict
 
     result['models'] = models
     result['partial'] = partial
-    result['rate_limited'] = bool(partial and result.get('rate_limited'))
+    # 不要覆盖 meta 带来的 rate_limited：部分成功也可能由限流造成
+    result['rate_limited'] = bool(result.get('rate_limited') or partial)
     result['fetched_at'] = datetime_now_iso()
     logger.info(f"AA 排名解析完成 category={category} total={len(models)} "
-                f"domestic={sum(1 for x in models if x['is_domestic'])} partial={partial}")
+                f"domestic={sum(1 for x in models if x['is_domestic'])} partial={partial} "
+                f"remaining={result.get('ratelimit_remaining')}")
     return result
