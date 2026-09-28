@@ -235,6 +235,14 @@ _api_cache = TTLCache()
 #      就说明整个 Key 的额度已耗尽 —— 冷却必须作用于**全局**，否则其他类别
 #      会继续白撞，把日志刷满 429 且毫无收益。
 #    key = '__global__'（历史按 category 的 key 仍兼容读取）
+# ── AA 全量原始模型缓存（2026-09-28 重构）────────────────────────────
+# general/code/agentic 只是 evaluations 里不同的指数字段：全量原始列表拉一次
+# （4 页 = 4 次调用）即可派生全部类别排名。raw 缓存 TTL 内切换类别/条数
+# 均为 0 次外部调用，每轮完整刷新成本从 3 类别×4 次 降为 4 次。
+_AA_RAW_CACHE_KEY = 'aa_raw_models'
+_AA_RAW_TTL = 3600                     # 1h：与定时预热节奏（每小时，schedule.fetch_aa_raw）对齐，
+                                       # 保证请求路径几乎总能命中缓存、零外部调用
+
 _AA_SNAPSHOT_PREFIX = 'aa_snapshot:'
 _AA_SNAPSHOT_TTL = 30 * 24 * 3600      # 快照保留 30 天
 _AA_COOLDOWN_SECONDS = 1800            # 默认冷却 30min（无 Retry-After 时使用）
@@ -256,8 +264,14 @@ def _aa_success_ttl(category: str = '') -> int:
 # 免费配额 100 次/24h。此处按「自然日累计外部请求次数」设软上限：
 # 达到 _AA_DAILY_BUDGET 后不再发起任何外部请求，直接走快照，
 # 把剩余配额留给次日，避免像 2026-09-22 那样半天烧穿全天配额。
-_AA_DAILY_BUDGET = 80                  # 每日外部请求次数上限（留 20 次余量给真实业务）
-_AA_PAGES_PER_FETCH = 1                # 只取第一页（约 200 条候选），单次拉取=1 次调用
+_AA_DAILY_BUDGET = 100                 # 每日外部请求次数上限（2026-09-28 应用户要求 80→100，
+                                       # 与 AA 真实免费配额持平：每小时预热 24×4=96 次可全天跑满；
+                                       # 注意仅剩 ~4 次余量，冷启动/诊断等额外消耗将触发真实 429，
+                                       # 由 Retry-After 全局冷却兜底）
+_AA_PAGES_PER_FETCH = 4                # 全量拉取 = 4 页（跟随 has_more，AA 当前共 4 页≈674 条）
+                                       # ★ AA 默认排序不按指数分，只拉 1 页会导致 TOP-N 系统性
+                                       #   错位（2026-09-28 实锤）；三类别共享一次拉取，见上方
+                                       #   _AA_RAW_CACHE_KEY 说明
 _aa_quota = {'date': '', 'count': 0}   # {'date': 'YYYY-MM-DD', 'count': int}
 _aa_quota_lock = threading.Lock()
 
@@ -429,6 +443,116 @@ def _aa_snapshot_set(category: str, limit: int, payload: dict):
         _aa_dao().upsert_snapshot(category, limit, payload)
     except Exception as e:
         logger.warning(f"AA 快照 DB 写入失败: {e}")
+
+
+from typing import Optional
+
+
+# ── AA 全量原始拉取（请求路径与定时预热共用，防止重复消耗配额）──────────
+_aa_raw_fetch_state_lock = threading.Lock()
+_aa_raw_fetching = False
+
+
+def _aa_try_mark_fetching() -> bool:
+    """标记「正在拉取 AA 全量」；已有线程在拉时返回 False（并发去重）"""
+    global _aa_raw_fetching
+    with _aa_raw_fetch_state_lock:
+        if _aa_raw_fetching:
+            return False
+        _aa_raw_fetching = True
+        return True
+
+
+def _aa_clear_fetching():
+    global _aa_raw_fetching
+    with _aa_raw_fetch_state_lock:
+        _aa_raw_fetching = False
+
+
+def aa_refresh_raw_models() -> Optional[dict]:
+    """拉取 AA 全量原始模型（4 页，跟随 has_more）并写入三类别共享缓存
+
+    /api/aa/rankings 冷启动路径与定时预热任务（scheduler.fetch_aa_raw）共用本函数：
+    - 并发去重：已有线程在拉取时返回 {'skipped': True}，调用方应读缓存或等待
+      （_aa_wait_for_raw），避免两路同时拉取双倍消耗配额
+    - 日配额闸门：_aa_quota_check() 判定额度不足时返回 {'quota_exhausted': True}
+      且不发任何外部请求（每小时预热在 80 次用尽后靠此跳过，直至次日归零）
+    - 配额：发起请求前预扣 _AA_PAGES_PER_FETCH(4)（失败/限流同样消耗真实配额，
+      必须预扣）；AA 分页数增长时按 pages_fetched 实际值补记差额
+    - 拿到数据即写缓存 _AA_RAW_CACHE_KEY（TTL _AA_RAW_TTL，3h）
+    - 返回 raw payload（models 可能为空且带 unavailable_reason）；
+      worker 异常/超时返回 None
+    """
+    if not _aa_try_mark_fetching():
+        return {'skipped': True}
+    try:
+        from src.fetchers.aa_ranking import fetch_aa_raw
+
+        # 每日配额闸门：额度用尽时不发任何外部请求（定时预热与请求路径一律遵守，
+        # 防止每小时预热在闸门耗尽后继续白撞真实配额）
+        quota_left, quota_used, quota_max = _aa_quota_check()
+        if not quota_left:
+            return {
+                'quota_exhausted': True,
+                'models': [],
+                'unavailable_reason': f'今日配额已用尽（{quota_used}/{quota_max}）',
+            }
+
+        quota_after = _aa_quota_consume(_AA_PAGES_PER_FETCH)
+        if quota_after > _AA_DAILY_BUDGET:
+            logger.warning(
+                f"aa_raw: 本次请求后额度已超支 {quota_after}/{_AA_DAILY_BUDGET}，"
+                f"后续将全部走快照"
+            )
+
+        def _worker(q):
+            try:
+                q.put(fetch_aa_raw())
+            except Exception as ex:
+                q.put({'error': str(ex)})
+
+        q = queue.Queue()
+        t = threading.Thread(target=_worker, args=(q,))
+        t.daemon = True
+        t.start()
+        # 4 页串行 + 429 退避重试：旧值 40s 是按单页设计的，4 页正常路径即可达 30-60s
+        t.join(timeout=90)
+        if t.is_alive():
+            logger.warning("aa_raw: 外部 API 拉取超时（>90s），放弃等待")
+            return None
+
+        raw = q.get_nowait() if not q.empty() else None
+        if raw is None or 'error' in raw:
+            logger.error(f"aa_raw 拉取异常: {raw.get('error') if raw else '无结果'}")
+            return None
+
+        # 配额对账：AA 分页数增长时（pages_fetched > 预扣值）按真实消耗补记
+        actual_pages = int(raw.get('pages_fetched') or 0)
+        if actual_pages > _AA_PAGES_PER_FETCH:
+            _aa_quota_consume(actual_pages - _AA_PAGES_PER_FETCH)
+            logger.warning(
+                f"aa_raw: AA 分页数增长 actual={actual_pages} "
+                f"> 预扣 {_AA_PAGES_PER_FETCH}，已补记配额"
+            )
+
+        if raw.get('models'):
+            # 拿到数据即写缓存（三类别共用；TTL 内切类别/条数 0 次外部调用）
+            _api_cache.set(_AA_RAW_CACHE_KEY, raw, ttl=_AA_RAW_TTL)
+        return raw
+    finally:
+        _aa_clear_fetching()
+
+
+def _aa_wait_for_raw(max_wait: int = 100) -> Optional[dict]:
+    """等待其它线程（定时预热/并发请求）完成全量拉取并写入缓存"""
+    waited = 0
+    while waited < max_wait:
+        time.sleep(2)
+        waited += 2
+        raw = _api_cache.get(_AA_RAW_CACHE_KEY)
+        if raw:
+            return raw
+    return None
 
 
 def _aa_degraded_payload(snapshot: dict, cooldown_left: int, reason: str) -> dict:
@@ -1422,9 +1546,12 @@ class TrendingServer:
         def api_aa_rankings():
             """AI 模型排名 TOP N（Artificial Analysis）
 
-            免费配额仅 100 次/24h，每次全量拉取 = 最多 4 次调用，因此：
-            - 成功结果缓存 1h，失败/限流结果缓存 5min（避免每请求都打外部 API）
-            - 撞到 429 后按类别冷却 30min，冷却期内直接走快照
+            免费配额仅 100 次/24h；AA 默认排序不按指数分，必须拉全 4 页（≈674 条）
+            再排序，否则 TOP-N 系统性错位（2026-09-28 实锤）。配额策略：
+            - 全量原始模型三类别共享一份（_AA_RAW_CACHE_KEY，TTL 1h）：
+              每轮刷新 = 4 次调用，TTL 内切类别/条数均为 0 次外部调用
+            - 派生排名成功缓存 1h/4h，失败/限流结果缓存 5min
+            - 撞到 429 后全局冷却，冷却期内直接走快照
             - 最终降级：返回最近一次成功快照 + 「数据更新于 / 限流提示」，不再空白报错
             """
             limit = request.args.get('limit', 15, type=int) or 15
@@ -1465,67 +1592,62 @@ class TrendingServer:
                 return result
 
             try:
-                from src.fetchers.aa_ranking import fetch_aa_rankings
+                from src.fetchers.aa_ranking import rank_models_from_raw
 
-                # 消耗额度：在发起请求「之前」按上限 4 页预扣。
-                # 必须在请求前扣：失败/限流/空数据同样消耗了真实配额，
-                # 若只在成功路径记账，失败时计数偏低、闸门会失效（实际已打穿配额）。
-                quota_after = _aa_quota_consume(_AA_PAGES_PER_FETCH)
-                if quota_after > _AA_DAILY_BUDGET:
-                    self.logger.warning(
-                        f"aa_rankings: 本次请求后额度已超支 {quota_after}/{_AA_DAILY_BUDGET}，"
-                        f"后续将全部走快照"
-                    )
+                # ── 第 1 步：获取全量原始模型（三类别共享，TTL 内 0 次外部调用）──
+                # 正常情况由定时任务每小时预热（schedule.fetch_aa_raw），此处直接命中缓存；
+                # 冷启动/预热失败时请求路径自行拉取（并发去重，不会与预热双倍消耗配额）
+                raw = _api_cache.get(_AA_RAW_CACHE_KEY)
+                if raw is None:
+                    raw = aa_refresh_raw_models()
+                    if raw is not None and raw.get('skipped'):
+                        # 定时预热/并发请求正在拉取：等待其写入缓存
+                        raw = _aa_wait_for_raw(max_wait=100)
 
-                # 线程 + 队列超时保护，避免外部 API 卡住请求
-                # （含 429 退避重试，故超时放宽到 40s）
-                def _worker(q):
-                    try:
-                        q.put(fetch_aa_rankings(limit=limit, category=category))
-                    except Exception as ex:
-                        q.put({'error': str(ex)})
-
-                q = queue.Queue()
-                t = threading.Thread(target=_worker, args=(q,))
-                t.daemon = True
-                t.start()
-                t.join(timeout=40)
-
-                if t.is_alive():
-                    self.logger.warning("aa_rankings: 外部 API 超时，回退快照")
+                if raw is None or not raw.get('models'):
+                    # 整体失败（无任何数据）：进入冷却并回退快照
+                    reason = (raw or {}).get('unavailable_reason') or '外部 API 拉取失败/超时'
+                    rate_limited = bool(raw is not None and raw.get('rate_limited'))
+                    quota_exhausted = bool(raw is not None and raw.get('quota_exhausted'))
+                    if rate_limited:
+                        cooldown = _aa_cooldown_from_response(raw, category, _AA_COOLDOWN_SECONDS)
+                        self.logger.warning(
+                            f"aa_rankings: 命中限流 category={category} "
+                            f"retry_after={raw.get('retry_after')} "
+                            f"remaining={raw.get('ratelimit_remaining')} "
+                            f"reset={raw.get('ratelimit_reset')} → 全局冷却 {cooldown}s"
+                        )
+                        _aa_cooldown_set(cooldown, reason, category)
+                    elif quota_exhausted:
+                        # 日配额闸门已挡住外部请求，无需再叠冷却
+                        cooldown = 0
+                    else:
+                        cooldown = _AA_FAILURE_TTL
+                        _aa_cooldown_set(_AA_FAILURE_TTL, reason, category)
                     snapshot = _aa_snapshot_get(category, limit)
-                    payload = _aa_degraded_payload(snapshot, _AA_FAILURE_TTL, '外部 API 超时')
-                    _aa_cooldown_set(_AA_FAILURE_TTL, '外部 API 超时', category)
+                    payload = _aa_degraded_payload(snapshot, cooldown, reason)
                     result = jsonify({'success': True, 'data': payload})
                     _api_cache.set(cache_key, result, ttl=_AA_FAILURE_TTL)
                     return result
 
-                payload = q.get_nowait() if not q.empty() else {}
-                if 'error' in payload:
-                    self.logger.error(f"aa_rankings error: {payload['error']}")
-                    return jsonify({'success': False, 'error': payload['error']}), 500
+                # ── 第 2 步：从全量原始派生当前类别排名（纯计算，0 次外部调用）──
+                payload = rank_models_from_raw(
+                    raw.get('models') or [], limit, category, raw_meta=raw
+                )
 
                 # 附带配额使用情况，便于前端/运维观测
                 with _aa_quota_lock:
                     payload['quota_used'] = _aa_quota['count']
                     payload['quota_max'] = _AA_DAILY_BUDGET
 
-                # 冷却时长：优先尊重服务端 Retry-After / X-Ratelimit-Reset
-                # （配额彻底耗尽时可达数万秒，绝不能退化成 30min 后又去白撞）
-                cooldown = _aa_cooldown_from_response(payload, category, _AA_COOLDOWN_SECONDS)
-                if payload.get('rate_limited'):
-                    self.logger.warning(
-                        f"aa_rankings: 命中限流 category={category} "
-                        f"retry_after={payload.get('retry_after')} "
-                        f"remaining={payload.get('ratelimit_remaining')} "
-                        f"reset={payload.get('ratelimit_reset')} → 全局冷却 {cooldown}s"
-                    )
-
                 if payload.get('models'):
                     # 部分成功：先写入快照（避免限流期间降级时无数据可展示），
                     # 再按限流情况进入冷却
                     if payload.get('partial') or payload.get('rate_limited'):
                         _aa_snapshot_set(category, limit, payload)
+                        cooldown = _aa_cooldown_from_response(
+                            payload, category, _AA_COOLDOWN_SECONDS
+                        )
                         _aa_cooldown_set(cooldown, 'API 返回不完整/限流', category)
                         result = jsonify({'success': True, 'data': payload})
                         _api_cache.set(cache_key, result, ttl=_AA_FAILURE_TTL)
@@ -1536,14 +1658,11 @@ class TrendingServer:
                         _api_cache.set(cache_key, result, ttl=_aa_success_ttl(category))
                     return result
 
-                # 无数据：进入冷却并回退快照
-                reason = payload.get('unavailable_reason') or 'API 拉取失败'
-                if payload.get('rate_limited'):
-                    _aa_cooldown_set(cooldown, reason, category)
-                else:
-                    _aa_cooldown_set(_AA_FAILURE_TTL, reason, category)
+                # raw 有数据但该类别无匹配（如全部缺该指数字段）：短冷却 + 快照降级
+                reason = payload.get('unavailable_reason') or 'API 返回空数据'
+                _aa_cooldown_set(_AA_FAILURE_TTL, reason, category)
                 snapshot = _aa_snapshot_get(category, limit)
-                payload = _aa_degraded_payload(snapshot, cooldown, reason)
+                payload = _aa_degraded_payload(snapshot, _AA_FAILURE_TTL, reason)
                 # 把限流元信息透传给前端（可展示"约 N 分钟后恢复"）
                 result = jsonify({'success': True, 'data': payload})
                 _api_cache.set(cache_key, result, ttl=_AA_FAILURE_TTL)

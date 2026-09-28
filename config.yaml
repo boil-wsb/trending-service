@@ -12,6 +12,12 @@ server:
   debug: false
   threaded: true
 
+# Artificial Analysis 模型排名（数据源配置）
+aa_ranking:
+  max_pages: 4   # 单次全量拉取最大页数（跟随 has_more；AA 当前共 4 页 ≈ 674 条模型）。
+                 # ★ AA 默认排序不按指数分，页数不足会导致 TOP-N 系统性错位。
+                 # AA 分页数增长时调大此值即可（日志会出现 truncated 告警）。
+
 ui:
   default_theme: dark  # 默认主题选项: light 或 dark
 
@@ -139,6 +145,12 @@ schedule:
       - { start: "13:00", end: "15:20" }
     # 交易日期：1=周一 ... 7=周日
     trading_days: [1, 2, 3, 4, 5]
+  fetch_aa_raw:
+    schedule: "0 * * * *"
+    enabled: true
+    description: "AA 全量模型排名刷新（每小时 1 次 = 1 次调用，只取第 1 页；全天 24 次，
+                  在 100 次日配额闸门内可全天跑满，闸门仅兜底防超发）"
+    timezone: Asia/Shanghai
 
 logging:
   level: INFO

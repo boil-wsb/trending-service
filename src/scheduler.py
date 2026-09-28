@@ -289,6 +289,19 @@ class TrendingTaskScheduler(TaskScheduler):
             enabled=True
         )
 
+        # AA 全量模型排名：每小时拉一次全量（只取第 1 页 = 1 次调用，每日 ≤24 次，
+        # 远低于 80 次配额闸门）。结果写入 server._api_cache 共享缓存，
+        # general/code/agentic 三类别派生排名时零外部调用。
+        self.add_task(
+            name='fetch_aa_raw',
+            schedule=SCHEDULE.get('fetch_aa_raw', {}).get('schedule', '0 * * * *'),
+            task_func=self._fetch_aa_raw_models,
+            enabled=SCHEDULE.get('fetch_aa_raw', {}).get('enabled', True)
+        )
+
+        # 启动时异步预热 AA 全量模型（一次性 daemon 线程，避免服务重启后页面冷启动白等）
+        Thread(target=self._fetch_aa_raw_models, daemon=True).start()
+
         self.add_task(
             name='cleanup_old_data',
             schedule='0 3 * * *',
@@ -303,6 +316,31 @@ class TrendingTaskScheduler(TaskScheduler):
         # 启动时异步回填近一年 VIX/VXN 历史数据（一次性，daemon 线程）
         self._vix_backfill_started = False
         Thread(target=self._backfill_vix_on_startup, daemon=True).start()
+
+    def _fetch_aa_raw_models(self):
+        """AA 全量原始模型刷新：写入 server._api_cache 共享缓存（三类别共用一次拉取）
+
+        server.aa_refresh_raw_models() 自带并发去重与配额预扣/对账；
+        与页面请求路径共用同一函数，不会双倍消耗配额。
+        """
+        try:
+            from src import server as server_mod
+            raw = server_mod.aa_refresh_raw_models()
+            if raw and raw.get('skipped'):
+                self.logger.info("AA 全量模型刷新跳过：已有线程在拉取")
+            elif raw and raw.get('quota_exhausted'):
+                self.logger.info(f"AA 全量模型刷新跳过：{raw.get('unavailable_reason')}，"
+                                 f"沿用快照至次日配额归零")
+            elif raw and raw.get('models'):
+                self.logger.info(f"AA 全量模型刷新完成 models={len(raw['models'])} "
+                                 f"pages={raw.get('pages_fetched')} "
+                                 f"partial={raw.get('partial')} "
+                                 f"truncated={raw.get('truncated')}")
+            else:
+                self.logger.warning(f"AA 全量模型刷新失败: "
+                                    f"{(raw or {}).get('unavailable_reason') or '无结果/超时'}")
+        except Exception as e:
+            self.logger.error(f"AA 全量模型刷新异常: {e}")
 
     def _run_scheduler(self):
         self.logger.info("调度器开始运行（集成重试机制）...")
