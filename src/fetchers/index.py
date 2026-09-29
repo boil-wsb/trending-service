@@ -7,6 +7,8 @@
 
 import sys
 import math
+import json
+import urllib.request
 from typing import List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
@@ -954,6 +956,223 @@ class IndexFetcher:
             prev_close = close_val
 
         return result
+
+    # ==================== 分时数据（当日，实时拉取，不落库） ====================
+
+    # 腾讯分时接口（市场指数主源）：返回当日 1 分钟点 "HHMM 价格 累计量 累计额"
+    _TX_MINUTE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={symbol}'
+    _TX_HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126 Safari/537.36',
+        'Referer': 'https://gu.qq.com/',
+    }
+    # 新浪 5 分钟 K（市场指数备源）：datalen=60 覆盖近几个交易日，截出最新一天
+    _SINA_MINUTE_URL = ('https://quotes.sina.cn/cn/api/json_v2.php/CN_MarketDataService.getKLineData'
+                        '?symbol={symbol}&scale=5&ma=no&datalen=60')
+
+    def fetch_minute_lines(self, code: str) -> Dict:
+        """获取当日分时数据（不落库，仅供前端分时图展示）
+
+        数据源分派（按 normalize_symbol 识别指数类型）：
+        - 市场指数：腾讯分时 1 分钟（主源），失败回退新浪 5 分钟 K 截当日
+        - 申万行业指数：akshare index_min_sw（10 秒粒度，仅价格，无量额）
+        - 概念板块：无可用免费分时源，返回 supported=False（前端置灰分时按钮）
+
+        注意：指数分时的「累计额/累计量」是成分股平均股价，与指数点位差一个
+        数量级，不可作为均价线（2026-09-28 实测）；均价线用分钟价累计平均近似。
+
+        Returns:
+            dict: {
+                'supported': bool,           # 该代码类型是否支持分时
+                'times': [...],              # 时间点（'HH:MM' 或 'HH:MM:SS'，升序）
+                'price': [...],              # 价格点（与 times 等长）
+                'avg_price': list | None,    # 均价线（累计平均近似；申万/新浪 None 外均提供）
+                'volume': list | None,       # 每点成交量（腾讯累计量差分）
+                'interval_seconds': int,     # 相邻点名义间隔（60=1分钟 / 300=5分钟 / 10=10秒）
+                'date': str | None,          # 分时所属交易日（缺失时由 server 层从 DB 补）
+                'prev_close': None,          # 占位：由 server 层从 DB 日线补
+            }
+        Raises:
+            RuntimeError: 支持分时的代码拉取失败（腾讯+新浪均失败 / 申万失败）
+        """
+        sym = normalize_symbol(code)
+
+        if sym.asset_type == AssetType.MARKET_INDEX:
+            try:
+                data = self._fetch_minute_tx(code)
+                if data:
+                    data['supported'] = True
+                    return data
+                self.logger.warning(f"腾讯分时数据为空，回退新浪源: {code}")
+            except Exception as e:
+                self.logger.warning(f"腾讯分时拉取失败，回退新浪源: {code}, {e}")
+            try:
+                data = self._fetch_minute_sina(code)
+                if data:
+                    data['supported'] = True
+                    return data
+            except Exception as e:
+                self.logger.error(f"新浪分时拉取失败: {code}, {e}")
+            raise RuntimeError(f"市场指数分时数据拉取失败（腾讯+新浪均失败）: {code}")
+
+        if sym.asset_type == AssetType.INDUSTRY_INDEX:
+            try:
+                data = self._fetch_minute_sw(code)
+                if data:
+                    data['supported'] = True
+                    return data
+            except Exception as e:
+                self.logger.error(f"申万分时拉取失败: {code}, {e}")
+            raise RuntimeError(f"申万行业分时数据拉取失败: {code}")
+
+        # 概念板块（及其他未知类型）：无可用分时源
+        return {
+            'supported': False, 'times': [], 'price': [], 'avg_price': None,
+            'volume': None, 'interval_seconds': 60, 'date': None, 'prev_close': None,
+        }
+
+    @staticmethod
+    def _cum_avg_price(price: List[float]) -> List[float]:
+        """分钟价累计平均（均价线近似）"""
+        result = []
+        acc = 0.0
+        for i, p in enumerate(price):
+            acc += p
+            result.append(round(acc / (i + 1), 4))
+        return result
+
+    def _fetch_minute_tx(self, code: str) -> Optional[Dict]:
+        """腾讯分时 1 分钟（市场指数主源）
+
+        响应结构：data[code].data.data = ["0930 3878.41 3901496 6172666205.40", ...]
+        （HHMM 价格 累计量(手) 累计额(元)）；日期在 data[code].data.date（形如 '20260928'）
+        """
+        symbol = self._code_to_sina_symbol(code)
+        req = urllib.request.Request(
+            self._TX_MINUTE_URL.format(symbol=symbol), headers=self._TX_HEADERS)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode('utf-8', errors='replace'))
+
+        node = (payload.get('data') or {}).get(symbol) or {}
+        data_node = node.get('data') or {}
+        rows = data_node.get('data') or []
+        if not isinstance(rows, list) or not rows:
+            return None
+
+        times: List[str] = []
+        price: List[float] = []
+        cum_vol: List[float] = []
+        for row in rows:
+            parts = str(row).strip().split(' ')
+            if len(parts) < 2:
+                continue
+            hhmm = parts[0]
+            p = _safe_float(parts[1], 0.0)
+            if len(hhmm) != 4 or not hhmm.isdigit() or p <= 0:
+                continue
+            times.append(f"{hhmm[:2]}:{hhmm[2:]}")
+            price.append(p)
+            cum_vol.append(_safe_float(parts[2], 0.0) if len(parts) > 2 else 0.0)
+        if not price:
+            return None
+
+        # 累计量差分为每分钟成交量（负值防护：跨日/数据异常时截 0）
+        volume = [max(0.0, cum_vol[0])]
+        for i in range(1, len(cum_vol)):
+            volume.append(max(0.0, cum_vol[i] - cum_vol[i - 1]))
+
+        # 日期字段容错提取
+        date_str = None
+        raw_date = str(data_node.get('date') or '').strip()
+        if len(raw_date) == 8 and raw_date.isdigit():
+            date_str = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+
+        return {
+            'times': times,
+            'price': price,
+            'avg_price': self._cum_avg_price(price),
+            'volume': [round(v, 2) for v in volume],
+            'interval_seconds': 60,
+            'date': date_str,
+            'prev_close': None,
+        }
+
+    def _fetch_minute_sina(self, code: str) -> Optional[Dict]:
+        """新浪 5 分钟 K 截当日（市场指数备源，腾讯失败时回退）"""
+        symbol = self._code_to_sina_symbol(code)
+        req = urllib.request.Request(
+            self._SINA_MINUTE_URL.format(symbol=symbol), headers=self._TX_HEADERS)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode('utf-8', errors='replace'))
+
+        records = payload if isinstance(payload, list) else []
+        if not records:
+            return None
+
+        # 取最新交易日（datalen=60 会带近几个交易日）
+        latest_day = max(str(r.get('day', ''))[:10] for r in records)
+        pairs = []
+        for r in records:
+            day = str(r.get('day', ''))
+            if day[:10] != latest_day:
+                continue
+            p = _safe_float(r.get('close'), 0.0)
+            if len(day) >= 16 and p > 0:
+                pairs.append((day[11:16], p, _safe_float(r.get('volume'), 0.0)))
+        if not pairs:
+            return None
+
+        times = [t for t, _, _ in pairs]
+        price = [p for _, p, _ in pairs]
+        volume = [v for _, _, v in pairs]
+
+        return {
+            'times': times,
+            'price': price,
+            'avg_price': self._cum_avg_price(price),
+            'volume': volume,
+            'interval_seconds': 300,
+            'date': latest_day,
+            'prev_close': None,
+        }
+
+    def _fetch_minute_sw(self, code: str) -> Optional[Dict]:
+        """申万行业分时（akshare index_min_sw，10 秒粒度，仅价格无量额）
+
+        返回列：代码/名称/价格/日期/时间（时间 'HH:MM:SS'，日期 datetime.date）
+        """
+        try:
+            import akshare as ak
+        except ImportError:
+            self.logger.error("AKShare 未安装，无法获取申万分时数据")
+            return None
+
+        df = ak.index_min_sw(symbol=code)
+        if df is None or df.empty:
+            return None
+
+        pairs = []
+        date_str = None
+        for _, row in df.iterrows():
+            t = str(row.get('时间', '')).strip()
+            p = _safe_float(row.get('价格'), 0.0)
+            if not t or p <= 0:
+                continue
+            pairs.append((t, p))
+            if date_str is None:
+                d = row.get('日期')
+                date_str = d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else (str(d) if d else None)
+        if not pairs:
+            return None
+
+        return {
+            'times': [t for t, _ in pairs],
+            'price': [p for _, p in pairs],
+            'avg_price': None,
+            'volume': None,
+            'interval_seconds': 10,
+            'date': date_str,
+            'prev_close': None,
+        }
 
     def _code_to_sina_symbol(self, code: str) -> str:
         """根据指数代码转换为新浪/腾讯源代码（sh/sz 前缀）"""

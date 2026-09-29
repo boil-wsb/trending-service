@@ -333,7 +333,7 @@
                                 </div>
                                 ${renderDailyTrend(item)}
                                 ${renderDescription(item.description, sourceName, index)}
-                                ${item.keywords && item.keywords.length > 0 ? `<div class="item-card-keywords">${item.keywords.map(k => `<span class="item-keyword" onclick="filterByKeyword('${k.replace(/'/g, "\\'")}')" title="点击搜索包含此关键词的文章">${k}</span>`).join('')}</div>` : ''}
+                                ${item.keywords && item.keywords.length > 0 ? `<div class="item-card-keywords">${item.keywords.map(k => `<span class="item-keyword" data-word="${escapeHtml(k)}" title="点击搜索包含此关键词的文章">${escapeHtml(k)}</span>`).join('')}</div>` : ''}
                             </div>
                         </div>
                     `).join('')}
@@ -346,6 +346,10 @@
             document.body.classList.toggle('dark-mode');
             const btn = document.querySelector('.dark-mode-toggle');
             btn.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+            // 词云颜色为内联样式且明暗色板不同，切换主题后需重渲染
+            if (wordCloudRendered && savedKeywordsData) {
+                renderWordCloud(savedKeywordsData);
+            }
         }
 
         // 默认启用深色模式
@@ -642,8 +646,39 @@
         // 词云数据配置
         let savedKeywordsData = null;
         let wordCloudRendered = false;
+        let keywordTopN = 50;
+        let keywordSearchText = '';
 
-        // 渲染词云 - 使用 HTML div
+        // 热度三档确定性调色板：颜色即热度（高频=暖红系 / 中频=蓝紫系 / 低频=灰蓝系）
+        // 亮色用深字色、暗色用提亮字色；背景/边框由字色加透明度派生（内联样式，切主题需重渲染）
+        const WC_TIERS = {
+            high: {
+                light: ['#b91c1c', '#c2410c', '#be123c', '#b45309'],
+                dark: ['#fca5a5', '#fdba74', '#fda4af', '#fcd34d'],
+                bgAlpha: '14', borderAlpha: '3d', darkBgAlpha: '24', darkBorderAlpha: '59'
+            },
+            mid: {
+                light: ['#1d4ed8', '#6d28d9', '#0e7490', '#4338ca', '#0f766e'],
+                dark: ['#93c5fd', '#c4b5fd', '#67e8f9', '#a5b4fc', '#5eead4'],
+                bgAlpha: '12', borderAlpha: '38', darkBgAlpha: '20', darkBorderAlpha: '4d'
+            },
+            low: {
+                light: ['#475569', '#52525b', '#3f5364'],
+                dark: ['#94a3b8', '#a1a1aa', '#9ca3af'],
+                bgAlpha: '10', borderAlpha: '2e', darkBgAlpha: '1a', darkBorderAlpha: '40'
+            }
+        };
+
+        // 词名稳定哈希 → 同词同色、刷新不跳变
+        function wcHash(str) {
+            let h = 0;
+            for (let i = 0; i < str.length; i++) {
+                h = ((h * 31) + str.charCodeAt(i)) >>> 0;
+            }
+            return h;
+        }
+
+        // 渲染词云 - 热度配色 + 明暗适配 + TOP N / 查找过滤
         function renderWordCloud(keywords) {
             const container = document.getElementById('word-cloud-container');
             if (!container || !keywords || Object.keys(keywords).length === 0) return;
@@ -654,95 +689,100 @@
                 return;
             }
 
-            // 颜色方案
-            const colors = [
-                '#667eea', '#764ba2', '#f093fb', '#f5576c',
-                '#4facfe', '#00f2fe', '#43e97b', '#38f9d7',
-                '#ffecd2', '#fcb69f', '#ff8a80', '#ffab91',
-                '#b9f6ca', '#a5d6a7', '#80cbc4', '#4db6ac'
-            ];
+            const isDark = document.body.classList.contains('dark-mode');
+            const allWords = Object.entries(keywords).sort((a, b) => b[1] - a[1]);
 
-            // 准备数据并排序
-            const wordList = Object.entries(keywords)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 100); // 最多显示100个词
+            // 统计口径 = 全量词表（不随 TOP N / 查找变化）
+            updateKeywordStats(allWords);
 
-            // 计算最大和最小计数，用于字体大小映射
+            // 应用查找过滤 + TOP N 截断
+            const kw = keywordSearchText.trim().toLowerCase();
+            let wordList = kw ? allWords.filter(([w]) => w.toLowerCase().includes(kw)) : allWords;
+            wordList = wordList.slice(0, keywordTopN);
+
+            if (wordList.length === 0) {
+                container.innerHTML = '<div class="wc-empty-search">未找到匹配 "' + keywordSearchText + '" 的关键词</div>';
+                return;
+            }
+
+            // 计算最大和最小计数，用于字体大小映射（min==max 时分母取 1，防 NaN）
             const maxCount = Math.max(...wordList.map(w => w[1]));
             const minCount = Math.min(...wordList.map(w => w[1]));
+            const denom = Math.max(maxCount - minCount, 1);
 
-            // 生成 HTML - 按频次分组显示
+            // 生成 HTML - 按频次三档渲染（前20%高频 / 20-60%中频 / 其余低频）
             let html = '';
-            
-            // 高频词（前20%）- 更大更突出
-            const highFreqCount = Math.ceil(wordList.length * 0.2);
-            const highFreqWords = wordList.slice(0, highFreqCount);
-            
-            // 中频词（20%-60%）
-            const midFreqWords = wordList.slice(highFreqCount, Math.ceil(wordList.length * 0.6));
-            
-            // 低频词（剩余）
-            const lowFreqWords = wordList.slice(Math.ceil(wordList.length * 0.6));
-            
-            // 渲染高频词 - 更大
-            highFreqWords.forEach(([word, count]) => {
-                const fontSize = 2.2 + (count - minCount) / (maxCount - minCount) * 1.0;
-                const color = colors[Math.floor(Math.random() * colors.length)];
-                html += renderWordItem(word, count, fontSize, color, 'high');
-            });
-            
-            // 渲染中频词
-            midFreqWords.forEach(([word, count]) => {
-                const fontSize = 1.4 + (count - minCount) / (maxCount - minCount) * 0.8;
-                const color = colors[Math.floor(Math.random() * colors.length)];
-                html += renderWordItem(word, count, fontSize, color, 'medium');
-            });
-            
-            // 渲染低频词
-            lowFreqWords.forEach(([word, count]) => {
-                const fontSize = 0.9 + (count - minCount) / (maxCount - minCount) * 0.5;
-                const color = colors[Math.floor(Math.random() * colors.length)];
-                html += renderWordItem(word, count, fontSize, color, 'low');
+            const highEnd = Math.ceil(wordList.length * 0.2);
+            const midEnd = Math.ceil(wordList.length * 0.6);
+
+            wordList.forEach(([word, count], idx) => {
+                const ratio = (count - minCount) / denom;
+                let tier, fontSize;
+                if (idx < highEnd) {
+                    tier = 'high';
+                    fontSize = 1.6 + ratio * 0.6;   // 1.6 ~ 2.2em
+                } else if (idx < midEnd) {
+                    tier = 'mid';
+                    fontSize = 1.15 + ratio * 0.45; // 1.15 ~ 1.6em
+                } else {
+                    tier = 'low';
+                    fontSize = 0.85 + ratio * 0.3;  // 0.85 ~ 1.15em
+                }
+                html += renderWordItem(word, count, fontSize, tier, isDark);
             });
 
             container.innerHTML = html;
             wordCloudRendered = true;
-            
-            // 更新统计信息
-            updateKeywordStats(wordList, maxCount);
         }
 
-        // 渲染单个词项
-        function renderWordItem(word, count, fontSize, color, freqLevel) {
-            const opacity = freqLevel === 'high' ? '30' : freqLevel === 'medium' ? '20' : '15';
-            const borderOpacity = freqLevel === 'high' ? '60' : freqLevel === 'medium' ? '40' : '30';
-            
+        // 渲染单个词项（确定性选色：同词同色、明暗色板分离）
+        function renderWordItem(word, count, fontSize, tier, isDark) {
+            const t = WC_TIERS[tier];
+            const palette = isDark ? t.dark : t.light;
+            const color = palette[wcHash(word) % palette.length];
+            const bg = color + (isDark ? t.darkBgAlpha : t.bgAlpha);
+            const border = color + (isDark ? t.darkBorderAlpha : t.borderAlpha);
+
             return `
-                <span class="word-cloud-item word-cloud-${freqLevel}" 
-                      style="font-size: ${fontSize.toFixed(2)}em; 
-                             background: ${color}${opacity}; 
-                             color: ${color}; 
-                             border: 2px solid ${color}${borderOpacity};"
-                      title="${word}: 出现 ${count} 次"
-                      onclick="filterByKeyword('${word}')">
-                    ${word}
+                <span class="word-cloud-item word-cloud-${tier}"
+                      style="font-size: ${fontSize.toFixed(2)}em; background: ${bg}; color: ${color}; border: 1px solid ${border};"
+                      title="${escapeHtml(word)}: 出现 ${count} 次 · 点击筛选相关条目"
+                      data-word="${escapeHtml(word)}">
+                    ${escapeHtml(word)}
                     <span class="word-cloud-count">${count}</span>
                 </span>
             `;
         }
 
-        // 更新关键词统计信息
-        function updateKeywordStats(wordList, maxCount) {
-            const totalCount = wordList.length;
-            const avgCount = (wordList.reduce((sum, w) => sum + w[1], 0) / totalCount).toFixed(1);
-            
+        // 更新关键词统计信息（口径 = 全量词表）
+        function updateKeywordStats(allWords) {
+            const totalCount = allWords.length;
+            if (totalCount === 0) return;
+            const maxCount = Math.max(...allWords.map(w => w[1]));
+            const avgCount = (allWords.reduce((sum, w) => sum + w[1], 0) / totalCount).toFixed(1);
+
             const totalEl = document.getElementById('keyword-total-count');
             const maxEl = document.getElementById('keyword-max-count');
             const avgEl = document.getElementById('keyword-avg-count');
-            
+
             if (totalEl) totalEl.textContent = totalCount;
             if (maxEl) maxEl.textContent = maxCount;
             if (avgEl) avgEl.textContent = avgCount;
+        }
+
+        // TOP N 条数切换
+        function setKeywordTopN(n) {
+            keywordTopN = n;
+            document.querySelectorAll('.wc-top-btn').forEach(btn => {
+                btn.classList.toggle('active', Number(btn.dataset.topn) === n);
+            });
+            if (savedKeywordsData) renderWordCloud(savedKeywordsData);
+        }
+
+        // 查找过滤（本地过滤，输入即生效）
+        function filterKeywordCloud(text) {
+            keywordSearchText = text || '';
+            if (savedKeywordsData) renderWordCloud(savedKeywordsData);
         }
 
         // 点击关键词筛选 - 复用顶部搜索框搜索数据库记录
@@ -771,6 +811,21 @@
                 setTimeout(() => searchPanel.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
             }
         }
+
+        // HTML 转义（用户/外部数据插入 innerHTML 前必须经过此函数）
+        function escapeHtml(s) {
+            return String(s ?? '').replace(/[&<>"']/g, ch => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+
+        // 关键词点击（事件代理）：词云与条目卡关键词统一读 data-word 触发筛选。
+        // 不再把用户数据拼进内联 onclick（避免引号逃逸造成 XSS），
+        // 且 document 级代理只绑定一次，innerHTML 重渲染后无需重新挂监听。
+        document.addEventListener('click', (e) => {
+            const el = e.target.closest('.word-cloud-item, .item-keyword');
+            if (el && el.dataset.word) filterByKeyword(el.dataset.word);
+        });
 
 
 

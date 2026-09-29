@@ -795,6 +795,9 @@
             const canvas = document.getElementById('kline-volume-canvas');
             if (!canvas || !klines || klines.length === 0) return;
             if (volumeChart) volumeChart.destroy();
+            // 恢复容器显示（申万分时模式无量额时可能被隐藏）
+            const volContainer = canvas.parentElement;
+            if (volContainer) volContainer.style.display = '';
 
             const labels = klines.map(k => k.date);
             const volumes = klines.map(k => k.volume || 0);

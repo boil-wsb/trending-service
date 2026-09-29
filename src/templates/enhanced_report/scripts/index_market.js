@@ -24,7 +24,9 @@
         let allKlineData = null;      // 完整历史数据（含预热期，主图 MA/BOLL 计算用）
         let allCrossoverData = null;  // 完整金叉点数据
         let currentDisplayDays = 30;  // 当前显示天数
-        let currentKlinePeriod = 'day';  // 固定日K模式
+        let currentKlinePeriod = 'day';  // K线周期: minute(分时)/day/week/month
+        let minuteData = null;           // 当前分时数据（自动刷新/渲染用）
+        let _minuteRefreshTimer = null;  // 分时盘中自动刷新定时器（60s，仅分时激活时）
         let _lastHoverX = null;       // 鼠标 x 位置（主图 onHover 或副图联动时记录，tooltip callback 使用）
         let marketComparisonData = null;
         let dataQualityData = null;
@@ -2022,6 +2024,7 @@
             const placeholder = document.getElementById('kline-placeholder');
             if (placeholder) placeholder.style.display = 'none';
             document.getElementById('index-kline-section').style.display = 'block';
+            updateKlineControlsState();
             loadKlineData();
         }
 
@@ -2031,6 +2034,8 @@
             // 显示占位提示
             const placeholder = document.getElementById('kline-placeholder');
             if (placeholder) placeholder.style.display = 'block';
+            stopMinuteAutoRefresh();  // 停止分时盘中自动刷新
+            minuteData = null;
             if (klineChart) {
                 klineChart.destroy();
                 klineChart = null;
@@ -2058,7 +2063,18 @@
         let _klineReqId = 0;  // 请求版本号，防止快速切换股票时旧请求覆盖新渲染
         async function loadKlineData() {
             if (!currentKlineCode) return;
+            // 概念板块无分时数据源：静默回退日K
+            if (currentKlinePeriod === 'minute' && isConceptCode(currentKlineCode)) {
+                currentKlinePeriod = 'day';
+                syncPeriodButtons();
+                updateKlineControlsState();
+            }
             const reqId = ++_klineReqId;  // 生成新版本号
+            // 分时分支：走 /api/index/minute，独立渲染（无 MA/指标/风险卡片）
+            if (currentKlinePeriod === 'minute') {
+                await loadMinuteData(reqId);
+                return;
+            }
             const displayDays = parseInt(document.getElementById('kline-days').value, 10) || 30;
             // 根据启用的指标动态计算前置预热天数（替代硬编码 +60），
             // 确保显示窗口内每个交易日的均线/指标都有完整数据支撑。
@@ -2067,7 +2083,7 @@
             const warmupDays = calcWarmupDays(enabledIndicators);
             const fetchDays = Math.min(displayDays + warmupDays, 365);
             try {
-                const data = await DataService.getKline(currentKlineCode, fetchDays, false, 'day');
+                const data = await DataService.getKline(currentKlineCode, fetchDays, false, currentKlinePeriod);
                 // 检查版本号：如果已有更新的请求发出，丢弃本次过期结果
                 if (reqId !== _klineReqId) return;
                 if (data) {
@@ -2097,6 +2113,346 @@
                 }
             } catch (err) {
                 console.error('加载K线数据失败:', err);
+            }
+        }
+
+        // ==================== 分时图（当日，/api/index/minute） ====================
+
+        // 判断是否概念板块（code 为中文名称，无 6 位数字代码——概念无分时数据源）
+        function isConceptCode(code) {
+            return !/^\d{6}$/.test(String(code || ''));
+        }
+
+        // 同步周期按钮 active 态
+        function syncPeriodButtons() {
+            document.querySelectorAll('.kline-period-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.kperiod === currentKlinePeriod);
+            });
+        }
+
+        // 切换 K 线周期（分时/日K/周K/月K）
+        function switchKlinePeriod(period) {
+            if (currentKlinePeriod === period) return;
+            currentKlinePeriod = period;
+            syncPeriodButtons();
+            updateKlineControlsState();
+            if (period !== 'minute') stopMinuteAutoRefresh();
+            loadKlineData();
+        }
+
+        // 周期切换/打开K线时更新控件可用态：
+        // 概念置灰分时按钮；分时下禁用天数选择、隐藏技术指标区与风险卡片
+        function updateKlineControlsState() {
+            const isMinute = currentKlinePeriod === 'minute';
+            const isConcept = isConceptCode(currentKlineCode);
+            document.querySelectorAll('.kline-period-btn').forEach(b => {
+                if (b.dataset.kperiod !== 'minute') return;
+                b.disabled = isConcept;
+                b.style.opacity = isConcept ? '0.45' : '1';
+                b.style.cursor = isConcept ? 'not-allowed' : 'pointer';
+            });
+            const daysSel = document.getElementById('kline-days');
+            if (daysSel) {
+                daysSel.disabled = isMinute;
+                daysSel.style.opacity = isMinute ? '0.45' : '1';
+            }
+            const tabs = document.querySelector('.kline-indicator-tabs');
+            if (tabs) tabs.style.display = isMinute ? 'none' : '';
+            const indDesc = document.getElementById('indicator-desc');
+            if (indDesc) indDesc.style.display = isMinute ? 'none' : '';
+            const indContainer = document.querySelector('.kline-indicator-container');
+            if (indContainer) indContainer.style.display = isMinute ? 'none' : 'block';
+            const riskCard = document.getElementById('risk-metrics-card');
+            if (riskCard) riskCard.style.display = isMinute ? 'none' : '';
+        }
+
+        // 分钟数/秒数转 'HH:MM' / 'HH:MM:SS'
+        function _minToClock(totalMin) {
+            const h = Math.floor(totalMin / 60), m = totalMin % 60;
+            return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+        }
+        function _secToClock(totalSec) {
+            const h = Math.floor(totalSec / 3600), m = Math.floor((totalSec % 3600) / 60), s = totalSec % 60;
+            return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        }
+
+        // 构建等距时间轴槽位（A 股交易时段；间隔由数据源的 interval_seconds 决定）
+        // 1 分钟/5 分钟 → 242 分钟槽（09:30-11:30 + 13:00-15:00）；10 秒 → 1442 槽
+        // 注：腾讯分时下午首行是 1300（午盘锚点，价格/累计量与 11:30 相同、成交量差分为 0），
+        // 槽位必须包含 13:00，否则该点被时间字符串匹配静默丢弃
+        function buildMinuteSlots(interval) {
+            const slots = [];
+            if (interval <= 10) {
+                for (let sec = 0; sec <= 7200; sec += 10) slots.push(_secToClock(9 * 3600 + 30 * 60 + sec));
+                for (let sec = 0; sec <= 7200; sec += 10) slots.push(_secToClock(13 * 3600 + sec));
+            } else {
+                for (let m = 0; m <= 120; m++) slots.push(_minToClock(9 * 60 + 30 + m));
+                for (let m = 0; m <= 120; m++) slots.push(_minToClock(13 * 60 + m));
+            }
+            return slots;
+        }
+
+        // 量值缩写（万/亿）
+        function _formatVolumeShort(v) {
+            if (v == null || isNaN(v)) return '';
+            if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿';
+            if (v >= 1e4) return (v / 1e4).toFixed(1) + '万';
+            return String(Math.round(v));
+        }
+
+        // 拉取并渲染分时数据（loadKlineData 的分时分支）
+        async function loadMinuteData(reqId) {
+            try {
+                // force=true 绕过前端缓存；后端有自己的盘中 5min / 收盘后 12h 缓存
+                const data = await DataService.getMinute(currentKlineCode, true);
+                if (reqId !== _klineReqId) return;  // 版本号过期，丢弃
+                if (!data || !data.supported) {
+                    console.warn('分时数据不支持或为空:', currentKlineCode);
+                    return;
+                }
+                minuteData = data;
+                renderMinuteChart(data);
+                renderMinuteVolume(data);
+                startMinuteAutoRefresh();  // 盘中 60s 自动刷新（内部校验交易时段）
+            } catch (err) {
+                console.error('加载分时数据失败:', err);
+            }
+        }
+
+        // 渲染分时主图：价格线（红涨绿跌）+ 均价线（黄）+ 昨收虚线，等距时间轴
+        function renderMinuteChart(data) {
+            const canvas = document.getElementById('kline-canvas');
+            if (!canvas || !data || !data.supported || !data.price || !data.price.length) return;
+
+            if (klineChart) klineChart.destroy();
+            const tc = ChartPresets.getThemeColors();
+
+            const times = data.times;
+            const price = data.price;
+            const avg = data.avg_price;
+            const prevClose = data.prev_close;
+            const dateStr = data.date || '';
+
+            // 数据点映射到等距槽位（未匹配点跳过，如 09:25 集合竞价点）
+            const slots = buildMinuteSlots(data.interval_seconds || 60);
+            const slotIndex = new Map(slots.map((t, i) => [t, i]));
+            const priceY = new Array(slots.length).fill(null);
+            for (let i = 0; i < times.length; i++) {
+                const si = slotIndex.get(times[i]);
+                if (si !== undefined) priceY[si] = price[i];
+            }
+            let avgY = null;
+            if (avg && avg.length === times.length) {
+                avgY = new Array(slots.length).fill(null);
+                for (let i = 0; i < times.length; i++) {
+                    const si = slotIndex.get(times[i]);
+                    if (si !== undefined) avgY[si] = avg[i];
+                }
+            }
+
+            const datasets = [
+                {
+                    type: 'line',
+                    label: '价格',
+                    data: priceY,
+                    borderColor: tc.rise,
+                    borderWidth: 1.6,
+                    pointRadius: 0,
+                    pointHoverRadius: 3,
+                    fill: false,
+                    tension: 0,
+                    spanGaps: false,
+                    // 逐分钟红涨绿跌（相对前一分钟；国内分时图惯例）
+                    segment: {
+                        borderColor: sctx => {
+                            const y0 = sctx.p0.parsed.y, y1 = sctx.p1.parsed.y;
+                            if (y1 > y0) return tc.rise;
+                            if (y1 < y0) return tc.fall;
+                            return tc.flat;
+                        }
+                    },
+                    order: 0
+                }
+            ];
+            if (avgY) {
+                datasets.push({
+                    type: 'line',
+                    label: '均价',
+                    data: avgY,
+                    borderColor: '#f39c12',
+                    borderWidth: 1.4,
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0,
+                    spanGaps: false,
+                    order: 1
+                });
+            }
+            if (prevClose) {
+                datasets.push({
+                    type: 'line',
+                    label: '昨收',
+                    data: new Array(slots.length).fill(prevClose),
+                    borderColor: 'rgba(136, 136, 136, 0.85)',
+                    borderWidth: 1,
+                    borderDash: [4, 4],
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0,
+                    order: 2
+                });
+            }
+
+            // y 轴以昨收为中心对称扩展（主流分时图习惯；无昨收时自适应）
+            const yAxisCfg = {
+                display: true,
+                position: 'left',
+                title: { display: true, text: '价格' },
+                beginAtZero: false
+            };
+            const y1Cfg = {
+                display: !!prevClose,
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                ticks: {
+                    callback: v => prevClose ? (((v - prevClose) / prevClose) * 100).toFixed(2) + '%' : v
+                }
+            };
+            if (prevClose) {
+                const valid = priceY.filter(v => v !== null);
+                const dev = Math.max(
+                    Math.max(...valid) - prevClose,
+                    prevClose - Math.min(...valid),
+                    prevClose * 0.001
+                );
+                const lo = prevClose - dev * 1.08, hi = prevClose + dev * 1.08;
+                yAxisCfg.min = lo; yAxisCfg.max = hi;
+                y1Cfg.min = lo; y1Cfg.max = hi;
+            }
+
+            // x 轴只在关键时刻标注（1 分钟槽：09:30/10:30/11:30|13:00/14:00/15:00）
+            const isTenSec = (data.interval_seconds || 60) <= 10;
+            const tickIdx = isTenSec ? [0, 360, 720, 1081, 1441] : [0, 60, 120, 181, 241];
+            const tickLabels = ['09:30', '10:30', '11:30/13:00', '14:00', '15:00'];
+
+            const ctx = canvas.getContext('2d');
+            _lastHoverX = null;
+            klineChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: slots, datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { labels: { boxWidth: 18, boxHeight: 2 } },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                title: items => items.length ? `${dateStr} ${slots[items[0].index]}` : '',
+                                label: c2 => {
+                                    const v = c2.parsed.y;
+                                    if (v === null || v === undefined) return null;
+                                    const lbl = c2.dataset.label;
+                                    if (lbl === '昨收') return `昨收: ${v.toFixed(2)}`;
+                                    let extra = '';
+                                    if (prevClose) extra = `  (${(((v - prevClose) / prevClose) * 100).toFixed(2)}%)`;
+                                    return `${lbl}: ${v.toFixed(2)}${extra}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                autoSkip: false,
+                                maxRotation: 0,
+                                callback: function(_value, index) {
+                                    const k = tickIdx.indexOf(index);
+                                    return k >= 0 ? tickLabels[k] : '';
+                                }
+                            }
+                        },
+                        y: yAxisCfg,
+                        y1: y1Cfg
+                    }
+                }
+            });
+        }
+
+        // 渲染分时量副图（红绿按逐分钟涨跌；申万分时无量额 → 隐藏量图）
+        function renderMinuteVolume(data) {
+            const canvas = document.getElementById('kline-volume-canvas');
+            const container = canvas ? canvas.parentElement : null;
+            if (!canvas || !container) return;
+            if (!data || !data.supported || !data.volume || !data.volume.length) {
+                container.style.display = 'none';
+                if (volumeChart) { volumeChart.destroy(); volumeChart = null; }
+                return;
+            }
+            container.style.display = '';
+            if (volumeChart) volumeChart.destroy();
+
+            const tc = ChartPresets.getThemeColors();
+            const slots = buildMinuteSlots(data.interval_seconds || 60);
+            const slotIndex = new Map(slots.map((t, i) => [t, i]));
+            const volY = new Array(slots.length).fill(null);
+            const slotColors = new Array(slots.length).fill(tc.flat);
+            const prevClose = data.prev_close;
+            let prevPrice = prevClose;
+            for (let i = 0; i < data.times.length; i++) {
+                const si = slotIndex.get(data.times[i]);
+                if (si === undefined) continue;
+                volY[si] = data.volume[i];
+                const p = data.price[i];
+                slotColors[si] = p >= (prevPrice || p) ? tc.rise : tc.fall;
+                prevPrice = p;
+            }
+
+            volumeChart = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: slots,
+                    datasets: [{ label: '成交量', data: volY, backgroundColor: slotColors, borderWidth: 0 }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: items => items.length ? slots[items[0].index] : '',
+                                label: c2 => c2.parsed.y != null ? `成交量: ${_formatVolumeShort(c2.parsed.y)}` : null
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { display: false },
+                        y: { ticks: { callback: v => _formatVolumeShort(v) } }
+                    }
+                }
+            });
+        }
+
+        // 分时盘中自动刷新（60s；仅交易时段真正拉取，收盘后数据已定格）
+        function startMinuteAutoRefresh() {
+            stopMinuteAutoRefresh();
+            _minuteRefreshTimer = setInterval(() => {
+                if (currentKlinePeriod !== 'minute' || !currentKlineCode) return;
+                const now = new Date();
+                const hm = now.getHours() * 100 + now.getMinutes();
+                const wd = now.getDay();
+                if (wd >= 1 && wd <= 5 && hm >= 925 && hm <= 1505) {
+                    loadMinuteData(++_klineReqId);
+                }
+            }, 60000);
+        }
+        function stopMinuteAutoRefresh() {
+            if (_minuteRefreshTimer) {
+                clearInterval(_minuteRefreshTimer);
+                _minuteRefreshTimer = null;
             }
         }
 

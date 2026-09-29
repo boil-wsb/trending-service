@@ -531,7 +531,132 @@
             overflow: hidden;
         }
 
-        /* HTML 词云容器 - 优化布局 */
+        /* 词云顶部工具条：统计 + 条数切换 + 图例 + 查找 */
+        .word-cloud-toolbar {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 14px 24px 12px;
+            background: rgba(255,255,255,0.55);
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+        }
+
+        .wc-toolbar-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        /* 统计 chips */
+        .word-cloud-stats {
+            display: flex;
+            gap: 10px;
+            font-size: 0.88em;
+            color: #555;
+        }
+
+        .word-cloud-stat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(0,0,0,0.045);
+            border-radius: 999px;
+            padding: 4px 12px;
+        }
+
+        .word-cloud-stat-value {
+            font-weight: 700;
+            color: #222;
+        }
+
+        /* TOP N 条数切换 */
+        .wc-top-switch {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85em;
+            color: #777;
+        }
+
+        .wc-top-btn {
+            padding: 3px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(0,0,0,0.12);
+            background: #fff;
+            color: #555;
+            font-size: 0.88em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .wc-top-btn:hover {
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        .wc-top-btn.active {
+            background: #667eea;
+            border-color: #667eea;
+            color: #fff;
+            font-weight: 600;
+        }
+
+        /* 频次图例 */
+        .wc-legend {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 0.85em;
+            color: #666;
+        }
+
+        .wc-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .wc-legend-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .wc-dot-high { background: #c0392b; }
+        .wc-dot-mid { background: #1d4ed8; }
+        .wc-dot-low { background: #64748b; }
+
+        /* 查找框 */
+        .wc-search {
+            width: 200px;
+            padding: 5px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(0,0,0,0.12);
+            background: #fff;
+            font-size: 0.88em;
+            color: #333;
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .wc-search:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102,126,234,0.15);
+        }
+
+        /* 查找无结果 */
+        .wc-empty-search {
+            width: 100%;
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+            font-size: 1em;
+        }
+
+        /* HTML 词云容器 */
         .word-cloud-html {
             width: 100%;
             height: 100%;
@@ -540,8 +665,8 @@
             flex-wrap: wrap;
             align-content: flex-start;
             justify-content: center;
-            gap: 12px;
-            padding: 30px;
+            gap: 10px;
+            padding: 24px;
             overflow-y: auto;
             overflow-x: hidden;
             scrollbar-width: none;
@@ -556,37 +681,56 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 10px 20px;
-            border-radius: 25px;
+            padding: 0.32em 0.85em;
+            border-radius: 999px;
             cursor: pointer;
-            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
             font-weight: 600;
             white-space: nowrap;
             user-select: none;
             position: relative;
-            overflow: hidden;
         }
 
         .word-cloud-item::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0) 100%);
+            inset: 0;
+            border-radius: inherit;
+            background: linear-gradient(135deg, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0) 100%);
             opacity: 0;
-            transition: opacity 0.25s ease;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
         }
 
         .word-cloud-item:hover {
-            transform: translateY(-3px) scale(1.05);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+            transform: translateY(-3px) scale(1.04);
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.14);
             z-index: 10;
         }
 
-        .word-cloud-item:hover::before {
+        /* hover 提示：点击可筛选相关条目 */
+        .word-cloud-item::after {
+            content: '点击筛选相关条目';
+            position: absolute;
+            left: 50%;
+            top: calc(100% + 7px);
+            transform: translateX(-50%) translateY(-3px);
+            background: #2d3748;
+            color: #fff;
+            font-size: 11px;
+            line-height: 1;
+            padding: 5px 9px;
+            border-radius: 6px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+            z-index: 30;
+        }
+
+        .word-cloud-item:hover::after {
             opacity: 1;
+            transform: translateX(-50%) translateY(0);
         }
 
         .word-cloud-item:active {
@@ -594,81 +738,74 @@
         }
 
         .word-cloud-count {
-            margin-left: 8px;
-            opacity: 0.8;
-            font-size: 0.7em;
+            margin-left: 0.45em;
+            opacity: 0.75;
+            font-size: 0.55em;
             font-weight: 700;
-            background: rgba(255,255,255,0.3);
-            padding: 2px 8px;
-            border-radius: 12px;
-        }
-
-        /* 词云统计信息 */
-        .word-cloud-stats {
-            display: flex;
-            gap: 20px;
-            padding: 15px 30px;
-            background: rgba(255,255,255,0.5);
-            border-top: 1px solid rgba(0,0,0,0.05);
-            font-size: 0.9em;
-            color: #666;
-        }
-
-        .word-cloud-stat {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .word-cloud-stat-value {
-            font-weight: 700;
-            color: #333;
+            background: rgba(255,255,255,0.35);
+            padding: 0.12em 0.6em;
+            border-radius: 999px;
         }
 
         /* 词云深色模式 */
-        body.dark-mode .word-cloud-html {
+        body.dark-mode .keywords-cloud {
             background: linear-gradient(135deg, var(--dm-bg-1) 0%, var(--dm-bg-2) 100%);
         }
 
-        body.dark-mode .word-cloud-stats {
+        body.dark-mode .word-cloud-toolbar {
             background: rgba(0,0,0,0.3);
-            border-top-color: var(--dm-border-strong);
-            color: var(--dm-text-2);
+            border-bottom-color: var(--dm-border-strong);
+        }
+
+        body.dark-mode .word-cloud-stat {
+            background: rgba(255,255,255,0.07);
         }
 
         body.dark-mode .word-cloud-stat-value {
             color: var(--dm-text-0);
         }
 
-        body.dark-mode .word-cloud-item:hover {
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+        body.dark-mode .wc-top-btn {
+            background: var(--dm-bg-2);
+            border-color: var(--dm-border-strong);
+            color: var(--dm-text-2);
         }
 
-        /* 关键词云深色模式 */
-        body.dark-mode .keywords-cloud {
-            background: linear-gradient(135deg, var(--dm-bg-1) 0%, var(--dm-bg-2) 100%);
+        body.dark-mode .wc-top-btn:hover {
+            border-color: var(--dm-accent);
+            color: var(--dm-accent);
         }
 
-        body.dark-mode .word-cloud-html {
-            overflow-y: auto;
-            overflow-x: hidden;
-            scrollbar-width: none;
-            -ms-overflow-style: none;
+        body.dark-mode .wc-top-btn.active {
+            background: var(--dm-accent);
+            border-color: var(--dm-accent);
+            color: #fff;
         }
 
-        body.dark-mode .word-cloud-html::-webkit-scrollbar {
-            display: none;
+        body.dark-mode .wc-legend {
+            color: var(--dm-text-2);
         }
 
-        body.dark-mode .word-cloud-btn {
+        body.dark-mode .wc-dot-high { background: #f09595; }
+        body.dark-mode .wc-dot-mid { background: #85b7eb; }
+        body.dark-mode .wc-dot-low { background: #94a3b8; }
+
+        body.dark-mode .wc-search {
             background: var(--dm-bg-2);
             border-color: var(--dm-border-strong);
             color: var(--dm-text-0);
         }
 
-        body.dark-mode .word-cloud-btn:hover, body.dark-mode .word-cloud-btn.active {
-            background: var(--dm-accent);
-            border-color: var(--dm-accent);
+        body.dark-mode .wc-empty-search {
+            color: var(--dm-text-2);
+        }
+
+        body.dark-mode .word-cloud-item:hover {
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+        }
+
+        body.dark-mode .word-cloud-count {
+            background: rgba(255,255,255,0.18);
         }
 
         /* 话题卡片 */

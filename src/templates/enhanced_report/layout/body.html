@@ -629,7 +629,12 @@
                         <button class="kline-close-btn" onclick="closeKline()">✕ 关闭</button>
                     </div>
                     <div class="kline-controls">
-                        <label>天数：</label>
+                        <label>周期：</label>
+                        <button class="sankey-period-btn kline-period-btn active" data-kperiod="minute" onclick="switchKlinePeriod('minute')">分时</button>
+                        <button class="sankey-period-btn kline-period-btn" data-kperiod="day" onclick="switchKlinePeriod('day')">日K</button>
+                        <button class="sankey-period-btn kline-period-btn" data-kperiod="week" onclick="switchKlinePeriod('week')">周K</button>
+                        <button class="sankey-period-btn kline-period-btn" data-kperiod="month" onclick="switchKlinePeriod('month')">月K</button>
+                        <label style="margin-left:16px;">天数：</label>
                         <select id="kline-days" onchange="loadKlineData()">
                             <option value="7">7天</option>
                             <option value="30">30天</option>
@@ -672,25 +677,44 @@
         <!-- 热门关键词 -->
         <div id="keywords" class="tab-content">
             <div class="keywords-cloud">
-                <div id="word-cloud-container" class="word-cloud-html"></div>
-                <div class="word-cloud-stats">
-                    <div class="word-cloud-stat">
-                        <span>🏷️</span>
-                        <span>关键词总数: <span class="word-cloud-stat-value" id="keyword-total-count">0</span></span>
+                <div class="word-cloud-toolbar">
+                    <div class="wc-toolbar-row">
+                        <div class="word-cloud-stats">
+                            <div class="word-cloud-stat">
+                                <span>🏷️</span>
+                                <span>关键词 <span class="word-cloud-stat-value" id="keyword-total-count">0</span></span>
+                            </div>
+                            <div class="word-cloud-stat">
+                                <span>🔥</span>
+                                <span>峰值 <span class="word-cloud-stat-value" id="keyword-max-count">0</span></span>
+                            </div>
+                            <div class="word-cloud-stat">
+                                <span>📊</span>
+                                <span>均值 <span class="word-cloud-stat-value" id="keyword-avg-count">0</span></span>
+                            </div>
+                        </div>
+                        <div class="wc-top-switch">
+                            <span>显示</span>
+                            <button class="wc-top-btn" data-topn="30" onclick="setKeywordTopN(30)">30</button>
+                            <button class="wc-top-btn active" data-topn="50" onclick="setKeywordTopN(50)">50</button>
+                            <button class="wc-top-btn" data-topn="100" onclick="setKeywordTopN(100)">100</button>
+                        </div>
                     </div>
-                    <div class="word-cloud-stat">
-                        <span>🔥</span>
-                        <span>最高频次: <span class="word-cloud-stat-value" id="keyword-max-count">0</span></span>
-                    </div>
-                    <div class="word-cloud-stat">
-                        <span>📊</span>
-                        <span>平均频次: <span class="word-cloud-stat-value" id="keyword-avg-count">0</span></span>
+                    <div class="wc-toolbar-row">
+                        <div class="wc-legend">
+                            <span class="wc-legend-item"><span class="wc-legend-dot wc-dot-high"></span>高频</span>
+                            <span class="wc-legend-item"><span class="wc-legend-dot wc-dot-mid"></span>中频</span>
+                            <span class="wc-legend-item"><span class="wc-legend-dot wc-dot-low"></span>低频</span>
+                        </div>
+                        <input type="text" id="keyword-search" class="wc-search" placeholder="查找关键词…" oninput="filterKeywordCloud(this.value)">
                     </div>
                 </div>
+                <div id="word-cloud-container" class="word-cloud-html"></div>
             </div>
         </div>
 
         <!-- 数据源详情 -->
+        <div id="source-detail" class="tab-content">
             <h2 class="section-title" id="source-detail-title">📡 数据源详情</h2>
             <div id="source-detail-content"></div>
         </div>

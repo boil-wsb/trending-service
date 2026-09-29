@@ -265,6 +265,82 @@ function closeLlmChanges() {
     if (llmChangesTimer) { clearTimeout(llmChangesTimer); llmChangesTimer = null; }
 }
 
+// ── 公司 logo（AA 数据源专用）─────────────────────────────────────────
+// 经服务端同源代理 /api/aa/logos?creator=<org_name> 拉取（无跨域问题），
+// 无 logo 的公司 404 → 前端静默降级为纯文字，不阻塞榜单渲染。
+const llmLogoImgCache = new Map();   // url -> {img, state: 'loading'|'ok'|'fail'}
+let llmLogoRedrawPending = false;
+
+function llmLogoUrlFor(m) {
+    const org = (m && (m.org_name || m.org_id)) || '';
+    if (!org) return null;
+    return '/api/aa/logos?creator=' + encodeURIComponent(org);
+}
+
+function scheduleLlmLogoRedraw() {
+    if (llmLogoRedrawPending) return;
+    llmLogoRedrawPending = true;
+    const kick = () => {
+        llmLogoRedrawPending = false;
+        if (llmRankingChart) llmRankingChart.update('none');
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(kick);
+    else setTimeout(kick, 50);
+}
+
+function preloadLlmLogos(urls) {
+    return (urls || []).map(url => {
+        if (!url) return null;
+        let e = llmLogoImgCache.get(url);
+        if (!e) {
+            const img = new Image();
+            e = { img, state: 'loading', url };
+            img.onload = () => { e.state = 'ok'; scheduleLlmLogoRedraw(); };
+            img.onerror = () => { e.state = 'fail'; };
+            img.src = url;
+            llmLogoImgCache.set(url, e);
+        }
+        return e;
+    });
+}
+
+function llmLogoReady(e) {
+    return !!(e && e.state === 'ok' && e.img.complete && e.img.naturalWidth > 0);
+}
+
+const LLM_LOGO_SIZE = 18;   // logo 绘制尺寸
+
+// logo 绘制插件：横向画在条形内左端；竖向画在柱子正下方（x 轴与旋转标签之间的留白）。
+// 不画白色衬底：彩色/深色 logo 一律直接裸画（用户拍板 2026-09-29）。
+const llmLogoPlugin = {
+    id: 'llmLogo',
+    afterDatasetsDraw(chart) {
+        const opts = chart.options.plugins.llmLogo || {};
+        if (!opts.enabled) return;
+        const images = opts.images || [];
+        const horizontal = chart.options.indexAxis === 'y';
+        const meta = chart.getDatasetMeta(0);
+        if (!meta || !meta.data) return;
+        const { ctx } = chart;
+        meta.data.forEach((bar, i) => {
+            const e = images[i];
+            if (!llmLogoReady(e)) return;
+            let cx, cy;   // logo 左上角
+            if (horizontal) {
+                if (bar.x - bar.base < 34) return;   // 条太短不放 logo
+                cx = bar.base + 4;
+                cy = bar.y - LLM_LOGO_SIZE / 2;
+            } else {
+                cx = bar.x - LLM_LOGO_SIZE / 2;
+                cy = chart.chartArea.bottom + 2;
+            }
+            ctx.save();
+            ctx.drawImage(e.img, cx, cy, LLM_LOGO_SIZE, LLM_LOGO_SIZE);
+            ctx.restore();
+        });
+    }
+};
+
 // ── 柱顶/条尾分数 + 柱内排名徽标插件（无第三方依赖，方向自适应）──────────────────────
 const llmScoreLabelPlugin = {
     id: 'llmScoreLabel',
@@ -302,7 +378,12 @@ const llmScoreLabelPlugin = {
             const r = ranks[i];
             if (r == null) return;
             if (horizontal) {
-                if (bar.x - bar.base > 34) ctx.fillText('#' + r, bar.base + 18, bar.y);
+                // 条形左端若画了 logo，徽标右移让位
+                const imgs = (chart.options.plugins.llmLogo || {}).images;
+                const hasLogo = llmLogoReady(imgs && imgs[i]);
+                const badgeX = bar.base + (hasLogo ? 28 : 18);
+                const minW = hasLogo ? 46 : 34;
+                if (bar.x - bar.base > minW) ctx.fillText('#' + r, badgeX, bar.y);
             } else {
                 if (bar.base - bar.y > 24) ctx.fillText('#' + r, bar.x, bar.y + 13);
             }
@@ -419,6 +500,12 @@ function renderLlmRanking(category, data) {
     const labels = sorted.map(m => (m.is_domestic ? '🚩' : '') + shortModelName(m));
     const scores = sorted.map(m => m.score);
 
+    // 公司 logo（仅 AA 源；llm-stats 的组织名与 AA slug 体系不对应）：预加载，完成后自动重绘
+    const useLogos = llmSource === 'aa';
+    const logoImages = useLogos
+        ? preloadLlmLogos(sorted.map(m => llmLogoUrlFor(m)))
+        : null;
+
     // 按厂商品牌配色（国产优先红色）
     const paletteMap = sorted.map(m => colorForModel(m));
     const colors = paletteMap.map(p => p.fill);
@@ -457,6 +544,7 @@ function renderLlmRanking(category, data) {
                 legend: { display: false },
                 llmScoreLabel: { color: isDark ? '#cbd5e1' : '#475569', ranks: sorted.map(m => m.rank) },
                 llmGroupDivider: { height: horizontal ? 20 : 0, thicknesses: scores },
+                llmLogo: { enabled: useLogos, images: logoImages },
                 tooltip: {
                     callbacks: {
                         afterLabel: ctx => {
@@ -482,6 +570,7 @@ function renderLlmRanking(category, data) {
                             color: isDark ? '#cbd5e1' : '#334155',
                             font: { size: 11 },
                             maxRotation: 42, minRotation: 42, autoSkip: false,
+                            padding: useLogos ? 26 : 0,   // 竖向：柱下方画 logo，轴标签下移让位
                         },
                     grid: horizontal
                         ? { color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }
@@ -497,7 +586,7 @@ function renderLlmRanking(category, data) {
                 },
             }
         },
-        plugins: [llmScoreLabelPlugin, llmGroupDivider]
+        plugins: [llmScoreLabelPlugin, llmGroupDivider, llmLogoPlugin]
     });
 }
 

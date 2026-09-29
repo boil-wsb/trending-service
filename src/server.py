@@ -538,6 +538,13 @@ def aa_refresh_raw_models() -> Optional[dict]:
         if raw.get('models'):
             # 拿到数据即写缓存（三类别共用；TTL 内切类别/条数 0 次外部调用）
             _api_cache.set(_AA_RAW_CACHE_KEY, raw, ttl=_AA_RAW_TTL)
+            # 刷新成功 → 后台预热全量公司 logo 落盘（静态图片，不占 API 配额；
+            # 幂等 + 并发去重 + 节流，生产首屏即全本地命中）
+            try:
+                from src.aa_logos import warmup_logos_async
+                warmup_logos_async(raw['models'])
+            except Exception as e:
+                logger.warning(f"logo 预热触发失败: {e}")
         return raw
     finally:
         _aa_clear_fetching()
@@ -1008,6 +1015,89 @@ class TrendingServer:
                     return result
             except Exception as e:
                 self.logger.error(f"获取指数K线失败: {e}")
+                resp, status = handle_api_error(e, self.logger)
+                return jsonify(resp), status
+
+        @app.route('/api/index/minute')
+        def api_index_minute():
+            """指数当日分时数据（实时拉取，不落库）
+
+            数据源（fetcher 内部按指数类型分派）：
+            - 市场指数：腾讯 1 分钟分时（备源新浪 5 分钟 K 截当日）
+            - 申万行业指数：akshare index_min_sw（10 秒粒度，仅价格）
+            - 概念板块：无可用分时源，返回 supported=False（前端置灰按钮）
+
+            prev_close 从数据库日 K 缓存补：取 date < 分时日期 的最后一根 close。
+            内存缓存：盘中（交易日 09:30-15:00）TTL 5min，其余时段（收盘后/周末）
+            TTL 12h——分时当日数据收盘后不再变化。
+            """
+            try:
+                from src.fetchers.index import IndexFetcher
+                from src.db.index_dao import IndexDAO
+
+                code = request.args.get('code')
+                if not code:
+                    return jsonify(ApiError(ErrorCode.VALIDATION_ERROR, '缺少指数代码参数: code', status_code=400).to_response()), 400
+
+                cache_key = f"minute:{code}"
+                cached = _api_cache.get(cache_key)
+                if cached is not None:
+                    return cached
+
+                # 防止缓存击穿：同一 code 的并发回源串行化
+                lock = _get_cache_lock(cache_key)
+                with lock:
+                    cached = _api_cache.get(cache_key)
+                    if cached is not None:
+                        return cached
+
+                    fetcher = IndexFetcher(logger=self.logger)
+                    minute = fetcher.fetch_minute_lines(code)
+
+                    # 不支持分时的类型（概念板块等）：短缓存后直接返回标记
+                    if not minute.get('supported'):
+                        result = jsonify({
+                            'success': True,
+                            'data': {'code': code, 'supported': False}
+                        })
+                        _api_cache.set(cache_key, result, ttl=300)
+                        return result
+
+                    now = datetime.now()
+                    minute_date = minute.get('date')
+
+                    # prev_close：从 DB 日线缓存取 date < 分时日期 的最后一根 close
+                    prev_close = None
+                    try:
+                        source = to_kline_source(normalize_symbol(code))
+                        dao = IndexDAO(DATABASE['path'])
+                        klines = dao.get_klines(code, days=15, source=source) or []
+                        today_str = now.strftime('%Y-%m-%d')
+                        if not minute_date:
+                            # 数据源未返回日期（非交易日等）：用最近一个已完成交易日兜底
+                            prior = [k['date'] for k in klines if k['date'] <= today_str]
+                            minute_date = prior[-1] if prior else today_str
+                            minute['date'] = minute_date
+                        prior_closes = [k for k in klines if k['date'] < minute_date and k.get('close')]
+                        if prior_closes:
+                            prev_close = prior_closes[-1]['close']
+                    except Exception as e:
+                        self.logger.warning(f"分时 prev_close 获取失败: {code}, {e}")
+                    minute['prev_close'] = prev_close
+
+                    # 缓存 TTL：交易日盘中 5min；收盘后/周末 12h（当日分时已定格）
+                    hour_min = now.hour * 100 + now.minute
+                    is_trading_hours = now.weekday() < 5 and 925 <= hour_min <= 1505
+                    ttl = 300 if is_trading_hours else 12 * 3600
+
+                    result = jsonify({
+                        'success': True,
+                        'data': {'code': code, **minute}
+                    })
+                    _api_cache.set(cache_key, result, ttl=ttl)
+                    return result
+            except Exception as e:
+                self.logger.error(f"获取指数分时失败: {e}")
                 resp, status = handle_api_error(e, self.logger)
                 return jsonify(resp), status
 
@@ -1711,6 +1801,34 @@ class TrendingServer:
                             'fetched_at': snap.get('fetched_at'),
                         }
             return jsonify({'success': True, 'data': data})
+
+        @app.route('/api/aa/logos')
+        def api_aa_logo():
+            """AA 模型公司 logo 代理（同源分发，规避跨域/防盗链）。
+
+            用法：/api/aa/logos?creator=DeepSeek
+            服务端按 AA 官网静态规律解析 slug 并拉取，磁盘缓存 + 负缓存 24h。
+            无 logo 的公司返回 404，前端降级为纯文字（不阻塞榜单渲染）。
+            """
+            creator = (request.args.get('creator') or '').strip()
+            if not creator or len(creator) > 80:
+                return jsonify({'success': False, 'error': 'creator 参数缺失或过长'}), 400
+            try:
+                from src.aa_logos import get_logo
+                got = get_logo(creator)
+            except Exception as e:
+                self.logger.warning(f"aa_logos: logo 代理异常 creator={creator!r}: {e}")
+                got = None
+            if got is None:
+                resp = jsonify({'success': False, 'error': 'logo not found'})
+                resp.status_code = 404
+                # 404 也给短缓存，避免前端每次渲染都打一遍已知无 logo 的公司
+                resp.headers['Cache-Control'] = 'public, max-age=86400'
+                return resp
+            body, ctype = got
+            resp = Response(body, mimetype=ctype)
+            resp.headers['Cache-Control'] = 'public, max-age=604800'
+            return resp
 
         # ========== 通用API路由 ==========
 

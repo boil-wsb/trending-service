@@ -248,6 +248,20 @@ const DataService = (function () {
             );
         },
 
+        /**
+         * 获取指数当日分时数据(前端短缓存 60s;后端另有盘中5min/收盘后12h缓存)
+         * @param {string} code - 指数代码
+         * @param {boolean} force - 强制跳过前端缓存(盘中自动刷新传 true)
+         */
+        getMinute(code, force) {
+            return _withCache(
+                _getCacheKey('minute', code),
+                60000,
+                () => _request('/api/index/minute', { params: { code: code } }),
+                !force
+            );
+        },
+
         /** 获取轮动分析数据 */
         getRotation(useCache) {
             return _withCache('rotation', CACHE_TTL.rotation,
