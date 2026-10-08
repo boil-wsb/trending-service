@@ -731,6 +731,8 @@ class IndexDAO:
             return []
 
         # 转换为字典列表并按日期升序排列（前端图表需要）
+        # ⚠️ 注意：SQL 虽为 ORDER BY date DESC（取最近 N 天），但下方 reversed()
+        # 已反转为升序——本方法对外契约是「按日期升序」，勿仅凭 SQL 排序方向误判
         result = []
         for row in reversed(rows):  # 反转为升序
             result.append({
