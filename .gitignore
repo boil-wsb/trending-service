@@ -73,10 +73,6 @@ temp/
 tmp/
 cache/
 
-# Reports
-reports/*.html
-reports/*.json
-
 # Backup files
 *.bak
 *.backup

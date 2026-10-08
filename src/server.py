@@ -19,7 +19,7 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from flask import Flask, jsonify, send_from_directory, redirect, Response, request, g
+from flask import Flask, jsonify, redirect, Response, request, g
 from src.config import SERVER, REPORTS_DIR, ROUTES, DATABASE, ConfigHotReloader
 from src.utils import get_logger
 from src.utils.symbol import normalize_symbol, to_kline_source
@@ -2247,19 +2247,6 @@ class TrendingServer:
                 self.logger.error(f"刷新所有数据源失败: {e}")
                 resp, status = handle_api_error(e, self.logger)
                 return jsonify(resp), status
-
-        @app.route('/static/<path:filename>')
-        def static_files(filename: str):
-            """静态文件服务"""
-            static_dir = project_root / 'static'
-            if not static_dir.exists():
-                return "Static directory not found", 404
-
-            try:
-                return send_from_directory(static_dir, filename)
-            except Exception as e:
-                self.logger.error(f"静态文件服务错误: {e}")
-                return str(e), 404
 
         @app.errorhandler(404)
         def not_found(error):

@@ -323,7 +323,7 @@ class ReportGenerator:
         拼装结果与拆分前的单文件模板等价，后续 REPORT_DATA / UI_CONFIG
         占位符替换逻辑不受影响。
         """
-        # 使用增强版模板
+        # 使用增强版模板（旧版单文件模板 report_template.html 已删除）
         template_path = Path(__file__).parent.parent / "templates" / "enhanced_report_template.html"
 
         try:
@@ -331,15 +331,8 @@ class ReportGenerator:
                 template = f.read()
             return self._expand_includes(template, template_path.parent)
         except Exception as e:
-            print(f"读取增强版模板失败: {e}，尝试使用默认模板")
-            # 如果增强版模板不存在，使用旧模板
-            template_path = Path(__file__).parent.parent / "templates" / "report_template.html"
-            try:
-                with open(template_path, 'r', encoding='utf-8') as f:
-                    return f.read()
-            except Exception as e2:
-                print(f"读取默认模板也失败: {e2}")
-                return self._get_default_template()
+            print(f"读取增强版模板失败: {e}")
+            return self._get_default_template()
 
     @staticmethod
     def _expand_includes(text: str, base_dir: Path, depth: int = 0) -> str:

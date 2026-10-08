@@ -128,8 +128,9 @@ class FetchFailureDAO:
             ))
             return existing.id
         else:
-            # 插入新记录
-            self.db.execute('''
+            # 插入新记录（execute_returning_id 在同一连接内取 lastrowid；
+            # 旧写法 get_last_insert_id() 开新连接，last_insert_rowid() 恒为 0）
+            return self.db.execute_returning_id('''
                 INSERT INTO fetch_failures
                 (source, error_message, retry_count, last_try_at, next_retry_at, status, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -142,7 +143,6 @@ class FetchFailureDAO:
                 'pending',
                 now
             ))
-            return self.db.get_last_insert_id()
     
     def mark_success(self, source: str) -> bool:
         """

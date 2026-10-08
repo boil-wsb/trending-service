@@ -66,19 +66,6 @@ class Database:
                 UNIQUE(date, source)
             )
         ''')
-        
-        # 通知记录表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS notifications (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                type TEXT NOT NULL,
-                status TEXT DEFAULT 'pending',
-                content TEXT,
-                sent_at TIMESTAMP,
-                error_msg TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
 
         # 指数行情数据表
         cursor.execute('''
@@ -294,16 +281,10 @@ class Database:
             cursor = conn.execute(sql, parameters)
             row = cursor.fetchone()
             return dict(row) if row else None
-    
+
     def fetch_all(self, sql: str, parameters: tuple = ()) -> list:
         """查询多条记录"""
         with self.get_connection() as conn:
             cursor = conn.execute(sql, parameters)
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
-    
-    def get_last_insert_id(self) -> int:
-        """获取最后插入的ID"""
-        with self.get_connection() as conn:
-            cursor = conn.execute('SELECT last_insert_rowid()')
-            return cursor.fetchone()[0]
