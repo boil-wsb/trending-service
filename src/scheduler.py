@@ -10,7 +10,8 @@ import requests
 import importlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Thread, Event
-from datetime import datetime
+from datetime import datetime, time as dt_time
+from zoneinfo import ZoneInfo
 from typing import Callable, Dict, List, Optional
 from pathlib import Path
 import sys
@@ -634,23 +635,88 @@ class TrendingTaskScheduler(TaskScheduler):
         except Exception as e:
             self.logger.error(f"❌ 清理数据失败: {e}")
 
+    def _is_trading_day(self) -> bool:
+        """判断今天是否为 A 股交易日（工作日 且 非法定节假日）
+
+        法定节假日从 config.yaml schedule.fetch_index.trading_holidays 读取。
+        数据源在假期返回的是节前最后交易日的缓存快照，若不拦截会被
+        误存为当天的 K 线/情绪数据（2026 国庆 10-01~10-07 实测复现）。
+        """
+        try:
+            cfg = SCHEDULE.get('fetch_index', {})
+            tz = ZoneInfo(cfg.get('timezone', 'Asia/Shanghai'))
+            now = datetime.now(tz)
+
+            today = now.strftime('%Y-%m-%d')
+            holidays = set(cfg.get('trading_holidays', []) or [])
+            if today in holidays:
+                return False
+
+            trading_days = cfg.get('trading_days', [1, 2, 3, 4, 5])
+            return now.isoweekday() in trading_days
+        except Exception as e:
+            self.logger.error(f"判断交易日失败: {e}，默认允许执行")
+            return True
+
+    def _get_session_date(self) -> Optional[str]:
+        """数据源会话日期探针：问数据源"当前数据属于哪个交易日"
+
+        拉取基准指数（上证 000001）分时数据，其 date 字段由数据源标注
+        （拉取自腾讯接口 data.data.date，非本地时钟）：
+        - 交易日：盘中/收盘后均返回当天日期
+        - 节假日/周末：返回节前最后一个交易日日期（数据源只回缓存数据）
+        - 数据源不可用：返回 None
+
+        用于「即使不知道某天是节假日，也能从数据本身判断今天没有交易，
+        从而拒绝把节前缓存快照录入为当天记录」。探针失败时返回 None，
+        调用方必须按 fail-safe 处理（拒绝写入，绝不盲写）。
+        """
+        try:
+            from src.fetchers.index import IndexFetcher
+            fetcher = IndexFetcher(logger=self.logger)
+            minute = fetcher.fetch_minute_lines('000001')
+            date = (minute or {}).get('date')
+            if date:
+                return date
+            self.logger.warning("⚠️ 会话日期探针：分时接口未返回日期（数据源不可用/无数据）")
+            return None
+        except Exception as e:
+            self.logger.warning(f"⚠️ 会话日期探针失败: {e}")
+            return None
+
+    def _verify_session_date(self, task_name: str) -> bool:
+        """校验数据源会话日期 == 本地今天；不一致/探针失败一律拒绝本次抓取
+
+        Returns:
+            True=今天确有交易数据（允许继续抓取写入）；False=拒绝
+        """
+        cfg = SCHEDULE.get('fetch_index', {})
+        tz = ZoneInfo(cfg.get('timezone', 'Asia/Shanghai'))
+        today = datetime.now(tz).strftime('%Y-%m-%d')
+        session_date = self._get_session_date()
+        if session_date == today:
+            return True
+        self.logger.info(
+            f"⏭️  [{task_name}] 数据源会话日期={session_date or '未知'} ≠ 本地今天 {today}，"
+            f"判定今日无交易数据（节假日/数据源未更新/探针失败），拒绝抓取写入"
+        )
+        return False
+
     def _is_trading_hours(self) -> bool:
         """判断当前是否在 A 股开盘时间内
 
         开盘时间窗口和交易日期从 config.yaml 的 schedule.fetch_index 读取：
         - trading_hours: [{start: "09:30", end: "11:30"}, {start: "13:00", end: "15:00"}]
         - trading_days: [1, 2, 3, 4, 5]  # 1=周一 ... 7=周日（ISO 标准）
+        周几与节假日判断统一由 _is_trading_day() 负责，此处只判时间窗口。
         """
         try:
-            from datetime import datetime, time as dt_time
-            try:
-                from zoneinfo import ZoneInfo
-            except ImportError:
-                from backports.zoneinfo import ZoneInfo  # type: ignore
+            # 法定节假日整天不开市（即使落在 trading_hours 时间窗内）
+            if not self._is_trading_day():
+                return False
 
             cfg = SCHEDULE.get('fetch_index', {})
             trading_hours_cfg = cfg.get('trading_hours')
-            trading_days = cfg.get('trading_days', [1, 2, 3, 4, 5])
             tz_name = cfg.get('timezone', 'Asia/Shanghai')
 
             # 未配置 trading_hours 时，默认允许任意时间执行（向后兼容）
@@ -659,10 +725,6 @@ class TrendingTaskScheduler(TaskScheduler):
 
             tz = ZoneInfo(tz_name)
             now = datetime.now(tz)
-
-            # 周几判断（ISO: 1=周一 ... 7=周日）
-            if now.isoweekday() not in trading_days:
-                return False
 
             now_time = now.time()
 
@@ -693,6 +755,11 @@ class TrendingTaskScheduler(TaskScheduler):
         """
         if not self._is_trading_hours():
             self.logger.info("⏭️  当前非 A 股开盘时间，跳过指数行情数据获取")
+            return
+
+        # 数据驱动闸门：即使不在节假日配置内（如次年新假期未更新 config），
+        # 只要数据源会话日期 ≠ 今天，就拒绝抓取写入，杜绝节前快照误录
+        if not self._verify_session_date('fetch_index'):
             return
 
         try:
@@ -737,6 +804,11 @@ class TrendingTaskScheduler(TaskScheduler):
         - 18:00：兜底执行，确保部分延迟更新的指数也能获取到当天数据
         作用：避免前端每次请求 K 线都从数据源实时拉取，提升响应速度
         """
+        if not self._is_trading_day():
+            self.logger.info("⏭️  今日为 A 股法定节假日/周末，跳过指数 K 线缓存")
+            return
+        if not self._verify_session_date('fetch_index_kline'):
+            return
         try:
             self.logger.info("📊 开始每日缓存指数 K 线数据...")
             from src.fetchers.index import IndexFetcher
@@ -763,6 +835,11 @@ class TrendingTaskScheduler(TaskScheduler):
         调度：每个交易日 15:30 执行（收盘后 10 分钟，数据已稳定）
         作用：积累历史时序数据，供 sentiment API 的近 30 日涨跌停时序图展示
         """
+        if not self._is_trading_day():
+            self.logger.info("⏭️  今日为 A 股法定节假日/周末，跳过市场情绪数据获取")
+            return
+        if not self._verify_session_date('fetch_sentiment'):
+            return
         try:
             self.logger.info("🔥 开始获取市场情绪(涨跌停)数据...")
             from src.fetchers.sentiment import fetch_limit_up_stats

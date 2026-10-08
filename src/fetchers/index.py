@@ -31,6 +31,32 @@ def _safe_float(v, default=0.0):
         return default
 
 
+def _latest_kline_before(dao, code: str, source: str, today: str) -> Optional[Dict]:
+    """取某指数在 today 之前最后一个交易日的 K 线行（无则 None）"""
+    rows = dao.get_klines(code, days=2, source=source) or []
+    prior = [r for r in rows if r['date'] < today]
+    return prior[-1] if prior else None
+
+
+def _is_stale_snapshot(prev: Dict, cand: Dict) -> bool:
+    """判断候选当日K线是否为数据源返回的「节前缓存快照」
+
+    判据：与上一交易日 K 线四价（open/close/high/low）差均 ≤0.01
+    （两路接口精度差异，如 3839.253 vs 3839.25）、成交量完全相同、
+    涨跌幅差 ≤0.01。真实交易日全日成交量与前一日 bit 级相同且四价
+    不动的概率为零，无误判风险；命中即说明数据源在返回缓存数据。
+    """
+    try:
+        for k in ('open', 'close', 'high', 'low'):
+            if abs(float(prev.get(k) or 0) - float(cand[k])) > 0.01:
+                return False
+        if int(prev.get('volume') or 0) != int(cand['volume']):
+            return False
+        return abs(float(prev.get('change_pct') or 0) - float(cand['change_pct'])) <= 0.01
+    except Exception:
+        return False
+
+
 class IndexFetcher:
     """指数行情数据获取器"""
 
@@ -1325,6 +1351,9 @@ class IndexFetcher:
         today = date or datetime.now().strftime('%Y-%m-%d')
         records: List[Dict] = []
         skipped = 0
+        stale = 0
+
+        dao = IndexDAO(db_path)
 
         for idx in indices:
             code = idx.code or ''
@@ -1362,7 +1391,7 @@ class IndexFetcher:
             high = max(idx.high if idx.high and idx.high > 0 else open_, open_, idx.price)
             low = min(idx.low if idx.low and idx.low > 0 else idx.price, open_, idx.price)
 
-            records.append({
+            rec = {
                 'code': code,
                 'source': source,
                 'date': today,
@@ -1374,12 +1403,27 @@ class IndexFetcher:
                 'amount': round(amount, 2),
                 'change': round(idx.change or 0, 2),
                 'change_pct': round(idx.change_pct or 0, 2),
-            })
+            }
+
+            # 陈旧快照校验：与上一交易日 K 线值完全雷同 → 数据源返回的是
+            # 假期/停盘期间的缓存数据（快照无日期标注，无法直接判断），
+            # 拒绝录入为当日 K 线（2026 国庆假期曾各误录 132 行）
+            prev = _latest_kline_before(dao, code, source, today)
+            if prev and _is_stale_snapshot(prev, rec):
+                stale += 1
+                continue
+
+            records.append(rec)
+
+        if stale:
+            self.logger.warning(
+                f"⚠️ 拒绝 {stale} 条陈旧快照当日K线（与上一交易日值完全雷同，"
+                f"疑似节假日/停盘缓存数据），date={today}"
+            )
 
         if not records:
             return 0
 
-        dao = IndexDAO(db_path)
         saved = dao.save_today_klines_batch(records)
         if saved:
             self.logger.info(
